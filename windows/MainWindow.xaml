@@ -1,0 +1,156 @@
+<Window x:Class="CursorProfiles.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Cursor Profiles"
+        Width="1000" Height="660" MinWidth="780" MinHeight="500"
+        Background="{StaticResource WindowBrush}"
+        FontFamily="Segoe UI">
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="20,14">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <TextBlock Text="Cursor Profiles" FontSize="21" FontWeight="Bold"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Grid Width="220" Margin="0,0,10,0">
+                        <TextBox x:Name="SearchBox" Style="{StaticResource DarkField}"
+                                 TextChanged="SearchBox_TextChanged"/>
+                        <TextBlock x:Name="SearchHint" Text="Search profiles…" Margin="10,0,0,0"
+                                   VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}"
+                                   IsHitTestVisible="False"/>
+                    </Grid>
+                    <Button x:Name="SortButton" Content="Sort: Recent" Style="{StaticResource GhostButton}"
+                            Margin="0,0,10,0" Click="SortButton_Click"/>
+                    <Button Content="⚙" Style="{StaticResource IconButton}" FontSize="15"
+                            Margin="0,0,10,0" Click="Settings_Click" ToolTip="Settings"/>
+                    <Button Content="＋ New Profile" Style="{StaticResource PrimaryButton}"
+                            Click="NewProfile_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Body -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,0">
+            <StackPanel>
+
+                <Border x:Name="CursorMissingBanner" Visibility="Collapsed"
+                        Background="#33F59E0B" CornerRadius="10" Padding="14,10" Margin="16,4,16,8">
+                    <DockPanel>
+                        <TextBlock Text="⚠  Cursor was not found. Install it from cursor.sh, or set a custom path in Settings."
+                                   VerticalAlignment="Center"/>
+                        <Button Content="Open Settings" Style="{StaticResource GhostButton}"
+                                HorizontalAlignment="Right" Click="Settings_Click"/>
+                    </DockPanel>
+                </Border>
+
+                <ItemsControl x:Name="Cards">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource Card}"
+                                    MouseLeftButtonDown="Card_MouseLeftButtonDown"
+                                    ContextMenuOpening="Card_ContextMenuOpening"
+                                    AllowDrop="True" Drop="Card_Drop" DragOver="Card_DragOver">
+                                <Border.ContextMenu>
+                                    <ContextMenu/>
+                                </Border.ContextMenu>
+                                <StackPanel>
+
+                                    <!-- Gradient header -->
+                                    <Border Background="{Binding HeaderBrush}" CornerRadius="13,13,0,0" Padding="14,12">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Background="#38FFFFFF" CornerRadius="11"
+                                                    Width="48" Height="48" Margin="0,0,12,0">
+                                                <TextBlock Text="{Binding Emoji}" FontSize="24"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding DisplayName}" FontWeight="Bold"
+                                                               FontSize="14" Foreground="White" MaxWidth="130"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <Border Background="#40FFFFFF" CornerRadius="6" Padding="5,1"
+                                                            Margin="6,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding IsSystem, Converter={StaticResource BoolToVis}}"
+                                                            ToolTip="Your original Cursor profile (%APPDATA%\Cursor). Launchable and clonable, never deletable from this app.">
+                                                        <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold" Foreground="White"/>
+                                                    </Border>
+                                                    <TextBlock Text="📌" FontSize="10" Margin="6,0,0,0"
+                                                               Visibility="{Binding ShowPin, Converter={StaticResource BoolToVis}}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                    <Ellipse Width="7" Height="7" Fill="{Binding DotBrush}"
+                                                             VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding RunningText}" FontSize="11"
+                                                               Foreground="#E6FFFFFF" Margin="5,0,0,0"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Details -->
+                                    <StackPanel Margin="14,10,14,14">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="💾" FontSize="11" Foreground="{StaticResource SubTextBrush}"/>
+                                            <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="4,0,12,0"
+                                                       Foreground="{StaticResource SubTextBrush}"/>
+                                            <TextBlock Text="🕓" FontSize="11" Foreground="{StaticResource SubTextBrush}"/>
+                                            <TextBlock Text="{Binding LastLaunchedText}" FontSize="11" Margin="4,0,0,0"
+                                                       Foreground="{StaticResource SubTextBrush}"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding ProjectText}" FontSize="11" Margin="0,6,0,0"
+                                                   Foreground="{StaticResource SubTextBrush}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}"/>
+
+                                        <DockPanel Margin="0,10,0,0">
+                                            <Button DockPanel.Dock="Right" Content="■" FontSize="11"
+                                                    Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                    Background="#33F43F5E" Click="Quit_Click"
+                                                    ToolTip="Quit this profile"
+                                                    Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
+                                            <Button DockPanel.Dock="Right" Content="⋯" FontSize="13"
+                                                    Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                    Click="Options_Click" ToolTip="Launch with options…"/>
+                                            <Button DockPanel.Dock="Right" Content="📌" FontSize="12"
+                                                    Style="{StaticResource IconButton}" Margin="8,0,0,0"
+                                                    Click="Shortcut_Click"
+                                                    ToolTip="Create/update a taskbar shortcut for this profile"/>
+                                            <ProgressBar DockPanel.Dock="Right" IsIndeterminate="True"
+                                                         Width="34" Height="4" Margin="8,0,0,0"
+                                                         VerticalAlignment="Center"
+                                                         Visibility="{Binding IsDuplicating, Converter={StaticResource BoolToVis}}"/>
+                                            <Button Content="{Binding LaunchLabel}" Style="{StaticResource PrimaryButton}"
+                                                    Background="{Binding AccentBrush}" Click="Launch_Click"
+                                                    HorizontalAlignment="Stretch"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Empty state -->
+                <StackPanel x:Name="EmptyState" Visibility="Collapsed" Margin="0,80,0,0"
+                            HorizontalAlignment="Center">
+                    <TextBlock Text="🗂" FontSize="52" HorizontalAlignment="Center" Opacity="0.6"/>
+                    <TextBlock Text="No profiles yet" FontSize="20" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,12,0,4"/>
+                    <TextBlock Text="Each profile is a fully isolated Cursor instance — its own settings, extensions, login and chat history."
+                               Foreground="{StaticResource SubTextBrush}" TextAlignment="Center"
+                               MaxWidth="420" TextWrapping="Wrap"/>
+                    <Button Content="＋ Create your first profile" Style="{StaticResource PrimaryButton}"
+                            HorizontalAlignment="Center" Margin="0,16,0,0" Click="NewProfile_Click"/>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

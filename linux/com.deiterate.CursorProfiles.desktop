@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cursor Profiles
+Comment=Launch and manage isolated Cursor profiles
+Exec=cursor-profiles
+Icon=applications-development
+Terminal=false
+Categories=Development;Utility;
+Keywords=cursor;profile;launcher;

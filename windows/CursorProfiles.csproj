@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>CursorProfiles</AssemblyName>
+    <RootNamespace>CursorProfiles</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Allows building (not running) this Windows app from macOS/Linux CI. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Version>1.0.0</Version>
+    <!-- WPF handles per-monitor DPI via app.manifest; the WinForms analyzer doesn't know that. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- WinForms is referenced only for the Recycle Bin API (Microsoft.VisualBasic.FileIO);
+       drop its implicit usings so they don't clash with WPF types. -->
+  <ItemGroup>
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+</Project>

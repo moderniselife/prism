@@ -1,0 +1,60 @@
+<Window x:Class="CursorProfiles.ProfileEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Profile" Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource WindowBrush}" FontFamily="Segoe UI">
+    <StackPanel>
+
+        <!-- Live preview -->
+        <Border x:Name="PreviewHeader" Padding="18,14">
+            <StackPanel Orientation="Horizontal">
+                <Border Background="#38FFFFFF" CornerRadius="12" Width="52" Height="52" Margin="0,0,12,0">
+                    <TextBlock x:Name="PreviewEmoji" FontSize="26"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock x:Name="PreviewName" Text="New Profile" FontSize="19" FontWeight="Bold"
+                           Foreground="White" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="20,16">
+            <TextBlock Text="Name" FontWeight="SemiBold" Margin="0,0,0,6"/>
+            <TextBox x:Name="NameBox" Style="{StaticResource DarkField}"
+                     TextChanged="NameBox_TextChanged"/>
+
+            <TextBlock Text="Icon" FontWeight="SemiBold" Margin="0,14,0,6"/>
+            <WrapPanel x:Name="EmojiPanel"/>
+
+            <TextBlock Text="Color" FontWeight="SemiBold" Margin="0,14,0,6"/>
+            <WrapPanel x:Name="ColorPanel"/>
+
+            <TextBlock Text="Launch defaults" FontWeight="SemiBold" Margin="0,18,0,6"
+                       Foreground="{StaticResource SubTextBrush}"/>
+            <DockPanel>
+                <TextBlock Text="Memory limit" VerticalAlignment="Center" Width="110"/>
+                <TextBlock Text="MB" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
+                           Foreground="{StaticResource SubTextBrush}"/>
+                <TextBox x:Name="MemoryBox" Style="{StaticResource DarkField}" Width="110"
+                         HorizontalAlignment="Left"/>
+            </DockPanel>
+            <DockPanel Margin="0,8,0,0">
+                <TextBlock Text="Project folder" VerticalAlignment="Center" Width="110"/>
+                <Button Content="Choose…" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                        Margin="6,0,0,0" Click="ChooseFolder_Click"/>
+                <TextBox x:Name="ProjectBox" Style="{StaticResource DarkField}"/>
+            </DockPanel>
+
+            <DockPanel Margin="0,20,0,0">
+                <TextBlock x:Name="FooterNote" FontSize="11" Foreground="{StaticResource SubTextBrush}"
+                           VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                            IsCancel="True"/>
+                    <Button x:Name="SaveButton" Content="Create Profile" Style="{StaticResource PrimaryButton}"
+                            Click="Save_Click" IsDefault="True"/>
+                </StackPanel>
+            </DockPanel>
+        </StackPanel>
+    </StackPanel>
+</Window>
