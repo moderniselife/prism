@@ -1,11 +1,11 @@
 #!/bin/bash
-# Build Cursor Profiles.app without needing full Xcode (works with Command Line Tools).
+# Build Prism.app without needing full Xcode (works with Command Line Tools).
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP_NAME="Cursor Profiles"
-BUNDLE_ID="com.deiterate.cursorprofiles"
+APP_NAME="Prism"
+BUNDLE_ID="com.mojolayers.prism"
 VERSION="1.0.0"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"

@@ -1,4 +1,4 @@
-# Cursor Profiles — Windows (WPF, .NET 8)
+# Prism — Windows (WPF, .NET 8)
 
 Native dark-themed Windows app, feature-identical to the macOS and Linux versions.
 Profiles live in `%USERPROFILE%\.cursor_profiles`, metadata in `.profiles.json`
@@ -9,7 +9,7 @@ Deleting a managed profile sends it to the Recycle Bin, never `rmdir /s`.
 **Pin the right instance to the taskbar:** the 📌 button on a card (or "Create Taskbar
 Shortcut…" in its menu) generates a Start Menu shortcut with its own icon — your
 profile's color + emoji, rendered as a real multi-resolution `.ico`. Find it in
-Start → Cursor Profiles, then right-click → **Pin to taskbar**. The shortcut always
+Start → Prism, then right-click → **Pin to taskbar**. The shortcut always
 opens that exact `--user-data-dir`, so Work and Personal stay visually distinct even
 when both are pinned. Renaming or recoloring a profile updates its shortcut automatically.
 

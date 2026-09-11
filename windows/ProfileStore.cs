@@ -281,7 +281,7 @@ public class ProfileStore
             {
                 Info?.Invoke(
                     $"A shortcut for \"{vm.Model.DisplayName}\" was added to the Start Menu " +
-                    "(Cursor Profiles folder). Find it in Start, then right-click it and choose " +
+                    "(Prism folder). Find it in Start, then right-click it and choose " +
                     "\"Pin to taskbar\".");
             }
         }

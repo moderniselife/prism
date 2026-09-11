@@ -66,7 +66,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 500)
-        .navigationTitle("Cursor Profiles")
+        .navigationTitle("Prism")
         .searchable(text: $search, placement: .toolbar, prompt: "Search profiles")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {

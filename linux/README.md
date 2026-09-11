@@ -1,4 +1,4 @@
-# Cursor Profiles — Linux (GTK4 + libadwaita)
+# Prism — Linux (GTK4 + libadwaita)
 
 Native GNOME-styled app, feature-identical to the macOS and Windows versions.
 Profiles live in `~/.cursor_profiles`, metadata in `~/.cursor_profiles/.profiles.json`
@@ -25,15 +25,15 @@ sudo pacman -S python-gobject gtk4 libadwaita python-cairo
 ## Run
 
 ```bash
-python3 cursor-profiles.py
+python3 prism.py
 ```
 
 ## Install (optional)
 
 ```bash
 mkdir -p ~/.local/bin ~/.local/share/applications
-install -m 755 cursor-profiles.py ~/.local/bin/cursor-profiles
-cp com.deiterate.CursorProfiles.desktop ~/.local/share/applications/
+install -m 755 prism.py ~/.local/bin/prism
+cp com.mojolayers.Prism.desktop ~/.local/share/applications/
 ```
 
 ## Cursor detection

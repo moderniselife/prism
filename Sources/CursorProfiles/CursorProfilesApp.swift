@@ -23,7 +23,7 @@ struct CursorProfilesApp: App {
                 .environmentObject(store)
         }
 
-        MenuBarExtra("Cursor Profiles", systemImage: "cursorarrow.square") {
+        MenuBarExtra("Prism", systemImage: "cursorarrow.square") {
             MenuBarQuickLaunch()
                 .environmentObject(store)
         }
@@ -50,7 +50,7 @@ struct MenuBarQuickLaunch: View {
             Text("No profiles yet")
         }
         Divider()
-        Button("Open Cursor Profiles") {
+        Button("Open Prism") {
             NSApp.activate(ignoringOtherApps: true)
             for window in NSApp.windows where window.canBecomeMain {
                 window.makeKeyAndOrderFront(nil)

@@ -117,7 +117,7 @@ public partial class ProfileEditorWindow : Window
         var name = NameBox.Text.Trim();
         if (name.Length == 0)
         {
-            MessageBox.Show(this, "Give the profile a name.", "Cursor Profiles",
+            MessageBox.Show(this, "Give the profile a name.", "Prism",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

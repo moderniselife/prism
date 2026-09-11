@@ -1,6 +1,6 @@
-# Cursor Profiles
+# Prism
 
-Native apps for managing isolated [Cursor](https://cursor.sh) profiles.
+A Mojo Layers project. Native apps for managing isolated [Cursor](https://cursor.sh) profiles.
 
 **Three native versions, one profile format:**
 
@@ -12,7 +12,7 @@ Native apps for managing isolated [Cursor](https://cursor.sh) profiles.
 
 All three read and write the same `~/.cursor_profiles` directory and `.profiles.json` metadata (colors, emoji, launch defaults), and all three protect the built-in Cursor profile (macOS: `~/Library/Application Support/Cursor`, Windows: `%APPDATA%\Cursor`, Linux: `~/.config/Cursor`).
 
-The rest of this README covers the macOS app.
+The rest of this README covers the macOS app; see `windows/README.md` and `linux/README.md` for those.
 
 Each profile is a separate `--user-data-dir`, so it gets its own settings, extensions, login and chat history. Profiles live in `~/.cursor_profiles`, **existing profiles are picked up automatically**.
 
@@ -36,13 +36,13 @@ Requires macOS 14+ and Xcode Command Line Tools (no full Xcode needed).
 
 ```bash
 ./build.sh
-open "build/Cursor Profiles.app"
+open "build/Prism.app"
 ```
 
 Optionally move it to `/Applications`:
 
 ```bash
-cp -R "build/Cursor Profiles.app" /Applications/
+cp -R "build/Prism.app" /Applications/
 ```
 
 ## Layout
@@ -69,6 +69,6 @@ An earlier version of this app could generate a small wrapper `.app` per profile
 1. **It didn't actually work while running.** macOS shows the Dock icon of whatever bundle is *actually running* — since the wrapper just launches Cursor's real binary, the running window always showed Cursor's stock icon. The custom icon only ever applied to the idle, not-yet-launched tile.
 2. **It multiplied permission prompts.** Each wrapper is a distinct app identity (its own `CFBundleIdentifier`), and macOS's privacy system (TCC) ties consent for Microphone/Camera/folder access/etc. to whichever bundle launched Cursor — not to what it execs into. So every wrapper you created re-triggered Cursor's *entire* permission set as if it were a brand-new, unfamiliar app, one prompt-storm per profile.
 
-If you made any wrapper apps with an older build, delete them from `~/Applications/Cursor Profiles/` and check System Settings → Privacy & Security for stray entries under their names (not "Cursor") to revoke.
+If you made any wrapper apps with an older build, delete them from `~/Applications/Prism/` and check System Settings → Privacy & Security for stray entries under their names (not "Cursor") to revoke.
 
 Title bar coloring (`TitleBarColorizer.swift`) replaces it as the way to tell profiles apart while running — it only edits a JSON settings file, no new app identity, no signing, no permission implications.

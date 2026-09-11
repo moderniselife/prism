@@ -18,7 +18,7 @@ public partial class MainWindow : Window
         DarkTitleBar.Apply(this);
         _store.Changed += Refilter;
         _store.Error += msg => Dispatcher.Invoke(() =>
-            MessageBox.Show(this, msg, "Cursor Profiles", MessageBoxButton.OK, MessageBoxImage.Warning));
+            MessageBox.Show(this, msg, "Prism", MessageBoxButton.OK, MessageBoxImage.Warning));
         _store.Info += msg => Dispatcher.Invoke(() =>
             MessageBox.Show(this, msg, "Shortcut Created", MessageBoxButton.OK, MessageBoxImage.Information));
         Refilter();

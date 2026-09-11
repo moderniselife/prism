@@ -1,7 +1,7 @@
 <Window x:Class="CursorProfiles.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Cursor Profiles"
+        Title="Prism"
         Width="1000" Height="660" MinWidth="780" MinHeight="500"
         Background="{StaticResource WindowBrush}"
         FontFamily="Segoe UI">
@@ -11,7 +11,7 @@
         <Border DockPanel.Dock="Top" Padding="20,14">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="Cursor Profiles" FontSize="21" FontWeight="Bold"/>
+                    <TextBlock Text="Prism" FontSize="21" FontWeight="Bold"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Grid Width="220" Margin="0,0,10,0">

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cursor Profiles — a native GTK4/libadwaita launcher for isolated Cursor profiles.
+"""Prism — a native GTK4/libadwaita launcher for isolated Cursor profiles.
 
 Profiles live in ~/.cursor_profiles (same as the macOS/Windows apps); metadata is shared via ~/.cursor_profiles/.profiles.json.
 The user's original Cursor profile (~/.config/Cursor) is surfaced as a protected
@@ -30,7 +30,7 @@ try:
 except ImportError:
     cairo = None  # icon generation degrades gracefully; everything else still works
 
-APP_ID = "com.deiterate.CursorProfiles"
+APP_ID = "com.mojolayers.Prism"
 PROFILES_DIR = Path.home() / ".cursor_profiles"
 METADATA_PATH = PROFILES_DIR / ".profiles.json"
 SETTINGS_PATH = PROFILES_DIR / ".launcher-settings.json"
@@ -720,7 +720,7 @@ class MainWindow(Adw.ApplicationWindow):
     SORT_MODES = ["Recent", "Name", "Size"]
 
     def __init__(self, app, store: Store):
-        super().__init__(application=app, title="Cursor Profiles",
+        super().__init__(application=app, title="Prism",
                          default_width=1000, default_height=660)
         self.store = store
         self.search_text = ""

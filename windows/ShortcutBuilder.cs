@@ -14,7 +14,7 @@ namespace CursorProfiles;
 public static class ShortcutBuilder
 {
     public static string ShortcutsDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "Cursor Profiles");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "Prism");
 
     public static string IconsDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

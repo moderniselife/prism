@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Cursor Profiles
+Name=Prism
 Comment=Launch and manage isolated Cursor profiles
-Exec=cursor-profiles
+Exec=prism
 Icon=applications-development
 Terminal=false
 Categories=Development;Utility;
