@@ -1,0 +1,723 @@
+<title>Prism</title>
+<meta name="description" content="A native profile switcher for Cursor — isolated settings, extensions, and color-coded windows, on macOS, Windows, and Linux.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --bg: #f8f8fb;
+    --surface: #ffffff;
+    --surface-2: #f1f1f6;
+    --border: #e3e3ec;
+    --ink: #15151c;
+    --ink-muted: #5c5c6b;
+    --ink-faint: #8a8a9a;
+    --accent: #6366f1;
+    --accent-ink: #ffffff;
+    --code-bg: #eeeef4;
+    --shadow-color: 240deg 20% 60%;
+
+    --c-orange: #f97316;
+    --c-fuchsia: #d946ef;
+    --c-sky: #0ea5e9;
+    --c-lime: #84cc16;
+    --c-blue: #3b82f6;
+    --c-violet: #8b5cf6;
+
+    --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f0f14;
+      --surface: #17171f;
+      --surface-2: #1d1d27;
+      --border: #2a2a36;
+      --ink: #f1f1f6;
+      --ink-muted: #a3a3b3;
+      --ink-faint: #6c6c7c;
+      --accent: #8b8ff7;
+      --accent-ink: #0f0f14;
+      --code-bg: #1c1c26;
+      --shadow-color: 240deg 40% 2%;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0f0f14;
+    --surface: #17171f;
+    --surface-2: #1d1d27;
+    --border: #2a2a36;
+    --ink: #f1f1f6;
+    --ink-muted: #a3a3b3;
+    --ink-faint: #6c6c7c;
+    --accent: #8b8ff7;
+    --accent-ink: #0f0f14;
+    --code-bg: #1c1c26;
+    --shadow-color: 240deg 40% 2%;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+
+  code, .mono {
+    font-family: var(--font-mono);
+  }
+
+  /* ---------- header ---------- */
+
+  header.top {
+    padding: 22px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 19px;
+  }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, var(--c-fuchsia), var(--c-blue) 50%, var(--c-lime));
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .platform-badges {
+    display: flex;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-muted);
+  }
+
+  .platform-badges span {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+  }
+
+  @media (max-width: 640px) {
+    .platform-badges { display: none; }
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero {
+    padding: 76px 0 40px;
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 56px; }
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  h1.headline {
+    font-size: 52px;
+    line-height: 1.04;
+    margin: 0 0 22px;
+  }
+
+  @media (max-width: 640px) {
+    h1.headline { font-size: 38px; }
+  }
+
+  .sub {
+    font-size: 18px;
+    color: var(--ink-muted);
+    max-width: 46ch;
+    margin: 0 0 30px;
+  }
+
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .btn {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+
+  .btn:hover { transform: translateY(-1px); border-color: var(--ink-faint); }
+
+  .btn.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: var(--accent);
+  }
+
+  .btn .kbd {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    opacity: 0.7;
+  }
+
+  /* ---------- window stack (hero visual) ---------- */
+
+  .stack {
+    position: relative;
+    height: 340px;
+  }
+
+  .win {
+    position: absolute;
+    width: 258px;
+    border-radius: 11px;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 40px -12px hsl(var(--shadow-color) / 0.35), 0 4px 10px -4px hsl(var(--shadow-color) / 0.2);
+    opacity: 0;
+    animation: settle 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .win { animation: none; opacity: 1; }
+  }
+
+  .win .bar {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    color: #fff;
+  }
+
+  .win .dots { display: flex; gap: 5px; margin-right: 6px; }
+  .win .dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.55); display: block; }
+
+  .win .label {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 12.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .win .body {
+    padding: 14px 12px;
+    background: var(--surface-2);
+  }
+
+  .win .line { height: 7px; border-radius: 4px; background: var(--border); margin-bottom: 7px; }
+  .win .line:nth-child(1) { width: 78%; }
+  .win .line:nth-child(2) { width: 55%; }
+  .win .line:nth-child(3) { width: 64%; }
+
+  .win-a { left: 4%;  top: 0px;   transform: rotate(-5deg); z-index: 4; animation-delay: 0.05s; }
+  .win-b { left: 34%; top: 46px;  transform: rotate(3deg);  z-index: 3; animation-delay: 0.15s; }
+  .win-c { left: 8%;  top: 168px; transform: rotate(2deg);  z-index: 2; animation-delay: 0.25s; }
+  .win-d { left: 40%; top: 200px; transform: rotate(-3deg); z-index: 1; animation-delay: 0.35s; }
+
+  @keyframes settle {
+    from { opacity: 0; transform: translateY(14px) rotate(0deg) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) rotate(var(--r, 0deg)) scale(1); }
+  }
+  .win-a { --r: -5deg; }
+  .win-b { --r: 3deg; }
+  .win-c { --r: 2deg; }
+  .win-d { --r: -3deg; }
+
+  @media (max-width: 880px) {
+    .stack { height: 300px; transform: scale(0.92); transform-origin: top center; }
+  }
+
+  /* ---------- sections ---------- */
+
+  section { padding: 64px 0; }
+  section.tight { padding: 32px 0 64px; }
+
+  .lede {
+    font-size: 21px;
+    line-height: 1.5;
+    max-width: 62ch;
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-weight: 500;
+  }
+
+  .lede em {
+    font-style: normal;
+    color: var(--ink-muted);
+  }
+
+  h2.section-title {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+    font-weight: 500;
+    margin: 0 0 28px;
+  }
+
+  /* ---------- feature grid ---------- */
+
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  @media (max-width: 880px) {
+    .features { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .features { grid-template-columns: 1fr; }
+  }
+
+  .feature {
+    background: var(--surface);
+    padding: 26px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature .ic {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    font-size: 16px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+
+  .feature h3 {
+    font-size: 16px;
+    margin: 0;
+  }
+
+  .feature p {
+    color: var(--ink-muted);
+    font-size: 14.5px;
+    margin: 0;
+  }
+
+  .feature .snippet {
+    margin-top: 6px;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ink-muted);
+    overflow-x: auto;
+  }
+
+  .feature .snippet .k { color: var(--accent); }
+  .feature .snippet .s { color: var(--c-orange); }
+
+  /* ---------- how it works ---------- */
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+
+  @media (max-width: 780px) {
+    .steps { grid-template-columns: 1fr; }
+  }
+
+  .step {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .step .n {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+
+  .step h3 {
+    font-size: 17px;
+    margin: 0;
+  }
+
+  .step p {
+    color: var(--ink-muted);
+    font-size: 14.5px;
+    margin: 0;
+  }
+
+  .step code.flag {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    background: var(--code-bg);
+    padding: 3px 7px;
+    border-radius: 5px;
+    color: var(--ink);
+  }
+
+  /* ---------- platforms ---------- */
+
+  .platforms {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  @media (max-width: 780px) {
+    .platforms { grid-template-columns: 1fr; }
+  }
+
+  .platform {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .platform .top-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .platform h3 {
+    font-size: 18px;
+    margin: 0;
+  }
+
+  .platform .stack-name {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    background: var(--surface-2);
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .platform ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .platform li {
+    font-size: 13.5px;
+    color: var(--ink-muted);
+    padding-left: 15px;
+    position: relative;
+  }
+
+  .platform li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--platform-color, var(--accent));
+  }
+
+  .platform pre {
+    margin: 4px 0 0;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 12px 13px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--ink);
+    overflow-x: auto;
+  }
+
+  .platform pre .c { color: var(--ink-faint); }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0 48px;
+  }
+
+  .foot-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 13.5px;
+    color: var(--ink-faint);
+  }
+
+  .foot-row .mono { font-family: var(--font-mono); }
+</style>
+
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand">
+      <span class="brand-mark">🪟</span>
+      Prism
+    </div>
+    <div class="platform-badges">
+      <span>macOS</span>
+      <span>Windows</span>
+      <span>Linux</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow">Mojo Layers</div>
+        <h1 class="headline">One Cursor.<br>Every client, its own window.</h1>
+        <p class="sub">Prism runs Cursor as fully isolated profiles — separate settings, extensions, and chat history per client or project, each with its own color so you never lose track of which window is which.</p>
+        <div class="cta-row">
+          <a class="btn primary" href="#platforms">Get Prism</a>
+          <a class="btn" href="#how"><span class="kbd">→</span> How it works</a>
+        </div>
+      </div>
+      <div class="stack" aria-hidden="true">
+        <div class="win win-a">
+          <div class="bar" style="background: linear-gradient(135deg, var(--c-orange), color-mix(in srgb, var(--c-orange) 70%, black));">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="label">🧑‍💻 Work</div>
+          </div>
+          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
+        </div>
+        <div class="win win-b">
+          <div class="bar" style="background: linear-gradient(135deg, var(--c-fuchsia), color-mix(in srgb, var(--c-fuchsia) 70%, black));">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="label">🏠 Personal</div>
+          </div>
+          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
+        </div>
+        <div class="win win-c">
+          <div class="bar" style="background: linear-gradient(135deg, var(--c-sky), color-mix(in srgb, var(--c-sky) 70%, black));">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="label">🚀 Client A</div>
+          </div>
+          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
+        </div>
+        <div class="win win-d">
+          <div class="bar" style="background: linear-gradient(135deg, var(--c-lime), color-mix(in srgb, var(--c-lime) 70%, black));">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="label">🧪 Experiments</div>
+          </div>
+          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tight">
+    <p class="lede">Cursor keeps one shared settings folder. <em>Every extension, every login, every AI chat, mixed across every project you open it for.</em> Prism gives each context its own <code>--user-data-dir</code> — and its own title bar color, so Cmd+Tab actually tells you something.</p>
+  </section>
+
+  <section id="features">
+    <h2 class="section-title">What it does</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="ic" style="background: var(--c-blue);">⌘</div>
+        <h3>Real isolation</h3>
+        <p>Each profile is its own <code>--user-data-dir</code> — separate extensions, settings, logins, and chat history. Nothing bleeds between clients.</p>
+      </div>
+      <div class="feature">
+        <div class="ic" style="background: var(--c-fuchsia);">◑</div>
+        <h3>Color-coded windows</h3>
+        <p>Every profile gets its own title bar color, merged straight into <code>settings.json</code>.</p>
+        <div class="snippet">{<br>&nbsp;&nbsp;<span class="k">"window.titleBarStyle"</span>: <span class="s">"custom"</span><br>}</div>
+      </div>
+      <div class="feature">
+        <div class="ic" style="background: var(--c-lime);">★</div>
+        <h3>Your real Cursor, protected</h3>
+        <p>Your existing install shows up as a pinned, un-deletable "Main Cursor" profile — clone it to start a new one from your current setup.</p>
+      </div>
+      <div class="feature">
+        <div class="ic" style="background: var(--c-orange);">⇲</div>
+        <h3>Drag, drop, launch</h3>
+        <p>Drop a project folder onto a profile card to open it there directly — or double-click to launch with its default folder.</p>
+      </div>
+      <div class="feature">
+        <div class="ic" style="background: var(--c-sky);">●</div>
+        <h3>Live running status</h3>
+        <p>A dot shows which profiles are actually open right now, with a one-click quit for each.</p>
+      </div>
+      <div class="feature">
+        <div class="ic" style="background: var(--c-violet);">↺</div>
+        <h3>Delete means Trash</h3>
+        <p>Removing a profile sends it to the Trash / Recycle Bin — never an irreversible <code>rm -rf</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2 class="section-title">How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="n">01</div>
+        <h3>Create a profile</h3>
+        <p>Name it, pick an emoji and a color. Takes about five seconds.</p>
+      </div>
+      <div class="step">
+        <div class="n">02</div>
+        <h3>Prism launches Cursor scoped to it</h3>
+        <p>A dedicated data directory, invisible to every other profile.</p>
+        <code class="flag">--user-data-dir ~/.cursor_profiles/work</code>
+      </div>
+      <div class="step">
+        <div class="n">03</div>
+        <h3>The window colors itself</h3>
+        <p>That profile's accent becomes its title bar — recognizable in Mission Control before you even read the label.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="platforms">
+    <h2 class="section-title">Built natively, three times over</h2>
+    <div class="platforms">
+      <div class="platform" style="--platform-color: var(--c-blue);">
+        <div class="top-line">
+          <h3>macOS</h3>
+          <span class="stack-name">SwiftUI</span>
+        </div>
+        <ul>
+          <li>Menu bar quick launcher</li>
+          <li>Native dark/light, follows system</li>
+          <li>Deletes go to Trash</li>
+        </ul>
+        <pre>./build.sh<br><span class="c">open "build/Prism.app"</span></pre>
+      </div>
+      <div class="platform" style="--platform-color: var(--c-sky);">
+        <div class="top-line">
+          <h3>Windows</h3>
+          <span class="stack-name">WPF · .NET 8</span>
+        </div>
+        <ul>
+          <li>Immersive dark title bar</li>
+          <li>Start Menu shortcuts, pinnable to taskbar</li>
+          <li>Deletes go to Recycle Bin</li>
+        </ul>
+        <pre><span class="c">cd windows</span><br>dotnet run</pre>
+      </div>
+      <div class="platform" style="--platform-color: var(--c-lime);">
+        <div class="top-line">
+          <h3>Linux</h3>
+          <span class="stack-name">GTK4 · libadwaita</span>
+        </div>
+        <ul>
+          <li>Native GNOME styling</li>
+          <li>.desktop launchers for the app grid</li>
+          <li>Deletes go through Trash (Gio)</li>
+        </ul>
+        <pre><span class="c">cd linux</span><br>python3 prism.py</pre>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-row">
+    <span>Prism — a Mojo Layers project</span>
+    <span class="mono">~/.cursor_profiles</span>
+  </div>
+</footer>
