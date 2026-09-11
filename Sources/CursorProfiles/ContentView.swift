@@ -61,7 +61,6 @@ struct ContentView: View {
                         }
                     }
                     .padding(16)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: filtered)
                 }
             }
         }

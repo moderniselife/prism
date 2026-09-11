@@ -10,7 +10,6 @@ struct ProfileCard: View {
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var showingLaunchOptions = false
-    @State private var pulse = false
 
     private static let cardRadius: CGFloat = 20
 
@@ -30,13 +29,10 @@ struct ProfileCard: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: Self.cardRadius))
-        .shadow(color: profile.accentColor.opacity(hovering ? 0.38 : 0.16),
-                radius: hovering ? 26 : 12, y: hovering ? 12 : 6)
-        .shadow(color: .black.opacity(hovering ? 0.16 : 0.06),
-                radius: hovering ? 10 : 4, y: hovering ? 5 : 2)
-        .scaleEffect(hovering ? 1.03 : 1)
-        .offset(y: hovering ? -3 : 0)
-        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: hovering)
+        .shadow(color: profile.accentColor.opacity(hovering ? 0.3 : 0.16),
+                radius: hovering ? 18 : 12, y: hovering ? 8 : 6)
+        .shadow(color: .black.opacity(hovering ? 0.1 : 0.06),
+                radius: hovering ? 6 : 4, y: hovering ? 3 : 2)
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { store.launch(profile) }
         .contextMenu { contextMenuItems }
@@ -54,8 +50,6 @@ struct ProfileCard: View {
                 .font(.system(size: 30))
                 .frame(width: 52, height: 52)
                 .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 15))
-                .scaleEffect(isRunning && pulse ? 1.06 : 1)
-                .animation(isRunning ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true) : .default, value: pulse)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -77,19 +71,9 @@ struct ProfileCard: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    ZStack {
-                        if isRunning {
-                            Circle()
-                                .stroke(Color.green.opacity(0.55), lineWidth: 2)
-                                .frame(width: 7, height: 7)
-                                .scaleEffect(pulse ? 2.4 : 1)
-                                .opacity(pulse ? 0 : 0.7)
-                                .animation(.easeOut(duration: 1.5).repeatForever(autoreverses: false), value: pulse)
-                        }
-                        Circle()
-                            .fill(isRunning ? .green : .white.opacity(0.5))
-                            .frame(width: 7, height: 7)
-                    }
+                    Circle()
+                        .fill(isRunning ? .green : .white.opacity(0.5))
+                        .frame(width: 7, height: 7)
                     Text(isRunning ? "Running" : "Idle")
                         .font(.caption)
                         .opacity(0.9)
@@ -101,37 +85,11 @@ struct ProfileCard: View {
         }
         .padding(14)
         .background(
-            ZStack {
-                LinearGradient(
-                    colors: [profile.accentColor, profile.accentColor.opacity(0.65)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-                shimmer
-            }
-        )
-        .onAppear { pulse = true }
-    }
-
-    /// A slow diagonal highlight sweeping across the header, purely
-    /// decorative — gives the gradient a bit of life without being distracting.
-    private var shimmer: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { timeline in
-            let cycle = 3.6
-            let t = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / cycle
             LinearGradient(
-                stops: [
-                    .init(color: .white.opacity(0), location: 0),
-                    .init(color: .white.opacity(0.22), location: 0.5),
-                    .init(color: .white.opacity(0), location: 1),
-                ],
-                startPoint: .leading, endPoint: .trailing
+                colors: [profile.accentColor, profile.accentColor.opacity(0.65)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
             )
-            .frame(width: 140)
-            .rotationEffect(.degrees(18))
-            .offset(x: -160 + CGFloat(t) * 420)
-            .blendMode(.plusLighter)
-        }
-        .allowsHitTesting(false)
+        )
     }
 
     // MARK: Details
