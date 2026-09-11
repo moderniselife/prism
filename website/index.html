@@ -5,24 +5,33 @@
 
 <style>
   :root {
-    --bg: #f8f8fb;
+    --bg: #fbfbfe;
     --surface: #ffffff;
-    --surface-2: #f1f1f6;
-    --border: #e3e3ec;
-    --ink: #15151c;
+    --surface-2: #f4f4fa;
+    --border: #e6e6f0;
+    --ink: #131318;
     --ink-muted: #5c5c6b;
-    --ink-faint: #8a8a9a;
+    --ink-faint: #8d8d9c;
     --accent: #6366f1;
     --accent-ink: #ffffff;
-    --code-bg: #eeeef4;
-    --shadow-color: 240deg 20% 60%;
+    --code-bg: #f0f0f8;
+    --shadow-color: 240deg 25% 55%;
+    --mesh-opacity: 0.55;
+    --mesh-blend: normal;
+    --mesh-blur: 70px;
+    --beam-glow: 0.55;
 
-    --c-orange: #f97316;
-    --c-fuchsia: #d946ef;
-    --c-sky: #0ea5e9;
-    --c-lime: #84cc16;
-    --c-blue: #3b82f6;
+    --c-indigo: #6366f1;
     --c-violet: #8b5cf6;
+    --c-fuchsia: #d946ef;
+    --c-rose: #f43f5e;
+    --c-orange: #f97316;
+    --c-amber: #f59e0b;
+    --c-lime: #84cc16;
+    --c-emerald: #10b981;
+    --c-teal: #14b8a6;
+    --c-sky: #0ea5e9;
+    --c-blue: #3b82f6;
 
     --font-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
     --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
@@ -31,35 +40,45 @@
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #0f0f14;
-      --surface: #17171f;
-      --surface-2: #1d1d27;
-      --border: #2a2a36;
+      --bg: #0b0b10;
+      --surface: #16161e;
+      --surface-2: #1b1b25;
+      --border: #292935;
       --ink: #f1f1f6;
-      --ink-muted: #a3a3b3;
-      --ink-faint: #6c6c7c;
-      --accent: #8b8ff7;
-      --accent-ink: #0f0f14;
-      --code-bg: #1c1c26;
-      --shadow-color: 240deg 40% 2%;
+      --ink-muted: #a6a6b6;
+      --ink-faint: #6c6c7d;
+      --accent: #9497f8;
+      --accent-ink: #0b0b10;
+      --code-bg: #1a1a24;
+      --shadow-color: 240deg 60% 1%;
+      --mesh-opacity: 0.8;
+      --mesh-blend: screen;
+      --mesh-blur: 90px;
+      --beam-glow: 0.9;
     }
   }
 
   :root[data-theme="dark"] {
-    --bg: #0f0f14;
-    --surface: #17171f;
-    --surface-2: #1d1d27;
-    --border: #2a2a36;
+    --bg: #0b0b10;
+    --surface: #16161e;
+    --surface-2: #1b1b25;
+    --border: #292935;
     --ink: #f1f1f6;
-    --ink-muted: #a3a3b3;
-    --ink-faint: #6c6c7c;
-    --accent: #8b8ff7;
-    --accent-ink: #0f0f14;
-    --code-bg: #1c1c26;
-    --shadow-color: 240deg 40% 2%;
+    --ink-muted: #a6a6b6;
+    --ink-faint: #6c6c7d;
+    --accent: #9497f8;
+    --accent-ink: #0b0b10;
+    --code-bg: #1a1a24;
+    --shadow-color: 240deg 60% 1%;
+    --mesh-opacity: 0.8;
+    --mesh-blend: screen;
+    --mesh-blur: 90px;
+    --beam-glow: 0.9;
   }
 
   * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
 
   body {
     background: var(--bg);
@@ -68,6 +87,7 @@
     font-size: 16px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
 
   ::selection { background: var(--accent); color: var(--accent-ink); }
@@ -78,6 +98,7 @@
     max-width: 1080px;
     margin: 0 auto;
     padding: 0 28px;
+    position: relative;
   }
 
   h1, h2, h3 {
@@ -87,15 +108,16 @@
     letter-spacing: -0.01em;
   }
 
-  code, .mono {
-    font-family: var(--font-mono);
-  }
+  code, .mono { font-family: var(--font-mono); }
 
   /* ---------- header ---------- */
 
   header.top {
     padding: 22px 0;
     border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 5;
+    backdrop-filter: blur(6px);
   }
 
   .top-row {
@@ -118,10 +140,7 @@
     width: 30px;
     height: 30px;
     border-radius: 9px;
-    background: linear-gradient(135deg, var(--c-fuchsia), var(--c-blue) 50%, var(--c-lime));
-    display: grid;
-    place-items: center;
-    font-size: 15px;
+    background: conic-gradient(from 200deg, var(--c-indigo), var(--c-fuchsia), var(--c-orange), var(--c-lime), var(--c-sky), var(--c-indigo));
     flex-shrink: 0;
   }
 
@@ -144,21 +163,53 @@
     .platform-badges { display: none; }
   }
 
-  /* ---------- hero ---------- */
+  /* ---------- hero + mesh ---------- */
 
   .hero {
-    padding: 76px 0 40px;
+    position: relative;
+    padding: 84px 0 30px;
+    overflow: hidden;
   }
 
-  .hero-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 48px;
+  .mesh {
+    position: absolute;
+    inset: -10% -10% -10% -10%;
+    z-index: 0;
+    pointer-events: none;
+    filter: blur(var(--mesh-blur));
+  }
+
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    opacity: var(--mesh-opacity);
+    mix-blend-mode: var(--mesh-blend);
+    animation: drift 22s ease-in-out infinite alternate;
+  }
+
+  .blob.b1 { width: 46vw; height: 46vw; max-width: 620px; max-height: 620px; left: -12%; top: -14%; background: radial-gradient(circle, var(--c-indigo), transparent 70%); animation-duration: 24s; }
+  .blob.b2 { width: 38vw; height: 38vw; max-width: 520px; max-height: 520px; right: -10%; top: -6%; background: radial-gradient(circle, var(--c-fuchsia), transparent 70%); animation-duration: 19s; animation-delay: -4s; }
+  .blob.b3 { width: 34vw; height: 34vw; max-width: 460px; max-height: 460px; left: 20%; bottom: -22%; background: radial-gradient(circle, var(--c-orange), transparent 70%); animation-duration: 27s; animation-delay: -9s; }
+  .blob.b4 { width: 30vw; height: 30vw; max-width: 400px; max-height: 400px; right: 6%; bottom: -18%; background: radial-gradient(circle, var(--c-sky), transparent 70%); animation-duration: 21s; animation-delay: -13s; }
+  .blob.b5 { width: 24vw; height: 24vw; max-width: 320px; max-height: 320px; left: 46%; top: 8%; background: radial-gradient(circle, var(--c-lime), transparent 70%); animation-duration: 18s; animation-delay: -6s; }
+
+  @keyframes drift {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(3%, -4%) scale(1.08); }
+    100% { transform: translate(-3%, 3%) scale(0.96); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .blob { animation: none; }
+  }
+
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-  }
-
-  @media (max-width: 880px) {
-    .hero-grid { grid-template-columns: 1fr; gap: 56px; }
   }
 
   .eyebrow {
@@ -167,10 +218,14 @@
     color: var(--accent);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    margin-bottom: 16px;
-    display: flex;
+    margin-bottom: 18px;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
   }
 
   .eyebrow::before {
@@ -182,33 +237,53 @@
   }
 
   h1.headline {
-    font-size: 52px;
-    line-height: 1.04;
-    margin: 0 0 22px;
+    font-size: 58px;
+    line-height: 1.05;
+    margin: 0 0 20px;
+    max-width: 15ch;
+  }
+
+  .grad-text {
+    background-image: linear-gradient(100deg, var(--c-indigo), var(--c-fuchsia) 30%, var(--c-orange) 55%, var(--c-sky) 80%, var(--c-indigo));
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: sweep 9s linear infinite;
+  }
+
+  @keyframes sweep {
+    to { background-position: -300% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .grad-text { animation: none; background-position: 0 0; }
   }
 
   @media (max-width: 640px) {
-    h1.headline { font-size: 38px; }
+    h1.headline { font-size: 40px; }
   }
 
   .sub {
-    font-size: 18px;
+    font-size: 18.5px;
     color: var(--ink-muted);
     max-width: 46ch;
-    margin: 0 0 30px;
+    margin: 0 0 32px;
   }
 
   .cta-row {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     gap: 12px;
+    margin-bottom: 64px;
   }
 
   .btn {
     font-family: var(--font-body);
     font-weight: 600;
     font-size: 14.5px;
-    padding: 12px 20px;
+    padding: 13px 22px;
     border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--surface);
@@ -217,113 +292,97 @@
     align-items: center;
     gap: 8px;
     text-decoration: none;
-    transition: transform 0.12s ease, border-color 0.12s ease;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
-  .btn:hover { transform: translateY(-1px); border-color: var(--ink-faint); }
+  .btn:hover { transform: translateY(-2px); border-color: var(--ink-faint); }
 
   .btn.primary {
-    background: var(--accent);
-    color: var(--accent-ink);
-    border-color: var(--accent);
+    background: linear-gradient(100deg, var(--c-indigo), var(--c-fuchsia) 60%, var(--c-orange));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--c-fuchsia) 70%, transparent);
   }
 
-  .btn .kbd {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    opacity: 0.7;
+  .btn.primary:hover {
+    box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--c-fuchsia) 80%, transparent);
   }
 
-  /* ---------- window stack (hero visual) ---------- */
+  .btn .kbd { font-family: var(--font-mono); font-size: 12px; opacity: 0.7; }
 
-  .stack {
+  /* ---------- animated prism (hero visual) ---------- */
+
+  .prism-stage {
     position: relative;
-    height: 340px;
+    width: 100%;
+    max-width: 860px;
+    height: 380px;
   }
 
-  .win {
-    position: absolute;
-    width: 258px;
-    border-radius: 11px;
-    overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: 0 20px 40px -12px hsl(var(--shadow-color) / 0.35), 0 4px 10px -4px hsl(var(--shadow-color) / 0.2);
-    opacity: 0;
-    animation: settle 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  .prism-stage svg { width: 100%; height: 100%; overflow: visible; }
+
+  .beam { animation: pulse 3.4s ease-in-out infinite; transform-origin: 300px 190px; }
+  .beam.r1 { animation-delay: 0s; }
+  .beam.r2 { animation-delay: .4s; }
+  .beam.r3 { animation-delay: .8s; }
+  .beam.r4 { animation-delay: 1.2s; }
+  .beam.r5 { animation-delay: 1.6s; }
+  .beam.r6 { animation-delay: 2s; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: calc(var(--beam-glow) * 0.55); }
+    50%      { opacity: var(--beam-glow); }
+  }
+
+  .spark { animation: travel 3.2s linear infinite; }
+  .spark.s2 { animation-delay: .6s; }
+  .spark.s3 { animation-delay: 1.3s; }
+  .spark.s4 { animation-delay: 2s; }
+  .spark.s5 { animation-delay: 2.5s; }
+  .spark.s6 { animation-delay: 1.8s; }
+
+  @keyframes travel {
+    0%   { offset-distance: 0%; opacity: 0; }
+    8%   { opacity: 1; }
+    92%  { opacity: 1; }
+    100% { offset-distance: 100%; opacity: 0; }
+  }
+
+  .glass-body {
+    animation: sway 7s ease-in-out infinite;
+    transform-origin: 300px 190px;
+  }
+
+  @keyframes sway {
+    0%, 100% { transform: rotate(-1.2deg); }
+    50%      { transform: rotate(1.2deg); }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .win { animation: none; opacity: 1; }
+    .beam, .spark, .glass-body { animation: none; opacity: 1; }
   }
 
-  .win .bar {
-    height: 30px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 10px;
-    color: #fff;
-  }
-
-  .win .dots { display: flex; gap: 5px; margin-right: 6px; }
-  .win .dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.55); display: block; }
-
-  .win .label {
-    font-family: var(--font-body);
-    font-weight: 600;
-    font-size: 12.5px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .win .body {
-    padding: 14px 12px;
-    background: var(--surface-2);
-  }
-
-  .win .line { height: 7px; border-radius: 4px; background: var(--border); margin-bottom: 7px; }
-  .win .line:nth-child(1) { width: 78%; }
-  .win .line:nth-child(2) { width: 55%; }
-  .win .line:nth-child(3) { width: 64%; }
-
-  .win-a { left: 4%;  top: 0px;   transform: rotate(-5deg); z-index: 4; animation-delay: 0.05s; }
-  .win-b { left: 34%; top: 46px;  transform: rotate(3deg);  z-index: 3; animation-delay: 0.15s; }
-  .win-c { left: 8%;  top: 168px; transform: rotate(2deg);  z-index: 2; animation-delay: 0.25s; }
-  .win-d { left: 40%; top: 200px; transform: rotate(-3deg); z-index: 1; animation-delay: 0.35s; }
-
-  @keyframes settle {
-    from { opacity: 0; transform: translateY(14px) rotate(0deg) scale(0.97); }
-    to   { opacity: 1; transform: translateY(0) rotate(var(--r, 0deg)) scale(1); }
-  }
-  .win-a { --r: -5deg; }
-  .win-b { --r: 3deg; }
-  .win-c { --r: 2deg; }
-  .win-d { --r: -3deg; }
-
-  @media (max-width: 880px) {
-    .stack { height: 300px; transform: scale(0.92); transform-origin: top center; }
+  @media (max-width: 780px) {
+    .prism-stage { height: 300px; }
   }
 
   /* ---------- sections ---------- */
 
-  section { padding: 64px 0; }
-  section.tight { padding: 32px 0 64px; }
+  section { padding: 60px 0; position: relative; }
+  section.tight { padding: 8px 0 60px; }
 
   .lede {
     font-size: 21px;
     line-height: 1.5;
     max-width: 62ch;
+    margin: 0 auto;
+    text-align: center;
     color: var(--ink);
     font-family: var(--font-display);
     font-weight: 500;
   }
 
-  .lede em {
-    font-style: normal;
-    color: var(--ink-muted);
-  }
+  .lede em { font-style: normal; color: var(--ink-muted); }
 
   h2.section-title {
     font-size: 15px;
@@ -335,6 +394,10 @@
     margin: 0 0 28px;
   }
 
+  [data-reveal] { transition: opacity .7s cubic-bezier(.2,.7,.3,1), transform .7s cubic-bezier(.2,.7,.3,1); }
+  .reveal-pending { opacity: 0; transform: translateY(20px); }
+  .reveal-pending.reveal-in { opacity: 1; transform: translateY(0); }
+
   /* ---------- feature grid ---------- */
 
   .features {
@@ -343,46 +406,39 @@
     gap: 1px;
     background: var(--border);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 16px;
     overflow: hidden;
   }
 
-  @media (max-width: 880px) {
-    .features { grid-template-columns: repeat(2, 1fr); }
-  }
-  @media (max-width: 600px) {
-    .features { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 880px) { .features { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .features { grid-template-columns: 1fr; } }
 
   .feature {
     background: var(--surface);
-    padding: 26px 24px;
+    padding: 27px 25px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    position: relative;
+    transition: background 0.2s ease;
   }
 
+  .feature:hover { background: var(--surface-2); }
+
   .feature .ic {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
     display: grid;
     place-items: center;
     font-size: 16px;
     color: #fff;
     margin-bottom: 4px;
+    box-shadow: 0 6px 16px -6px var(--glow, transparent);
   }
 
-  .feature h3 {
-    font-size: 16px;
-    margin: 0;
-  }
-
-  .feature p {
-    color: var(--ink-muted);
-    font-size: 14.5px;
-    margin: 0;
-  }
+  .feature h3 { font-size: 16px; margin: 0; }
+  .feature p { color: var(--ink-muted); font-size: 14.5px; margin: 0; }
 
   .feature .snippet {
     margin-top: 6px;
@@ -407,32 +463,12 @@
     gap: 24px;
   }
 
-  @media (max-width: 780px) {
-    .steps { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 780px) { .steps { grid-template-columns: 1fr; } }
 
-  .step {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .step .n {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--ink-faint);
-  }
-
-  .step h3 {
-    font-size: 17px;
-    margin: 0;
-  }
-
-  .step p {
-    color: var(--ink-muted);
-    font-size: 14.5px;
-    margin: 0;
-  }
+  .step { display: flex; flex-direction: column; gap: 10px; }
+  .step .n { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); }
+  .step h3 { font-size: 17px; margin: 0; }
+  .step p { color: var(--ink-muted); font-size: 14.5px; margin: 0; }
 
   .step code.flag {
     display: inline-block;
@@ -452,30 +488,26 @@
     gap: 16px;
   }
 
-  @media (max-width: 780px) {
-    .platforms { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 780px) { .platforms { grid-template-columns: 1fr; } }
 
   .platform {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 24px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    transition: border-color 0.2s ease, transform 0.2s ease;
   }
 
-  .platform .top-line {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+  .platform:hover {
+    border-color: var(--platform-color, var(--accent));
+    transform: translateY(-3px);
   }
 
-  .platform h3 {
-    font-size: 18px;
-    margin: 0;
-  }
+  .platform .top-line { display: flex; align-items: center; justify-content: space-between; }
+  .platform h3 { font-size: 18px; margin: 0; }
 
   .platform .stack-name {
     font-family: var(--font-mono);
@@ -487,22 +519,8 @@
     white-space: nowrap;
   }
 
-  .platform ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-  }
-
-  .platform li {
-    font-size: 13.5px;
-    color: var(--ink-muted);
-    padding-left: 15px;
-    position: relative;
-  }
-
+  .platform ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .platform li { font-size: 13.5px; color: var(--ink-muted); padding-left: 15px; position: relative; }
   .platform li::before {
     content: "";
     position: absolute;
@@ -530,10 +548,7 @@
 
   /* ---------- footer ---------- */
 
-  footer {
-    border-top: 1px solid var(--border);
-    padding: 32px 0 48px;
-  }
+  footer { border-top: 1px solid var(--border); padding: 32px 0 48px; }
 
   .foot-row {
     display: flex;
@@ -551,7 +566,7 @@
 <header class="top">
   <div class="wrap top-row">
     <div class="brand">
-      <span class="brand-mark">🪟</span>
+      <span class="brand-mark"></span>
       Prism
     </div>
     <div class="platform-badges">
@@ -562,157 +577,201 @@
   </div>
 </header>
 
-<main class="wrap">
+<main>
 
   <section class="hero">
-    <div class="hero-grid">
-      <div>
-        <div class="eyebrow">Mojo Layers</div>
-        <h1 class="headline">One Cursor.<br>Every client, its own window.</h1>
-        <p class="sub">Prism runs Cursor as fully isolated profiles — separate settings, extensions, and chat history per client or project, each with its own color so you never lose track of which window is which.</p>
-        <div class="cta-row">
-          <a class="btn primary" href="#platforms">Get Prism</a>
-          <a class="btn" href="#how"><span class="kbd">→</span> How it works</a>
-        </div>
+    <div class="mesh" aria-hidden="true">
+      <div class="blob b1"></div>
+      <div class="blob b2"></div>
+      <div class="blob b3"></div>
+      <div class="blob b4"></div>
+      <div class="blob b5"></div>
+    </div>
+
+    <div class="wrap hero-inner">
+      <div class="eyebrow">Mojo Layers</div>
+      <h1 class="headline">One Cursor. <span class="grad-text">Every color its own client.</span></h1>
+      <p class="sub">Prism splits Cursor into fully isolated profiles — separate settings, extensions, and chat history per client or project, each with its own color so you never lose track of which window is which.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="#platforms">Get Prism</a>
+        <a class="btn" href="#how"><span class="kbd">→</span> How it works</a>
       </div>
-      <div class="stack" aria-hidden="true">
-        <div class="win win-a">
-          <div class="bar" style="background: linear-gradient(135deg, var(--c-orange), color-mix(in srgb, var(--c-orange) 70%, black));">
-            <div class="dots"><i></i><i></i><i></i></div>
-            <div class="label">🧑‍💻 Work</div>
-          </div>
-          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
-        </div>
-        <div class="win win-b">
-          <div class="bar" style="background: linear-gradient(135deg, var(--c-fuchsia), color-mix(in srgb, var(--c-fuchsia) 70%, black));">
-            <div class="dots"><i></i><i></i><i></i></div>
-            <div class="label">🏠 Personal</div>
-          </div>
-          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
-        </div>
-        <div class="win win-c">
-          <div class="bar" style="background: linear-gradient(135deg, var(--c-sky), color-mix(in srgb, var(--c-sky) 70%, black));">
-            <div class="dots"><i></i><i></i><i></i></div>
-            <div class="label">🚀 Client A</div>
-          </div>
-          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
-        </div>
-        <div class="win win-d">
-          <div class="bar" style="background: linear-gradient(135deg, var(--c-lime), color-mix(in srgb, var(--c-lime) 70%, black));">
-            <div class="dots"><i></i><i></i><i></i></div>
-            <div class="label">🧪 Experiments</div>
-          </div>
-          <div class="body"><div class="line"></div><div class="line"></div><div class="line"></div></div>
-        </div>
+
+      <div class="prism-stage" aria-hidden="true">
+        <svg viewBox="0 0 860 380">
+          <defs>
+            <linearGradient id="beamWhite" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.95"/>
+            </linearGradient>
+
+            <linearGradient id="rIndigo" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-indigo)"/></linearGradient>
+            <linearGradient id="rFuchsia" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-fuchsia)"/></linearGradient>
+            <linearGradient id="rOrange" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-orange)"/></linearGradient>
+            <linearGradient id="rAmber" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-amber)"/></linearGradient>
+            <linearGradient id="rSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-sky)"/></linearGradient>
+            <linearGradient id="rLime" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="var(--c-lime)"/></linearGradient>
+
+            <linearGradient id="glassFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08"/>
+            </linearGradient>
+
+            <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="4" result="blur"/>
+              <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+
+            <path id="beam-r1" d="M300,190 C 430,190 520,60  760,30"/>
+            <path id="beam-r2" d="M300,190 C 430,190 540,110 780,95"/>
+            <path id="beam-r3" d="M300,190 C 430,190 560,160 800,160"/>
+            <path id="beam-r4" d="M300,190 C 430,190 560,210 800,220"/>
+            <path id="beam-r5" d="M300,190 C 430,190 540,260 780,285"/>
+            <path id="beam-r6" d="M300,190 C 430,190 520,310 760,350"/>
+          </defs>
+
+          <!-- incoming white beam -->
+          <rect x="40" y="182" width="230" height="16" rx="8" fill="url(#beamWhite)" opacity="0.8"/>
+
+          <!-- glass prism -->
+          <g class="glass-body" filter="url(#softGlow)">
+            <polygon points="300,110 365,270 235,270" fill="url(#glassFill)" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.5"/>
+            <polygon points="300,110 300,190 250,190" fill="#ffffff" fill-opacity="0.18"/>
+          </g>
+
+          <!-- fanned spectrum beams -->
+          <g fill="none" stroke-linecap="round" filter="url(#softGlow)">
+            <use href="#beam-r1" class="beam r1" stroke="url(#rIndigo)"  stroke-width="4"/>
+            <use href="#beam-r2" class="beam r2" stroke="url(#rFuchsia)" stroke-width="4"/>
+            <use href="#beam-r3" class="beam r3" stroke="url(#rOrange)"  stroke-width="4"/>
+            <use href="#beam-r4" class="beam r4" stroke="url(#rAmber)"   stroke-width="4"/>
+            <use href="#beam-r5" class="beam r5" stroke="url(#rSky)"     stroke-width="4"/>
+            <use href="#beam-r6" class="beam r6" stroke="url(#rLime)"    stroke-width="4"/>
+          </g>
+
+          <!-- traveling sparks along each beam -->
+          <circle class="spark s1" r="4" fill="var(--c-indigo)"  style="offset-path: path('M300,190 C 430,190 520,60  760,30');"/>
+          <circle class="spark s2" r="4" fill="var(--c-fuchsia)" style="offset-path: path('M300,190 C 430,190 540,110 780,95');"/>
+          <circle class="spark s3" r="4" fill="var(--c-orange)"  style="offset-path: path('M300,190 C 430,190 560,160 800,160');"/>
+          <circle class="spark s4" r="4" fill="var(--c-amber)"   style="offset-path: path('M300,190 C 430,190 560,210 800,220');"/>
+          <circle class="spark s5" r="4" fill="var(--c-sky)"     style="offset-path: path('M300,190 C 430,190 540,260 780,285');"/>
+          <circle class="spark s6" r="4" fill="var(--c-lime)"    style="offset-path: path('M300,190 C 430,190 520,310 760,350');"/>
+        </svg>
       </div>
     </div>
   </section>
 
-  <section class="tight">
-    <p class="lede">Cursor keeps one shared settings folder. <em>Every extension, every login, every AI chat, mixed across every project you open it for.</em> Prism gives each context its own <code>--user-data-dir</code> — and its own title bar color, so Cmd+Tab actually tells you something.</p>
-  </section>
+  <div class="wrap">
 
-  <section id="features">
-    <h2 class="section-title">What it does</h2>
-    <div class="features">
-      <div class="feature">
-        <div class="ic" style="background: var(--c-blue);">⌘</div>
-        <h3>Real isolation</h3>
-        <p>Each profile is its own <code>--user-data-dir</code> — separate extensions, settings, logins, and chat history. Nothing bleeds between clients.</p>
-      </div>
-      <div class="feature">
-        <div class="ic" style="background: var(--c-fuchsia);">◑</div>
-        <h3>Color-coded windows</h3>
-        <p>Every profile gets its own title bar color, merged straight into <code>settings.json</code>.</p>
-        <div class="snippet">{<br>&nbsp;&nbsp;<span class="k">"window.titleBarStyle"</span>: <span class="s">"custom"</span><br>}</div>
-      </div>
-      <div class="feature">
-        <div class="ic" style="background: var(--c-lime);">★</div>
-        <h3>Your real Cursor, protected</h3>
-        <p>Your existing install shows up as a pinned, un-deletable "Main Cursor" profile — clone it to start a new one from your current setup.</p>
-      </div>
-      <div class="feature">
-        <div class="ic" style="background: var(--c-orange);">⇲</div>
-        <h3>Drag, drop, launch</h3>
-        <p>Drop a project folder onto a profile card to open it there directly — or double-click to launch with its default folder.</p>
-      </div>
-      <div class="feature">
-        <div class="ic" style="background: var(--c-sky);">●</div>
-        <h3>Live running status</h3>
-        <p>A dot shows which profiles are actually open right now, with a one-click quit for each.</p>
-      </div>
-      <div class="feature">
-        <div class="ic" style="background: var(--c-violet);">↺</div>
-        <h3>Delete means Trash</h3>
-        <p>Removing a profile sends it to the Trash / Recycle Bin — never an irreversible <code>rm -rf</code>.</p>
-      </div>
-    </div>
-  </section>
+    <section class="tight">
+      <p class="lede">Cursor keeps one shared settings folder. <em>Every extension, every login, every AI chat, mixed across every project you open it for.</em> Prism gives each context its own <code>--user-data-dir</code> — and its own title bar color, so Cmd+Tab actually tells you something.</p>
+    </section>
 
-  <section id="how">
-    <h2 class="section-title">How it works</h2>
-    <div class="steps">
-      <div class="step">
-        <div class="n">01</div>
-        <h3>Create a profile</h3>
-        <p>Name it, pick an emoji and a color. Takes about five seconds.</p>
-      </div>
-      <div class="step">
-        <div class="n">02</div>
-        <h3>Prism launches Cursor scoped to it</h3>
-        <p>A dedicated data directory, invisible to every other profile.</p>
-        <code class="flag">--user-data-dir ~/.cursor_profiles/work</code>
-      </div>
-      <div class="step">
-        <div class="n">03</div>
-        <h3>The window colors itself</h3>
-        <p>That profile's accent becomes its title bar — recognizable in Mission Control before you even read the label.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="platforms">
-    <h2 class="section-title">Built natively, three times over</h2>
-    <div class="platforms">
-      <div class="platform" style="--platform-color: var(--c-blue);">
-        <div class="top-line">
-          <h3>macOS</h3>
-          <span class="stack-name">SwiftUI</span>
+    <section id="features" data-reveal>
+      <h2 class="section-title">What it does</h2>
+      <div class="features">
+        <div class="feature">
+          <div class="ic" style="background: var(--c-blue); --glow: var(--c-blue);">⌘</div>
+          <h3>Real isolation</h3>
+          <p>Each profile is its own <code>--user-data-dir</code> — separate extensions, settings, logins, and chat history. Nothing bleeds between clients.</p>
         </div>
-        <ul>
-          <li>Menu bar quick launcher</li>
-          <li>Native dark/light, follows system</li>
-          <li>Deletes go to Trash</li>
-        </ul>
-        <pre>./build.sh<br><span class="c">open "build/Prism.app"</span></pre>
-      </div>
-      <div class="platform" style="--platform-color: var(--c-sky);">
-        <div class="top-line">
-          <h3>Windows</h3>
-          <span class="stack-name">WPF · .NET 8</span>
+        <div class="feature">
+          <div class="ic" style="background: var(--c-fuchsia); --glow: var(--c-fuchsia);">◑</div>
+          <h3>Color-coded windows</h3>
+          <p>Every profile gets its own title bar color, merged straight into <code>settings.json</code>.</p>
+          <div class="snippet">{<br>&nbsp;&nbsp;<span class="k">"window.titleBarStyle"</span>: <span class="s">"custom"</span><br>}</div>
         </div>
-        <ul>
-          <li>Immersive dark title bar</li>
-          <li>Start Menu shortcuts, pinnable to taskbar</li>
-          <li>Deletes go to Recycle Bin</li>
-        </ul>
-        <pre><span class="c">cd windows</span><br>dotnet run</pre>
-      </div>
-      <div class="platform" style="--platform-color: var(--c-lime);">
-        <div class="top-line">
-          <h3>Linux</h3>
-          <span class="stack-name">GTK4 · libadwaita</span>
+        <div class="feature">
+          <div class="ic" style="background: var(--c-lime); --glow: var(--c-lime);">★</div>
+          <h3>Your real Cursor, protected</h3>
+          <p>Your existing install shows up as a pinned, un-deletable "Main Cursor" profile — clone it to start a new one from your current setup.</p>
         </div>
-        <ul>
-          <li>Native GNOME styling</li>
-          <li>.desktop launchers for the app grid</li>
-          <li>Deletes go through Trash (Gio)</li>
-        </ul>
-        <pre><span class="c">cd linux</span><br>python3 prism.py</pre>
+        <div class="feature">
+          <div class="ic" style="background: var(--c-orange); --glow: var(--c-orange);">⇲</div>
+          <h3>Drag, drop, launch</h3>
+          <p>Drop a project folder onto a profile card to open it there directly — or double-click to launch with its default folder.</p>
+        </div>
+        <div class="feature">
+          <div class="ic" style="background: var(--c-sky); --glow: var(--c-sky);">●</div>
+          <h3>Live running status</h3>
+          <p>A dot shows which profiles are actually open right now, with a one-click quit for each.</p>
+        </div>
+        <div class="feature">
+          <div class="ic" style="background: var(--c-violet); --glow: var(--c-violet);">↺</div>
+          <h3>Delete means Trash</h3>
+          <p>Removing a profile sends it to the Trash / Recycle Bin — never an irreversible <code>rm -rf</code>.</p>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
+    <section id="how" data-reveal>
+      <h2 class="section-title">How it works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="n">01</div>
+          <h3>Create a profile</h3>
+          <p>Name it, pick an emoji and a color. Takes about five seconds.</p>
+        </div>
+        <div class="step">
+          <div class="n">02</div>
+          <h3>Prism launches Cursor scoped to it</h3>
+          <p>A dedicated data directory, invisible to every other profile.</p>
+          <code class="flag">--user-data-dir ~/.cursor_profiles/work</code>
+        </div>
+        <div class="step">
+          <div class="n">03</div>
+          <h3>The window colors itself</h3>
+          <p>That profile's accent becomes its title bar — recognizable in Mission Control before you even read the label.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="platforms" data-reveal>
+      <h2 class="section-title">Built natively, three times over</h2>
+      <div class="platforms">
+        <div class="platform" style="--platform-color: var(--c-blue);">
+          <div class="top-line">
+            <h3>macOS</h3>
+            <span class="stack-name">SwiftUI</span>
+          </div>
+          <ul>
+            <li>Menu bar quick launcher</li>
+            <li>Native dark/light, follows system</li>
+            <li>Deletes go to Trash</li>
+          </ul>
+          <pre>./build.sh<br><span class="c">open "build/Prism.app"</span></pre>
+        </div>
+        <div class="platform" style="--platform-color: var(--c-sky);">
+          <div class="top-line">
+            <h3>Windows</h3>
+            <span class="stack-name">WPF · .NET 8</span>
+          </div>
+          <ul>
+            <li>Immersive dark title bar</li>
+            <li>Start Menu shortcuts, pinnable to taskbar</li>
+            <li>Deletes go to Recycle Bin</li>
+          </ul>
+          <pre><span class="c">cd windows</span><br>dotnet run</pre>
+        </div>
+        <div class="platform" style="--platform-color: var(--c-lime);">
+          <div class="top-line">
+            <h3>Linux</h3>
+            <span class="stack-name">GTK4 · libadwaita</span>
+          </div>
+          <ul>
+            <li>Native GNOME styling</li>
+            <li>.desktop launchers for the app grid</li>
+            <li>Deletes go through Trash (Gio)</li>
+          </ul>
+          <pre><span class="c">cd linux</span><br>python3 prism.py</pre>
+        </div>
+      </div>
+    </section>
+
+  </div>
 </main>
 
 <footer>
@@ -721,3 +780,20 @@
     <span class="mono">~/.cursor_profiles</span>
   </div>
 </footer>
+
+<script>
+  (function () {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var targets = document.querySelectorAll('[data-reveal]');
+    targets.forEach(function (el) { el.classList.add('reveal-pending'); });
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('reveal-in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    targets.forEach(function (el) { io.observe(el); });
+  })();
+</script>
