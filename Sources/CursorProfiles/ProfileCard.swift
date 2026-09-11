@@ -10,6 +10,9 @@ struct ProfileCard: View {
     @State private var hovering = false
     @State private var dropTargeted = false
     @State private var showingLaunchOptions = false
+    @State private var pulse = false
+
+    private static let cardRadius: CGFloat = 20
 
     private var isRunning: Bool { store.isRunning(profile) }
 
@@ -20,17 +23,20 @@ struct ProfileCard: View {
         }
         .background(cardBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: Self.cardRadius)
                 .strokeBorder(
-                    dropTargeted ? profile.accentColor : Color.primary.opacity(hovering ? 0.15 : 0.07),
-                    lineWidth: dropTargeted ? 2 : 1
+                    dropTargeted ? profile.accentColor : Color.primary.opacity(hovering ? 0.16 : 0.07),
+                    lineWidth: dropTargeted ? 2.5 : 1
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(hovering ? 0.18 : 0.08),
-                radius: hovering ? 14 : 6, y: hovering ? 6 : 3)
-        .scaleEffect(hovering ? 1.015 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: hovering)
+        .clipShape(RoundedRectangle(cornerRadius: Self.cardRadius))
+        .shadow(color: profile.accentColor.opacity(hovering ? 0.38 : 0.16),
+                radius: hovering ? 26 : 12, y: hovering ? 12 : 6)
+        .shadow(color: .black.opacity(hovering ? 0.16 : 0.06),
+                radius: hovering ? 10 : 4, y: hovering ? 5 : 2)
+        .scaleEffect(hovering ? 1.03 : 1)
+        .offset(y: hovering ? -3 : 0)
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: hovering)
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { store.launch(profile) }
         .contextMenu { contextMenuItems }
@@ -47,7 +53,9 @@ struct ProfileCard: View {
             Text(profile.emoji)
                 .font(.system(size: 30))
                 .frame(width: 52, height: 52)
-                .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 13))
+                .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 15))
+                .scaleEffect(isRunning && pulse ? 1.06 : 1)
+                .animation(isRunning ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true) : .default, value: pulse)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -69,9 +77,19 @@ struct ProfileCard: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    Circle()
-                        .fill(isRunning ? .green : .white.opacity(0.5))
-                        .frame(width: 7, height: 7)
+                    ZStack {
+                        if isRunning {
+                            Circle()
+                                .stroke(Color.green.opacity(0.55), lineWidth: 2)
+                                .frame(width: 7, height: 7)
+                                .scaleEffect(pulse ? 2.4 : 1)
+                                .opacity(pulse ? 0 : 0.7)
+                                .animation(.easeOut(duration: 1.5).repeatForever(autoreverses: false), value: pulse)
+                        }
+                        Circle()
+                            .fill(isRunning ? .green : .white.opacity(0.5))
+                            .frame(width: 7, height: 7)
+                    }
                     Text(isRunning ? "Running" : "Idle")
                         .font(.caption)
                         .opacity(0.9)
@@ -83,11 +101,37 @@ struct ProfileCard: View {
         }
         .padding(14)
         .background(
-            LinearGradient(
-                colors: [profile.accentColor, profile.accentColor.opacity(0.65)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
+            ZStack {
+                LinearGradient(
+                    colors: [profile.accentColor, profile.accentColor.opacity(0.65)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                shimmer
+            }
         )
+        .onAppear { pulse = true }
+    }
+
+    /// A slow diagonal highlight sweeping across the header, purely
+    /// decorative — gives the gradient a bit of life without being distracting.
+    private var shimmer: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { timeline in
+            let cycle = 3.6
+            let t = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / cycle
+            LinearGradient(
+                stops: [
+                    .init(color: .white.opacity(0), location: 0),
+                    .init(color: .white.opacity(0.22), location: 0.5),
+                    .init(color: .white.opacity(0), location: 1),
+                ],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: 140)
+            .rotationEffect(.degrees(18))
+            .offset(x: -160 + CGFloat(t) * 420)
+            .blendMode(.plusLighter)
+        }
+        .allowsHitTesting(false)
     }
 
     // MARK: Details
@@ -121,7 +165,9 @@ struct ProfileCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
                 .tint(profile.accentColor)
+                .shadow(color: profile.accentColor.opacity(0.45), radius: 8, y: 3)
 
                 Button {
                     showingLaunchOptions = true
@@ -129,6 +175,7 @@ struct ProfileCard: View {
                     Image(systemName: "slider.horizontal.3")
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
                 .help("Launch with options…")
                 .popover(isPresented: $showingLaunchOptions, arrowEdge: .bottom) {
                     LaunchOptionsView(profile: profile)
@@ -179,8 +226,12 @@ struct ProfileCard: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(.regularMaterial)
+        ZStack {
+            RoundedRectangle(cornerRadius: Self.cardRadius)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: Self.cardRadius)
+                .fill(profile.accentColor.opacity(0.05))
+        }
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {

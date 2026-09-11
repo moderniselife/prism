@@ -41,7 +41,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            backgroundGradient.ignoresSafeArea()
+            MeshBackgroundView()
 
             if store.profiles.isEmpty {
                 emptyState
@@ -114,13 +114,6 @@ struct ContentView: View {
         } message: {
             Text(store.lastError ?? "")
         }
-    }
-
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(nsColor: .windowBackgroundColor), Color(nsColor: .underPageBackgroundColor)],
-            startPoint: .top, endPoint: .bottom
-        )
     }
 
     private var cursorMissingBanner: some View {
