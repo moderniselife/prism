@@ -114,11 +114,30 @@ enum CursorLauncher {
         }
     }
 
+    /// Our own PID — must never be mistaken for a Cursor instance
+    /// (our binary is …/Prism.app/…/CursorProfiles, which contains the
+    /// string "Cursor"). Matching ourselves once meant Stop SIGTERM'd
+    /// Prism itself, i.e. an instant "crash".
+    private static var ownPID: Int32 { ProcessInfo.processInfo.processIdentifier }
+
+    /// True when `command` runs the real Cursor main executable: the path
+    /// must end at a token boundary ("…/MacOS/Cursor" followed by space or
+    /// end-of-string), rejecting "…/CursorProfiles" (us) and helpers.
+    private static func isMainCursorExecutable(_ command: String) -> Bool {
+        guard let range = command.range(of: ".app/Contents/MacOS/Cursor") else {
+            return false
+        }
+        let after = command[range.upperBound...]
+        guard after.isEmpty || after.hasPrefix(" ") else { return false }
+        return true
+    }
+
     /// PIDs of the main Cursor process for a managed profile directory,
     /// detected by its `--user-data-dir <path>` argument.
     static func pids(in list: [ProcessEntry], profileDir: URL) -> [Int32] {
         let needle = "--user-data-dir \(profileDir.path)"
         return list.filter {
+            $0.pid != ownPID &&
             $0.command.contains(needle) &&
             // Only count the main process, not renderer/gpu helpers.
             !$0.command.contains("--type=")
@@ -129,7 +148,8 @@ enum CursorLauncher {
     /// a Cursor main process with no --user-data-dir at all.
     static func systemProfilePIDs(in list: [ProcessEntry]) -> [Int32] {
         list.filter {
-            $0.command.contains(".app/Contents/MacOS/Cursor") &&
+            $0.pid != ownPID &&
+            isMainCursorExecutable($0.command) &&
             !$0.command.contains("--type=") &&
             !$0.command.contains("--user-data-dir") &&
             !$0.command.contains("Cursor Helper")

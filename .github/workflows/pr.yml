@@ -1,0 +1,65 @@
+name: PR builds
+
+# Rebuild every platform when a PR targets main (and keep main green on push).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: macOS (Swift)
+    runs-on: macos-14 # arm64, matches build.sh's apple-macosx14.0 target
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Prism.app
+        run: ./build.sh
+      - name: Upload Prism.app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prism-macOS
+          path: build/Prism.app
+          retention-days: 7
+
+  build-windows:
+    name: Windows (.NET 8 WPF)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build
+        run: dotnet build windows/CursorProfiles.csproj -c Release
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prism-Windows
+          path: windows/bin/Release/net8.0-windows/
+          retention-days: 7
+
+  build-linux:
+    name: Linux (Python/GTK checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile check
+        run: python3 -m py_compile linux/prism.py
+      - name: Validate desktop entry
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq desktop-file-utils
+          desktop-file-validate linux/com.mojolayers.Prism.desktop
+      - name: Upload sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prism-Linux
+          path: linux/
+          retention-days: 7
