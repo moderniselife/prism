@@ -1,6 +1,9 @@
 import SwiftUI
 
 // MARK: - Create / edit sheet
+//
+// Only real, persisted fields: name, icon, accent color, memory limit,
+// project folder. No fake engines, no decorative toggles, no daemons.
 
 struct ProfileEditorSheet: View {
     enum Mode {
@@ -12,6 +15,9 @@ struct ProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let mode: Mode
+    /// Explicit closer from the presenter. Environment `dismiss()` is kept
+    /// as fallback, but state-driven closing can't silently no-op.
+    var onClose: (() -> Void)? = nil
 
     @State private var name = ""
     @State private var emoji = emojiChoices[0]
@@ -19,129 +25,283 @@ struct ProfileEditorSheet: View {
     @State private var memoryMB = 16384
     @State private var projectPath = ""
 
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     private var isEditing: Bool {
         if case .edit = mode { return true }
         return false
     }
 
     private var previewColor: Color { Color(hex: colorHex) ?? .accentColor }
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var canSave: Bool { !trimmedName.isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Live preview header
-            HStack(spacing: 12) {
-                Text(emoji)
-                    .font(.system(size: 34))
-                    .frame(width: 58, height: 58)
-                    .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 14))
-                Text(name.isEmpty ? "New Profile" : name)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-            }
-            .padding(18)
-            .background(
-                LinearGradient(colors: [previewColor, previewColor.opacity(0.65)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
-            )
+            header
+            Divider()
 
-            Form {
-                Section {
-                    TextField("Name", text: $name, prompt: Text("e.g. Work, Personal, Experiments"))
-
-                    LabeledContent("Icon") {
-                        emojiGrid
-                    }
-                    LabeledContent("Color") {
-                        colorSwatches
-                    }
+            ScrollView {
+                VStack(spacing: 16) {
+                    previewStrip
+                    detailsSection
+                    resourcesSection
+                    projectSection
                 }
-
-                Section("Launch defaults") {
-                    LabeledContent("Memory limit") {
-                        HStack(spacing: 6) {
-                            TextField("MB", value: $memoryMB, format: .number.grouping(.never))
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 100)
-                            Text("MB").foregroundStyle(.secondary)
-                        }
-                    }
-                    LabeledContent("Project folder") {
-                        HStack(spacing: 6) {
-                            TextField("Optional", text: $projectPath)
-                                .textFieldStyle(.roundedBorder)
-                            Button("Choose…") { pickFolder() }
-                        }
-                    }
-                }
+                .padding(20)
             }
-            .formStyle(.grouped)
 
             Divider()
-            HStack {
-                if case .edit(let profile) = mode {
-                    Text(profile.isSystem
-                         ? "Built-in profile — ~/Library/Application Support/Cursor"
-                         : "Folder: \(profile.folderName)")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(isEditing ? "Save" : "Create Profile") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .padding(14)
+            footer
         }
-        .frame(width: 480, height: 520)
+        .frame(width: 560, height: 600)
+        .background(PrismTheme.Colors.bg)
         .onAppear(perform: populate)
     }
 
-    private var emojiGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 4), count: 10), spacing: 4) {
-            ForEach(emojiChoices, id: \.self) { choice in
-                Button {
-                    emoji = choice
-                } label: {
-                    Text(choice)
-                        .font(.system(size: 17))
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(emoji == choice ? previewColor.opacity(0.3) : .clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .strokeBorder(emoji == choice ? previewColor : .clear, lineWidth: 1.5)
-                        )
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isEditing ? "Edit Profile" : "New Profile")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PrismTheme.Colors.textPrimary)
+                Text("Each profile is an isolated Cursor instance.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+            }
+
+            Spacer()
+
+            Button(role: .cancel) {
+                close()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .help("Close (Esc)")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    // MARK: - Live preview
+
+    private var previewStrip: some View {
+        HStack(spacing: 12) {
+            Text(emoji)
+                .font(.system(size: 26))
+                .frame(width: 50, height: 50)
+                .background(previewColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(trimmedName.isEmpty ? "Profile name" : trimmedName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(trimmedName.isEmpty
+                                      ? PrismTheme.Colors.textMuted
+                                      : PrismTheme.Colors.textPrimary)
+                    .lineLimit(1)
+                Text("\(formatGB(memoryMB)) limit\(projectPath.isEmpty ? "" : " · \((projectPath as NSString).abbreviatingWithTildeInPath)")")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            Circle()
+                .fill(previewColor)
+                .frame(width: 14, height: 14)
+                .overlay(Circle().stroke(PrismTheme.Colors.borderMed, lineWidth: 1))
+                .help("Accent color")
+        }
+        .padding(12)
+        .background(PrismTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium))
+        .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium)
+            .stroke(previewColor.opacity(0.35), lineWidth: 1)
+            .allowsHitTesting(false))
+    }
+
+    // MARK: - Sections
+
+    private var detailsSection: some View {
+        section(title: "Details") {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Name")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    TextField("e.g. Work, Personal, Experiments", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
                 }
-                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Icon")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 10), spacing: 4) {
+                        ForEach(emojiChoices, id: \.self) { choice in
+                            Button {
+                                emoji = choice
+                            } label: {
+                                Text(choice)
+                                    .font(.system(size: 17))
+                                    .frame(maxWidth: .infinity, minHeight: 32)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .fill(emoji == choice
+                                                  ? previewColor.opacity(0.18)
+                                                  : PrismTheme.Colors.surfaceAlt)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7)
+                                            .strokeBorder(emoji == choice ? previewColor : .clear, lineWidth: 1.5)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Accent color")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    HStack(spacing: 8) {
+                        ForEach(AccentPalette.all) { swatch in
+                            Button {
+                                colorHex = swatch.hex
+                            } label: {
+                                Circle()
+                                    .fill(swatch.color)
+                                    .frame(width: 22, height: 22)
+                                    .overlay(
+                                        Circle().strokeBorder(
+                                            colorHex == swatch.hex ? PrismTheme.Colors.textPrimary : .clear,
+                                            lineWidth: 2)
+                                    )
+                                    .shadow(color: swatch.color.opacity(colorHex == swatch.hex ? 0.5 : 0), radius: 4)
+                            }
+                            .buttonStyle(.plain)
+                            .help(swatch.name)
+                        }
+                    }
+                }
             }
         }
     }
 
-    private var colorSwatches: some View {
-        HStack(spacing: 6) {
-            ForEach(AccentPalette.all) { swatch in
-                Button {
-                    colorHex = swatch.hex
-                } label: {
-                    Circle()
-                        .fill(swatch.color)
-                        .frame(width: 20, height: 20)
-                        .overlay(
-                            Circle().strokeBorder(.white, lineWidth: colorHex == swatch.hex ? 2 : 0)
-                        )
-                        .shadow(color: swatch.color.opacity(colorHex == swatch.hex ? 0.6 : 0), radius: 3)
+    private var resourcesSection: some View {
+        section(title: "Resources") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Memory limit — passed to Cursor as --max-memory.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+
+                HStack(spacing: 6) {
+                    memoryPreset("8 GB", value: 8192)
+                    memoryPreset("16 GB", value: 16384)
+                    memoryPreset("32 GB", value: 32768)
+                    Spacer()
+                    TextField("MB", value: $memoryMB, format: .number.grouping(.never))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .rounded))
+                        .frame(width: 90)
+                        .multilineTextAlignment(.trailing)
+                    Text("MB")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
-                .buttonStyle(.plain)
-                .help(swatch.name)
             }
         }
+    }
+
+    private var projectSection: some View {
+        section(title: "Project") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Folder opened on launch (optional).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                HStack(spacing: 6) {
+                    TextField("No folder — open Finder picker on launch", text: $projectPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .rounded))
+                    Button("Choose…") { pickFolder() }
+                }
+            }
+        }
+    }
+
+    private func section<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+                .textCase(.uppercase)
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PrismTheme.Colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium))
+            .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium)
+                .stroke(PrismTheme.Colors.border, lineWidth: 1)
+                .allowsHitTesting(false))
+        }
+    }
+
+    private func memoryPreset(_ label: String, value: Int) -> some View {
+        Button {
+            memoryMB = value
+        } label: {
+            Text(label)
+                .font(.system(size: 11, weight: memoryMB == value ? .semibold : .regular))
+        }
+        .buttonStyle(.bordered)
+        .tint(memoryMB == value ? previewColor : nil)
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack {
+            if case .edit(let profile) = mode {
+                Text(profile.isSystem
+                     ? "Built-in profile — ~/Library/Application Support/Cursor"
+                     : "Folder: \(profile.folderName)")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(PrismTheme.Colors.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            Button("Cancel", role: .cancel) { close() }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+            Button(isEditing ? "Save" : "Create Profile") { save() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canSave)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    // MARK: - Helpers
+
+    private func formatGB(_ mb: Int) -> String {
+        mb >= 1024 ? String(format: "%.0f GB", Double(mb) / 1024.0) : "\(mb) MB"
     }
 
     private func populate() {
@@ -163,22 +323,22 @@ struct ProfileEditorSheet: View {
         switch mode {
         case .create:
             let created = store.createProfile(
-                displayName: name,
+                displayName: trimmedName,
                 emoji: emoji,
                 colorHex: colorHex,
                 memoryMB: max(512, memoryMB),
                 defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject
             )
-            if created != nil { dismiss() }
+            if created != nil { close() }
         case .edit(let original):
             var updated = original
-            updated.displayName = name.trimmingCharacters(in: .whitespaces)
+            updated.displayName = trimmedName
             updated.emoji = emoji
             updated.colorHex = colorHex
             updated.defaultMemoryMB = max(512, memoryMB)
             updated.defaultProjectPath = trimmedProject.isEmpty ? nil : trimmedProject
             store.update(updated)
-            dismiss()
+            close()
         }
     }
 

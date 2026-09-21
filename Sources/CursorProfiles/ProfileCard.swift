@@ -11,156 +11,317 @@ struct ProfileCard: View {
     @State private var dropTargeted = false
     @State private var showingLaunchOptions = false
 
-    private static let cardRadius: CGFloat = 20
-
     private var isRunning: Bool { store.isRunning(profile) }
+    private var limitBytes: UInt64 { UInt64(profile.defaultMemoryMB) * 1024 * 1024 }
+    private var liveBytes: UInt64 { store.liveMemory[profile.folderName] ?? 0 }
+    private var windowCount: Int { store.windows(for: profile) }
+    /// Honest fill: live RSS against the configured --max-memory limit.
+    private var usedMemoryFraction: CGFloat {
+        guard limitBytes > 0, isRunning else { return 0 }
+        return min(1.0, CGFloat(liveBytes) / CGFloat(limitBytes))
+    }
+
+    private var windowLabel: String {
+        switch windowCount {
+        case 0: return isRunning ? "starting…" : ""
+        case 1: return "1 window"
+        default: return "\(windowCount) windows"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            topAccent
             header
-            details
+            metadata
+            actions
         }
-        .background(cardBackground)
+        .glassCard(accent: profile.accentColor, active: isRunning)
+        .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge))
         .overlay(
-            RoundedRectangle(cornerRadius: Self.cardRadius)
+            RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge)
                 .strokeBorder(
-                    dropTargeted ? profile.accentColor : Color.primary.opacity(hovering ? 0.16 : 0.07),
-                    lineWidth: dropTargeted ? 2.5 : 1
+                    dropTargeted ? profile.accentColor : Color.clear,
+                    lineWidth: 2
                 )
+                .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: Self.cardRadius))
-        .shadow(color: profile.accentColor.opacity(hovering ? 0.3 : 0.16),
-                radius: hovering ? 18 : 12, y: hovering ? 8 : 6)
-        .shadow(color: .black.opacity(hovering ? 0.1 : 0.06),
-                radius: hovering ? 6 : 4, y: hovering ? 3 : 2)
+        .glowShadow(color: profile.accentColor, radius: hovering ? 24 : 14)
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { store.launch(profile) }
         .contextMenu { contextMenuItems }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             handleDrop(providers)
         }
-        .help("Double-click to launch. Drop a folder here to open it with this profile.")
     }
 
-    // MARK: Header
+    // MARK: - Top accent strip
+
+    private var topAccent: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        profile.accentColor,
+                        profile.accentColor.opacity(0.5),
+                        profile.accentColor.opacity(0.2)
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .frame(height: 3)
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: PrismTheme.Layout.cornerLarge,
+                    topTrailingRadius: PrismTheme.Layout.cornerLarge
+                )
+            )
+    }
+
+    // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Text(profile.emoji)
-                .font(.system(size: 30))
-                .frame(width: 52, height: 52)
-                .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 15))
+        HStack(spacing: 10) {
+            // Icon box
+            ZStack {
+                RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium)
+                    .fill(
+                        LinearGradient(
+                            colors: [profile.accentColor.opacity(0.3), profile.accentColor.opacity(0.15)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                Text(profile.emoji)
+                    .font(.system(size: 22))
 
-            VStack(alignment: .leading, spacing: 3) {
+                // Running indicator dot
+                if isRunning {
+                    Circle()
+                        .fill(PrismTheme.Colors.emerald)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 16, y: 16)
+                        .shadow(color: PrismTheme.Colors.emerald.opacity(0.6), radius: 4)
+                }
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(profile.displayName)
-                        .font(.headline)
+                        .font(.system(size: PrismTheme.FontSize.regular, weight: .semibold))
+                        .foregroundStyle(PrismTheme.Colors.textPrimary)
                         .lineLimit(1)
+
                     if profile.isSystem {
                         Text("BUILT-IN")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(PrismTheme.Colors.cyan)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(.white.opacity(0.25), in: Capsule())
-                            .help("Your original Cursor profile (~/Library/Application Support/Cursor). It can be launched and cloned, but never deleted from this app.")
-                    }
-                    if profile.isPinned && !profile.isSystem {
-                        Image(systemName: "pin.fill")
-                            .font(.caption2)
-                            .opacity(0.85)
+                            .background(PrismTheme.Colors.cyan.opacity(0.15))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(PrismTheme.Colors.cyan.opacity(0.3), lineWidth: 0.5))
                     }
                 }
-                HStack(spacing: 5) {
+
+                HStack(spacing: 4) {
                     Circle()
-                        .fill(isRunning ? .green : .white.opacity(0.5))
-                        .frame(width: 7, height: 7)
-                    Text(isRunning ? "Running" : "Idle")
-                        .font(.caption)
-                        .opacity(0.9)
+                        .fill(isRunning ? PrismTheme.Colors.emerald : PrismTheme.Colors.textMuted)
+                        .frame(width: 6, height: 6)
+                    if isRunning {
+                        Text("Running")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(PrismTheme.Colors.emerald)
+                        if let pids = store.runningPIDs[profile.folderName], !pids.isEmpty {
+                            Text("PID \(pids[0])")
+                                .font(.system(size: 9, weight: .medium, design: .rounded))
+                                .foregroundStyle(PrismTheme.Colors.textTertiary)
+                        }
+                    } else {
+                        Text("Idle")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    }
                 }
             }
-            .foregroundStyle(.white)
 
             Spacer()
+
+            // More options
+            Button {
+                onEdit()
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
         }
-        .padding(14)
-        .background(
-            LinearGradient(
-                colors: [profile.accentColor, profile.accentColor.opacity(0.65)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-        )
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
-    // MARK: Details
+    // MARK: - Metadata section
 
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Label(Format.bytes(store.sizes[profile.folderName]), systemImage: "internaldrive")
-                Label(Format.relative(profile.lastLaunchedAt), systemImage: "clock")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            if let project = profile.defaultProjectPath, !project.isEmpty {
-                Label {
+    private var metadata: some View {
+        VStack(spacing: 8) {
+            // Path + PID
+            HStack(spacing: 8) {
+                if let project = profile.defaultProjectPath, !project.isEmpty {
+                    Image(systemName: "folder")
+                        .font(.system(size: 9))
+                        .foregroundStyle(PrismTheme.Colors.textMuted)
                     Text((project as NSString).abbreviatingWithTildeInPath)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                } icon: {
+                } else {
                     Image(systemName: "folder")
+                        .font(.system(size: 9))
+                        .foregroundStyle(PrismTheme.Colors.textMuted)
+                    Text("No project set")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textMuted)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 8) {
-                Button {
-                    store.launch(profile)
-                } label: {
-                    Label(isRunning ? "New Window" : "Launch", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .tint(profile.accentColor)
-                .shadow(color: profile.accentColor.opacity(0.45), radius: 8, y: 3)
-
-                Button {
-                    showingLaunchOptions = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .help("Launch with options…")
-                .popover(isPresented: $showingLaunchOptions, arrowEdge: .bottom) {
-                    LaunchOptionsView(profile: profile)
-                }
-
+            // Live memory (measured RSS) vs configured limit
+            HStack(spacing: 6) {
+                Text("Memory")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(PrismTheme.Colors.textMuted)
                 if isRunning {
-                    Button {
-                        store.quit(profile)
-                    } label: {
-                        Image(systemName: "stop.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .help("Quit this profile")
+                    Text(Format.bytes(Int64(liveBytes)))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(profile.accentColor)
+                    Text("/ \(formatMB(profile.defaultMemoryMB)) limit")
+                        .font(.system(size: 9, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textMuted)
+                } else {
+                    Text("\(formatMB(profile.defaultMemoryMB)) limit")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
+                Spacer()
+                Text(windowLabel)
+                    .font(.system(size: 9, design: .rounded))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+            }
+            .help(isRunning ? "Live resident memory of this profile's Cursor processes" : "Configured --max-memory limit applied at launch")
 
-                if store.duplicating.contains(profile.folderName) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .help("Cloning profile data…")
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(PrismTheme.Colors.surfaceHigh)
+                        .frame(height: 4)
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [profile.accentColor, profile.accentColor.opacity(0.5)],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * usedMemoryFraction, height: 4)
                 }
             }
+            .frame(height: 4)
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
     }
 
-    // MARK: Context menu
+    // MARK: - Action buttons
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            Button {
+                // A running instance needs --new-window, otherwise this
+                // just refocuses and looks dead.
+                store.launch(profile, newWindow: isRunning)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: isRunning ? "plus" : "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                    Text(isRunning ? "New Window" : "Launch")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(PrismTheme.Colors.textPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(
+                    isRunning
+                        ? AnyShapeStyle(PrismTheme.Colors.surfaceHigh)
+                        : AnyShapeStyle(
+                            LinearGradient(
+                                colors: [profile.accentColor, profile.accentColor.opacity(0.8)],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                          )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall)
+                        .strokeBorder(
+                            isRunning ? PrismTheme.Colors.border : profile.accentColor.opacity(0.4),
+                            lineWidth: 0.5
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showingLaunchOptions = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .frame(width: 30, height: 30)
+                    .background(PrismTheme.Colors.surfaceAlt)
+                    .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
+                    .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showingLaunchOptions, arrowEdge: .bottom) {
+                LaunchOptionsView(profile: profile)
+            }
+
+            if isRunning {
+                Button {
+                    store.quit(profile)
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PrismTheme.Colors.red)
+                        .frame(width: 30, height: 30)
+                        .background(PrismTheme.Colors.red.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
+                        .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall).stroke(PrismTheme.Colors.red.opacity(0.2), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if store.duplicating.contains(profile.folderName) {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Helpers
+
+    private func formatMB(_ mb: Int) -> String {
+        if mb >= 1024 {
+            return String(format: "%.0f GB", Double(mb) / 1024.0)
+        }
+        return "\(mb) MB"
+    }
+
+    // MARK: - Context menu
 
     @ViewBuilder
     private var contextMenuItems: some View {
@@ -183,15 +344,6 @@ struct ProfileCard: View {
         }
     }
 
-    private var cardBackground: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Self.cardRadius)
-                .fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: Self.cardRadius)
-                .fill(profile.accentColor.opacity(0.05))
-        }
-    }
-
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -211,7 +363,7 @@ extension FileManager {
     }
 }
 
-// MARK: - Launch options popover
+// MARK: - Launch options popover (redesigned)
 
 struct LaunchOptionsView: View {
     @EnvironmentObject var store: ProfileStore
@@ -224,32 +376,82 @@ struct LaunchOptionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Launch “\(profile.displayName)”")
-                .font(.headline)
+            // Header
+            HStack(spacing: 10) {
+                PrismLogoView(size: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Launch \"\(profile.displayName)\"")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PrismTheme.Colors.textPrimary)
+                    Text("Quick launch configuration")
+                        .font(.system(size: 10))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                }
+            }
 
-            LabeledContent("Memory limit") {
+            Divider().overlay(PrismTheme.Colors.border)
+
+            // Memory
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Memory limit")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
                 HStack(spacing: 6) {
                     TextField("MB", value: $memoryMB, format: .number.grouping(.never))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
-                    Text("MB").foregroundStyle(.secondary)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.cyan)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(PrismTheme.Colors.bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                        .frame(width: 80)
+                    Text("MB")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
             }
 
-            LabeledContent("Project folder") {
+            // Project
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Project folder")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
                 HStack(spacing: 6) {
                     TextField("Optional", text: $projectPath)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 200)
-                    Button("Choose…") { pickFolder() }
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textPrimary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(PrismTheme.Colors.bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                    Button("…") { pickFolder() }
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 28, height: 28)
+                        .background(PrismTheme.Colors.surfaceAlt)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                        .buttonStyle(.plain)
                 }
             }
 
-            Toggle("Force a new window", isOn: $newWindow)
+            Toggle(isOn: $newWindow) {
+                Text("Force a new window")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+            }
+            .toggleStyle(.checkbox)
+
+            Divider().overlay(PrismTheme.Colors.border)
 
             HStack {
-                Spacer()
                 Button("Cancel") { dismiss() }
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                Spacer()
                 Button("Launch") {
                     store.launch(
                         profile,
@@ -259,12 +461,13 @@ struct LaunchOptionsView: View {
                     )
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrismGlowButtonStyle(color: profile.accentColor))
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18)
-        .frame(width: 360)
+        .padding(16)
+        .frame(width: 320)
+        .background(PrismTheme.Colors.surface)
         .onAppear {
             memoryMB = profile.defaultMemoryMB
             projectPath = profile.defaultProjectPath ?? ""

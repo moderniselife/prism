@@ -10,8 +10,24 @@ final class ProfileStore: ObservableObject {
     @Published var profiles: [CursorProfile] = []
     @Published var sizes: [String: Int64] = [:]
     @Published var runningPIDs: [String: [Int32]] = [:]
+    /// Live resident memory per profile (bytes, summed RSS of its processes).
+    @Published var liveMemory: [String: UInt64] = [:]
+    /// Live CPU % per profile (summed %cpu of its processes).
+    @Published var liveCPU: [String: Double] = [:]
+    /// Real on-screen window counts per profile.
+    @Published var windowCounts: [String: Int] = [:]
+    /// Real system-wide CPU %, nil until the second sample.
+    @Published var systemCPU: Double?
     @Published var duplicating: Set<String> = []
     @Published var lastError: String?
+
+    private let cpuMonitor = SystemCPUMonitor()
+
+    /// Real total RAM of this Mac.
+    var physicalMemory: UInt64 { SystemStats.physicalMemory }
+
+    /// Real summed RSS of every running profile.
+    var liveMemoryTotal: UInt64 { liveMemory.values.reduce(0, +) }
 
     @AppStorage("customCursorPath") var customCursorPath: String = ""
     @AppStorage("defaultMemoryMB") var defaultMemoryMB: Int = 16384
@@ -269,6 +285,20 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    func quitAll() {
+        for profile in profiles where isRunning(profile) {
+            CursorLauncher.quit(pids: runningPIDs[profile.folderName] ?? [])
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.refreshRunning()
+        }
+    }
+
+    /// Windows actually on screen for a profile (counted, not guessed).
+    func windows(for profile: CursorProfile) -> Int {
+        windowCounts[profile.folderName] ?? 0
+    }
+
     // MARK: Background refreshers
 
     /// Refreshes "Running" status periodically, but only while a window is
@@ -285,14 +315,43 @@ final class ProfileStore: ObservableObject {
         let items = profiles.map { ($0.folderName, directory(for: $0), $0.isSystem) }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let processes = CursorLauncher.processList()
-            var result: [String: [Int32]] = [:]
+            let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
+                ($0.pid, (rssKB: $0.rssKB, cpu: $0.cpuPercent))
+            })
+            var pidsByName: [String: [Int32]] = [:]
+            var memByName: [String: UInt64] = [:]
+            var cpuByName: [String: Double] = [:]
+            var allPIDs: [Int32] = []
             for (name, dir, isSystem) in items {
-                result[name] = isSystem
+                let matched = isSystem
                     ? CursorLauncher.systemProfilePIDs(in: processes)
                     : CursorLauncher.pids(in: processes, profileDir: dir)
+                pidsByName[name] = matched
+                var rss: Int64 = 0
+                var cpu = 0.0
+                for pid in matched {
+                    rss += statsByPid[pid]?.rssKB ?? 0
+                    cpu += statsByPid[pid]?.cpu ?? 0
+                }
+                memByName[name] = UInt64(max(0, rss)) * 1024
+                cpuByName[name] = cpu
+                allPIDs.append(contentsOf: matched)
+            }
+            let winsByPid = SystemStats.windowCounts(for: allPIDs)
+            var winsByName: [String: Int] = [:]
+            for (name, pids) in pidsByName {
+                winsByName[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
             }
             DispatchQueue.main.async {
-                self?.runningPIDs = result
+                self?.runningPIDs = pidsByName
+                self?.liveMemory = memByName
+                self?.liveCPU = cpuByName
+                self?.windowCounts = winsByName
+                // host_statistics is microseconds-cheap; sample on main to
+                // respect @MainActor isolation.
+                if let sysCPU = self?.cpuMonitor.usage() {
+                    self?.systemCPU = sysCPU
+                }
             }
         }
     }

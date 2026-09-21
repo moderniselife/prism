@@ -83,14 +83,17 @@ enum CursorLauncher {
 
     struct ProcessEntry {
         let pid: Int32
+        let rssKB: Int64      // resident set size, kilobytes (live RAM)
+        let cpuPercent: Double
         let command: String
     }
 
-    /// One snapshot of all processes (pid + full command line).
+    /// One snapshot of all processes (pid + live RSS + CPU % + command line).
+    /// Single `ps` invocation so RSS/CPU/PID detection never disagree.
     static func processList() -> [ProcessEntry] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["ax", "-o", "pid=,command="]
+        process.arguments = ["ax", "-o", "pid=,rss=,%cpu=,command="]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -101,9 +104,13 @@ enum CursorLauncher {
 
         return output.split(separator: "\n").compactMap { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard let pidStr = trimmed.split(separator: " ").first,
-                  let pid = Int32(pidStr) else { return nil }
-            return ProcessEntry(pid: pid, command: String(trimmed))
+            let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+            guard parts.count >= 4,
+                  let pid = Int32(parts[0]),
+                  let rss = Int64(parts[1]) else { return nil }
+            let cpu = Double(parts[2].replacingOccurrences(of: ",", with: ".")) ?? 0
+            let command = parts[3...].joined(separator: " ")
+            return ProcessEntry(pid: pid, rssKB: rss, cpuPercent: cpu, command: command)
         }
     }
 
