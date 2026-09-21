@@ -10,7 +10,7 @@
         <Border x:Name="PreviewHeader" Padding="18,14">
             <StackPanel Orientation="Horizontal">
                 <Border Background="#38FFFFFF" CornerRadius="12" Width="52" Height="52" Margin="0,0,12,0">
-                    <TextBlock x:Name="PreviewEmoji" FontSize="26"
+                    <TextBlock x:Name="PreviewInitial" FontSize="24" FontWeight="Bold"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
                 <TextBlock x:Name="PreviewName" Text="New Profile" FontSize="19" FontWeight="Bold"
@@ -22,9 +22,6 @@
             <TextBlock Text="Name" FontWeight="SemiBold" Margin="0,0,0,6"/>
             <TextBox x:Name="NameBox" Style="{StaticResource DarkField}"
                      TextChanged="NameBox_TextChanged"/>
-
-            <TextBlock Text="Icon" FontWeight="SemiBold" Margin="0,14,0,6"/>
-            <WrapPanel x:Name="EmojiPanel"/>
 
             <TextBlock Text="Color" FontWeight="SemiBold" Margin="0,14,0,6"/>
             <WrapPanel x:Name="ColorPanel"/>

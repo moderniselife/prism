@@ -285,8 +285,9 @@ struct MenuBarProfileItem: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(profile.accentColor.opacity(0.18))
-                    Text(profile.emoji)
-                        .font(.system(size: 16))
+                    Text(profile.initial)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(profile.accentColor)
                     if isRunning {
                         Circle()
                             .fill(PrismTheme.Colors.emerald)

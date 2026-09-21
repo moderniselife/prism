@@ -51,13 +51,6 @@ PALETTE = [
     ("Blue", "#3B82F6"), ("Slate", "#64748B"), ("Lime", "#84CC16"),
 ]
 
-EMOJIS = [
-    "🖥️", "🚀", "⚡", "🔥", "🧪", "🎨", "🛠️", "🧠", "💼", "🏠",
-    "🌙", "☀️", "🐙", "🦄", "🍕", "🎮", "🔒", "🌈", "💎", "🤖",
-    "👾", "🧬", "📦", "🪄", "🐉", "🍄", "🌊", "🏴‍☠️", "🎧", "⭐",
-]
-
-
 def apple_seconds(dt):
     return (dt - APPLE_EPOCH).total_seconds() if dt else None
 
@@ -110,7 +103,9 @@ def shade(hex_color: str, factor: float) -> str:
 class Profile:
     folderName: str
     displayName: str
-    emoji: str = "🖥️"
+    # NOTE: older .profiles.json files may contain an "emoji" key. It has no
+    # corresponding field; .get() lookups below simply ignore it, so old
+    # files still load and new files omit it.
     colorHex: str = "#6366F1"
     defaultMemoryMB: int = 16384
     defaultProjectPath: str | None = None
@@ -119,11 +114,16 @@ class Profile:
     isPinned: bool = False
     isSystem: bool = False
 
+    @property
+    def initial(self) -> str:
+        """Tile glyph: first letter of the display name, uppercased."""
+        name = (self.displayName or "").strip()
+        return name[0].upper() if name else "?"
+
     def to_json(self):
         return {
             "folderName": self.folderName,
             "displayName": self.displayName,
-            "emoji": self.emoji,
             "colorHex": self.colorHex,
             "defaultMemoryMB": self.defaultMemoryMB,
             "defaultProjectPath": self.defaultProjectPath,
@@ -138,7 +138,6 @@ class Profile:
         return cls(
             folderName=data["folderName"],
             displayName=data["displayName"],
-            emoji=data.get("emoji", "🖥️"),
             colorHex=data.get("colorHex", "#6366F1"),
             defaultMemoryMB=data.get("defaultMemoryMB", 16384),
             defaultProjectPath=data.get("defaultProjectPath"),
@@ -279,7 +278,7 @@ class LauncherBuilder:
 
         icon_value = str(cls.icon_path(profile))
         if cairo is not None:
-            cls._render_png(profile.emoji, profile.colorHex, cls.icon_path(profile))
+            cls._render_png(profile.initial, profile.colorHex, cls.icon_path(profile))
         else:
             icon_value = "utilities-terminal"  # themed fallback, always resolvable
 
@@ -328,7 +327,7 @@ class LauncherBuilder:
             pass
 
     @staticmethod
-    def _render_png(emoji: str, color_hex: str, output_path: Path, size: int = 256):
+    def _render_png(glyph: str, color_hex: str, output_path: Path, size: int = 256):
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
         ctx = cairo.Context(surface)
 
@@ -346,8 +345,9 @@ class LauncherBuilder:
         ctx.fill()
 
         layout = PangoCairo.create_layout(ctx)
-        layout.set_text(emoji, -1)
+        layout.set_text(glyph, -1)
         font = Pango.FontDescription()
+        font.set_weight(Pango.Weight.BOLD)
         font.set_size(int(size * 0.5 * Pango.SCALE))
         layout.set_font_description(font)
         text_w, text_h = layout.get_pixel_size()
@@ -497,7 +497,6 @@ class Store:
             known.insert(0, Profile(
                 folderName=SYSTEM_FOLDER_NAME,
                 displayName="Main Cursor",
-                emoji="⭐",
                 colorHex="#3B82F6",
                 isPinned=True,
                 isSystem=True,
@@ -524,7 +523,7 @@ class Store:
             counter += 1
         return folder
 
-    def create(self, name, emoji, color_hex, memory_mb, project_path):
+    def create(self, name, color_hex, memory_mb, project_path):
         base = sanitize_folder_name(name.replace(" ", "_"))
         if not base:
             self.on_error("Profile name must contain at least one letter, number, hyphen or underscore.")
@@ -532,7 +531,6 @@ class Store:
         profile = Profile(
             folderName=self.unique_folder_name(base),
             displayName=name.strip(),
-            emoji=emoji,
             colorHex=color_hex,
             defaultMemoryMB=memory_mb,
             defaultProjectPath=project_path or None,
@@ -585,7 +583,6 @@ class Store:
         copy = Profile(
             folderName=folder,
             displayName="Main Cursor Clone" if profile.isSystem else profile.displayName + " Copy",
-            emoji=profile.emoji,
             colorHex=profile.colorHex,
             defaultMemoryMB=profile.defaultMemoryMB,
             defaultProjectPath=profile.defaultProjectPath,
@@ -957,7 +954,7 @@ class MainWindow(Adw.ApplicationWindow):
             ".profile-card { background: #0f131c; border: 1px solid alpha(white, 0.12); "
             "border-radius: 16px; }",
             # Kept for the editor preview, whose header is still a gradient.
-            ".emoji-tile { background: alpha(white, 0.25); border-radius: 11px; font-size: 22px; }",
+            ".preview-tile { background: alpha(white, 0.25); border-radius: 11px; font-size: 22px; }",
             ".card-strip { min-height: 3px; border-radius: 8px 8px 0 0; }",
             ".card-header { border-radius: 13px 13px 0 0; padding: 12px; }",
             ".on-header { color: white; }",
@@ -965,6 +962,7 @@ class MainWindow(Adw.ApplicationWindow):
             ".card-status-running { color: #34d399; }",
             ".card-status-idle { color: #a8b0c4; }",
             ".card-muted { color: #8b94a5; }",
+            ".tile-glyph { font-weight: 800; font-size: 20px; }",
             ".badge { background: alpha(white, 0.07); color: #b7bfcd; "
             "border: 1px solid alpha(white, 0.14); font-size: 8pt; font-weight: 800; "
             "border-radius: 6px; padding: 1px 5px; }",
@@ -981,6 +979,8 @@ class MainWindow(Adw.ApplicationWindow):
                 f".strip-{tag} {{ background: linear-gradient(90deg, {hex_color}, {shade(hex_color, 0.55)}); }}")
             rules.append(
                 f".tile-{tag} {{ background: alpha({hex_color}, 0.2); border-radius: 12px; font-size: 22px; }}")
+            rules.append(
+                f".tilefg-{tag} {{ color: {hex_color}; }}")
             rules.append(
                 f".btn-{tag} {{ background: {hex_color}; color: white; }}")
             rules.append(
@@ -1034,9 +1034,11 @@ class MainWindow(Adw.ApplicationWindow):
         # Flat header (no more full-bleed gradient)
         header = Gtk.Box(spacing=12, margin_top=12, margin_bottom=8,
                          margin_start=14, margin_end=14)
-        emoji = Gtk.Label(label=profile.emoji, width_request=44, height_request=44)
-        emoji.add_css_class(f"tile-{tag}")
-        header.append(emoji)
+        tile = Gtk.Label(label=profile.initial, width_request=44, height_request=44)
+        tile.add_css_class(f"tile-{tag}")
+        tile.add_css_class(f"tilefg-{tag}")
+        tile.add_css_class("tile-glyph")
+        header.append(tile)
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=3)
         name_row = Gtk.Box(spacing=6)
@@ -1079,7 +1081,7 @@ class MainWindow(Adw.ApplicationWindow):
         details.append(meta)
 
         if profile.defaultProjectPath:
-            proj = Gtk.Label(label="📁 " + profile.defaultProjectPath, xalign=0,
+            proj = Gtk.Label(label=profile.defaultProjectPath, xalign=0,
                              ellipsize=Pango.EllipsizeMode.MIDDLE)
             proj.add_css_class("caption")
             proj.add_css_class("dim-label")
@@ -1163,8 +1165,8 @@ class MainWindow(Adw.ApplicationWindow):
             spinner.set_visible(duplicating)
             spinner.set_spinning(duplicating)
             meta.set_label(
-                f"💾 {format_bytes(self.store.sizes.get(profile.folderName))}   "
-                f"🕓 {format_relative(profile.lastLaunchedAt)}")
+                f"Disk {format_bytes(self.store.sizes.get(profile.folderName))}  ·  "
+                f"{format_relative(profile.lastLaunchedAt)}")
         self.status_updaters.append(update)
         update()
 
@@ -1264,7 +1266,6 @@ class EditorDialog(Adw.Window):
         self.parent_window = parent
         self.store = store
         self.profile = profile
-        self.emoji = profile.emoji if profile else EMOJIS[0]
         self.color_hex = profile.colorHex if profile else PALETTE[hash(os.urandom(4)) % len(PALETTE)][1]
 
         root = Adw.ToolbarView()
@@ -1285,9 +1286,10 @@ class EditorDialog(Adw.Window):
         # Live preview
         self.preview = Gtk.Box(spacing=12)
         self.preview.add_css_class("card-header")
-        self.preview_emoji = Gtk.Label(width_request=48, height_request=48)
-        self.preview_emoji.add_css_class("emoji-tile")
-        self.preview.append(self.preview_emoji)
+        self.preview_tile = Gtk.Label(width_request=48, height_request=48)
+        self.preview_tile.add_css_class("preview-tile")
+        self.preview_tile.add_css_class("tile-glyph")
+        self.preview.append(self.preview_tile)
         self.preview_name = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
         self.preview_name.add_css_class("title-2")
         self.preview_name.add_css_class("on-header")
@@ -1303,16 +1305,6 @@ class EditorDialog(Adw.Window):
                                     text=profile.displayName if profile else "")
         self.name_entry.connect("changed", lambda *_: self.update_preview())
         form.append(self._labeled("Name", self.name_entry))
-
-        emoji_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
-                                 max_children_per_line=10, min_children_per_line=10)
-        self.emoji_buttons = {}
-        for choice in EMOJIS:
-            btn = Gtk.Button(label=choice, has_frame=False)
-            btn.connect("clicked", lambda *_, c=choice: self.set_emoji(c))
-            self.emoji_buttons[choice] = btn
-            emoji_flow.append(btn)
-        form.append(self._labeled("Icon", emoji_flow))
 
         color_box = Gtk.Box(spacing=6)
         self.color_buttons = {}
@@ -1359,10 +1351,6 @@ class EditorDialog(Adw.Window):
         box.append(widget)
         return box
 
-    def set_emoji(self, emoji):
-        self.emoji = emoji
-        self.update_preview()
-
     def set_color(self, hex_color):
         self.color_hex = hex_color
         self.update_preview()
@@ -1372,11 +1360,9 @@ class EditorDialog(Adw.Window):
             if css.startswith("hdr-"):
                 self.preview.remove_css_class(css)
         self.preview.add_css_class(f"hdr-{self.color_hex.lstrip('#')}")
-        self.preview_emoji.set_label(self.emoji)
         name = self.name_entry.get_text().strip()
+        self.preview_tile.set_label(name[0].upper() if name else "?")
         self.preview_name.set_label(name or "New Profile")
-        for choice, btn in self.emoji_buttons.items():
-            btn.set_opacity(1.0 if choice == self.emoji else 0.45)
         for hex_color, btn in self.color_buttons.items():
             if hex_color == self.color_hex:
                 btn.add_css_class("suggested-action")
@@ -1403,12 +1389,12 @@ class EditorDialog(Adw.Window):
         project = self.project.get_text().strip() or None
         if self.profile:
             p = self.profile
-            p.displayName, p.emoji, p.colorHex = name, self.emoji, self.color_hex
+            p.displayName, p.colorHex = name, self.color_hex
             p.defaultMemoryMB, p.defaultProjectPath = memory, project
             self.store.update(p)
             self.close()
         else:
-            if self.store.create(name, self.emoji, self.color_hex, memory, project):
+            if self.store.create(name, self.color_hex, memory, project):
                 self.close()
 
 

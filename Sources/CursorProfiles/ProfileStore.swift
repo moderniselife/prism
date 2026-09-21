@@ -91,7 +91,6 @@ final class ProfileStore: ObservableObject {
             known.insert(CursorProfile(
                 folderName: CursorProfile.systemFolderName,
                 displayName: "Main Cursor",
-                emoji: "⭐️",
                 colorHex: "#3B82F6",
                 isPinned: true,
                 isSystem: true
@@ -123,7 +122,6 @@ final class ProfileStore: ObservableObject {
 
     @discardableResult
     func createProfile(displayName: String,
-                       emoji: String,
                        colorHex: String,
                        memoryMB: Int,
                        defaultProjectPath: String?) -> CursorProfile? {
@@ -143,7 +141,6 @@ final class ProfileStore: ObservableObject {
         let profile = CursorProfile(
             folderName: folder,
             displayName: displayName.trimmingCharacters(in: .whitespaces),
-            emoji: emoji,
             colorHex: colorHex,
             defaultMemoryMB: memoryMB,
             defaultProjectPath: defaultProjectPath

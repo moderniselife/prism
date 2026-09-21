@@ -21,7 +21,6 @@ struct ProfileEditorSheet: View {
     var onClose: (() -> Void)? = nil
 
     @State private var name = ""
-    @State private var emoji = emojiChoices[0]
     @State private var colorHex = AccentPalette.all[0].hex
     @State private var memoryMB = 16384
     @State private var projectPath = ""
@@ -95,10 +94,16 @@ struct ProfileEditorSheet: View {
 
     // MARK: - Live preview
 
+    private var previewInitial: String {
+        guard let first = trimmedName.first else { return "?" }
+        return String(first).uppercased()
+    }
+
     private var previewStrip: some View {
         HStack(spacing: 12) {
-            Text(emoji)
-                .font(.system(size: 26))
+            Text(previewInitial)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(previewColor)
                 .frame(width: 50, height: 50)
                 .background(previewColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
 
@@ -144,34 +149,6 @@ struct ProfileEditorSheet: View {
                     TextField("e.g. Work, Personal, Experiments", text: $name)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12))
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Icon")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 10), spacing: 4) {
-                        ForEach(emojiChoices, id: \.self) { choice in
-                            Button {
-                                emoji = choice
-                            } label: {
-                                Text(choice)
-                                    .font(.system(size: 17))
-                                    .frame(maxWidth: .infinity, minHeight: 32)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(emoji == choice
-                                                  ? previewColor.opacity(0.18)
-                                                  : PrismTheme.Colors.surfaceAlt)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .strokeBorder(emoji == choice ? previewColor : .clear, lineWidth: 1.5)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -312,7 +289,6 @@ struct ProfileEditorSheet: View {
             colorHex = AccentPalette.random().hex
         case .edit(let profile):
             name = profile.displayName
-            emoji = profile.emoji
             colorHex = profile.colorHex
             memoryMB = profile.defaultMemoryMB
             projectPath = profile.defaultProjectPath ?? ""
@@ -325,7 +301,6 @@ struct ProfileEditorSheet: View {
         case .create:
             let created = store.createProfile(
                 displayName: trimmedName,
-                emoji: emoji,
                 colorHex: colorHex,
                 memoryMB: max(512, memoryMB),
                 defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject
@@ -334,7 +309,6 @@ struct ProfileEditorSheet: View {
         case .edit(let original):
             var updated = original
             updated.displayName = trimmedName
-            updated.emoji = emoji
             updated.colorHex = colorHex
             updated.defaultMemoryMB = max(512, memoryMB)
             updated.defaultProjectPath = trimmedProject.isEmpty ? nil : trimmedProject

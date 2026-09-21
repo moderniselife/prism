@@ -8,8 +8,8 @@ namespace CursorProfiles;
 
 /// <summary>
 /// Builds a per-profile Start Menu shortcut with a generated icon (gradient
-/// squircle + emoji), so a profile can be pinned to the taskbar and always
-/// opens the right --user-data-dir.
+/// squircle + profile initial), so a profile can be pinned to the taskbar
+/// and always opens the right --user-data-dir.
 /// </summary>
 public static class ShortcutBuilder
 {
@@ -34,7 +34,9 @@ public static class ShortcutBuilder
         Directory.CreateDirectory(IconsDir);
 
         var iconPath = IconPath(profile);
-        IconBuilder.WriteIco(profile.Emoji, Palette.ColorFromHexGdi(profile.ColorHex), iconPath);
+        var name = (profile.DisplayName ?? "").Trim();
+        var initial = name.Length == 0 ? "?" : name.Substring(0, 1).ToUpperInvariant();
+        IconBuilder.WriteIco(initial, Palette.ColorFromHexGdi(profile.ColorHex), iconPath);
 
         var exe = CursorLauncher.FindCursor(cursorPath) ?? "Cursor.exe";
         var args = profile.IsSystem
@@ -80,15 +82,16 @@ public static class IconBuilder
 {
     private static readonly int[] Sizes = { 16, 32, 48, 64, 128, 256 };
 
-    /// <summary>Render a gradient squircle with the emoji centered, at every
-    /// standard size, and pack them into a single multi-resolution .ico
-    /// (large sizes use embedded PNG, matching how Explorer/taskbar icons work).</summary>
-    public static void WriteIco(string emoji, Color color, string outputPath)
+    /// <summary>Render a gradient squircle with the profile initial centered,
+    /// at every standard size, and pack them into a single multi-resolution
+    /// .ico (large sizes use embedded PNG, matching how Explorer/taskbar
+    /// icons work).</summary>
+    public static void WriteIco(string glyph, Color color, string outputPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var frames = new List<(int size, byte[] png)>();
         foreach (var size in Sizes)
-            frames.Add((size, RenderPng(emoji, color, size)));
+            frames.Add((size, RenderPng(glyph, color, size)));
 
         using var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
         using var writer = new BinaryWriter(stream);
@@ -115,7 +118,7 @@ public static class IconBuilder
             writer.Write(png);
     }
 
-    private static byte[] RenderPng(string emoji, Color color, int size)
+    private static byte[] RenderPng(string glyph, Color color, int size)
     {
         using var bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
@@ -136,15 +139,15 @@ public static class IconBuilder
         var fontSize = size * 0.52f;
         try
         {
-            using var font = new Font("Segoe UI Emoji", fontSize, GraphicsUnit.Pixel);
-            var textSize = g.MeasureString(emoji, font);
+            using var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
+            var textSize = g.MeasureString(glyph, font);
             var point = new PointF((size - textSize.Width) / 2, (size - textSize.Height) / 2);
-            g.DrawString(emoji, font, Brushes.White, point);
+            g.DrawString(glyph, font, Brushes.White, point);
         }
         catch (ArgumentException)
         {
-            // Segoe UI Emoji unavailable — fall back to a plain glyph so the
-            // icon still renders something rather than throwing.
+            // Font unavailable — leave the gradient squircle without a glyph
+            // so the icon still renders something rather than throwing.
         }
 
         using var ms = new MemoryStream();

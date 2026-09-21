@@ -92,8 +92,9 @@ struct ProfileCard: View {
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
-                Text(profile.emoji)
-                    .font(.system(size: 22))
+                Text(profile.initial)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(profile.accentColor)
 
                 // Running indicator dot
                 if isRunning {

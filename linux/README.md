@@ -44,9 +44,9 @@ Checks `cursor` on PATH, `/usr/bin`, `/usr/local/bin`, `/opt/cursor`,
 
 ## Pinning a profile to the dash/dock
 
-The 📌 button on a card (or "Create Dash Launcher…" in its menu) writes a
+The Pin button on a card (or "Create Dash Launcher…" in its menu) writes a
 `.desktop` file to `~/.local/share/applications/cursor-profile-<name>.desktop`
-with a generated icon (your profile's color + emoji) in
+with a generated icon (your profile's color + initial) in
 `~/.local/share/icons/hicolor/256x256/apps/`. It shows up in the app grid —
 search for the profile name, then right-click to **Add to Favorites** (GNOME)
 or pin to your dock/taskbar (KDE, etc.). It always launches that exact

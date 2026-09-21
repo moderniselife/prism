@@ -33,7 +33,7 @@ public class ProfileVM : INotifyPropertyChanged
 
     public void RaiseAll()
     {
-        foreach (var p in new[] { nameof(DisplayName), nameof(Emoji), nameof(HeaderBrush),
+        foreach (var p in new[] { nameof(DisplayName), nameof(Initial), nameof(HeaderBrush),
                  nameof(AccentBrush), nameof(AccentColor), nameof(StripBrush), nameof(IconBrush),
                  nameof(SizeText), nameof(LastLaunchedText), nameof(IsRunning),
                  nameof(IsSystem), nameof(ShowPin), nameof(ProjectText), nameof(HasProject),
@@ -87,7 +87,15 @@ public class ProfileVM : INotifyPropertyChanged
 
     // Bindable projections
     public string DisplayName => Model.DisplayName;
-    public string Emoji => Model.Emoji;
+    /// <summary>Tile glyph: first letter of the display name, uppercased.</summary>
+    public string Initial
+    {
+        get
+        {
+            var name = (Model.DisplayName ?? "").Trim();
+            return name.Length == 0 ? "?" : name[..1].ToUpperInvariant();
+        }
+    }
     public bool IsSystem => Model.IsSystem;
     public bool ShowPin => Model.IsPinned && !Model.IsSystem;
     public bool IsRunning => _runningPids.Count > 0;
@@ -242,7 +250,6 @@ public class ProfileStore
             {
                 FolderName = CursorProfile.SystemFolderName,
                 DisplayName = "Main Cursor",
-                Emoji = "⭐",
                 ColorHex = "#3B82F6",
                 IsPinned = true,
                 IsSystem = true,
@@ -283,7 +290,7 @@ public class ProfileStore
 
     // MARK: CRUD
 
-    public ProfileVM? CreateProfile(string displayName, string emoji, string colorHex,
+    public ProfileVM? CreateProfile(string displayName, string colorHex,
                                     int memoryMB, string? projectPath)
     {
         var baseName = ProfileNaming.SanitizeFolderName(displayName.Replace(' ', '_'));
@@ -298,7 +305,6 @@ public class ProfileStore
         {
             FolderName = folder,
             DisplayName = displayName.Trim(),
-            Emoji = emoji,
             ColorHex = colorHex,
             DefaultMemoryMB = memoryMB,
             DefaultProjectPath = string.IsNullOrWhiteSpace(projectPath) ? null : projectPath,
@@ -335,7 +341,6 @@ public class ProfileStore
         var before = vm.Model;
         var colorChanged = before.ColorHex != updated.ColorHex;
         var cosmeticsChanged = before.DisplayName != updated.DisplayName
-            || before.Emoji != updated.Emoji
             || colorChanged
             || before.DefaultMemoryMB != updated.DefaultMemoryMB
             || before.DefaultProjectPath != updated.DefaultProjectPath;

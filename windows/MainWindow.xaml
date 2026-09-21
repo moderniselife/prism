@@ -122,7 +122,8 @@
                                         <StackPanel Orientation="Horizontal">
                                             <Grid Width="44" Height="44" Margin="0,0,12,0">
                                                 <Border Background="{Binding IconBrush}" CornerRadius="12"/>
-                                                <TextBlock Text="{Binding Emoji}" FontSize="22"
+                                                <TextBlock Text="{Binding Initial}" FontSize="20" FontWeight="Bold"
+                                                           Foreground="{Binding AccentBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
                                                          HorizontalAlignment="Right" VerticalAlignment="Bottom"
@@ -142,8 +143,13 @@
                                                         <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold"
                                                                    Foreground="{StaticResource SubTextBrush}"/>
                                                     </Border>
-                                                    <TextBlock Text="📌" FontSize="10" Margin="6,0,0,0"
-                                                               Visibility="{Binding ShowPin, Converter={StaticResource BoolToVis}}"/>
+                                                    <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
+                                                            VerticalAlignment="Center"
+                                                            BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
+                                                            Visibility="{Binding ShowPin, Converter={StaticResource BoolToVis}}">
+                                                        <TextBlock Text="PIN" FontSize="8" FontWeight="Bold"
+                                                                   Foreground="{StaticResource SubTextBrush}"/>
+                                                    </Border>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                                                     <Ellipse Width="7" Height="7" Fill="{Binding DotBrush}"
@@ -160,14 +166,12 @@
 
                                     <!-- Details -->
                                     <StackPanel Margin="14,2,14,14">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="💾" FontSize="11" Foreground="{StaticResource SubTextBrush}"/>
-                                            <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="4,0,12,0"
-                                                       Foreground="{StaticResource SubTextBrush}"/>
-                                            <TextBlock Text="🕓" FontSize="11" Foreground="{StaticResource SubTextBrush}"/>
-                                            <TextBlock Text="{Binding LastLaunchedText}" FontSize="11" Margin="4,0,0,0"
-                                                       Foreground="{StaticResource SubTextBrush}"/>
-                                        </StackPanel>
+                                        <TextBlock FontSize="11" Foreground="{StaticResource SubTextBrush}">
+                                            <Run Text="Disk "/>
+                                            <Run Text="{Binding SizeText}"/>
+                                            <Run Text="  ·  "/>
+                                            <Run Text="{Binding LastLaunchedText}"/>
+                                        </TextBlock>
                                         <TextBlock Text="{Binding ProjectText}" FontSize="11" Margin="0,6,0,0"
                                                    Foreground="{StaticResource SubTextBrush}"
                                                    TextTrimming="CharacterEllipsis"
@@ -207,7 +211,7 @@
                                             <Button DockPanel.Dock="Right" Content="⋯" FontSize="13"
                                                     Style="{StaticResource IconButton}" Margin="8,0,0,0"
                                                     Click="Options_Click" ToolTip="Launch with options…"/>
-                                            <Button DockPanel.Dock="Right" Content="📌" FontSize="12"
+                                            <Button DockPanel.Dock="Right" Content="Pin" FontSize="11"
                                                     Style="{StaticResource IconButton}" Margin="8,0,0,0"
                                                     Click="Shortcut_Click"
                                                     ToolTip="Create/update a taskbar shortcut for this profile"/>
@@ -236,7 +240,6 @@
                 <!-- Empty state -->
                 <StackPanel x:Name="EmptyState" Visibility="Collapsed" Margin="0,80,0,0"
                             HorizontalAlignment="Center">
-                    <TextBlock Text="🗂" FontSize="52" HorizontalAlignment="Center" Opacity="0.6"/>
                     <TextBlock Text="No profiles yet" FontSize="20" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Margin="0,12,0,4"/>
                     <TextBlock Text="Each profile is a fully isolated Cursor instance — its own settings, extensions, login and chat history."

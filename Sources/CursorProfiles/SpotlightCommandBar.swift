@@ -432,8 +432,9 @@ struct SpotlightItem: View {
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
-                Text(profile.emoji)
-                    .font(.system(size: 18))
+                Text(profile.initial)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(profile.accentColor)
 
                 if isRunning {
                     Circle()

@@ -32,33 +32,33 @@ A Mojo Layers project. **Three native apps, one profile format:**
 
 | Platform | Stack | Location | Launch |
 |----------|-------|----------|--------|
-| 🍎 macOS | SwiftUI | `Sources/` + `build.sh` | `./build.sh && open "build/Prism.app"` |
-| 🪟 Windows | WPF / .NET 8 | [`windows/`](windows/) | `dotnet build windows/CursorProfiles.csproj -c Release` |
-| 🐧 Linux | GTK4 + libadwaita (Python) | [`linux/`](linux/) | `python3 linux/prism.py` |
+| macOS | SwiftUI | `Sources/` + `build.sh` | `./build.sh && open "build/Prism.app"` |
+| Windows | WPF / .NET 8 | [`windows/`](windows/) | `dotnet build windows/CursorProfiles.csproj -c Release` |
+| Linux | GTK4 + libadwaita (Python) | [`linux/`](linux/) | `python3 linux/prism.py` |
 
 All three read and write the same `~/.cursor_profiles` directory and `.profiles.json` metadata, so profiles roam across operating systems. Every number the UI shows is **measured live** — resident memory from `ps`, window counts from the on-screen window list, CPU from the kernel. Nothing is hardcoded.
 
 ## Features
 
-### 🗂️ Profiles, properly isolated
-- **Profile grid** — colorful cards with per-profile emoji + accent color, disk size, and last-launched info
+### Profiles, properly isolated
+- **Profile grid** — colorful cards with per-profile accent color and initial, disk size, and last-launched info
 - **Your original Cursor profile is protected** — it shows up as a pinned **Main Cursor** card with a `BUILT-IN` badge, launches Cursor exactly like opening it normally (no `--user-data-dir`), can be **cloned** into a new managed profile, and can never be deleted
 - **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit, default project folder)
 - Each profile is a separate `--user-data-dir`: own settings, extensions, login, chat history. Existing profiles are picked up automatically
 
-### ⚡ Launching & switching
+### Launching & switching
 - **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a card to open it with that profile
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
 
-### 📊 Honest live telemetry
+### Honest live telemetry
 - **Live resident memory** per running profile (summed RSS) against its configured `--max-memory` limit, plus real total RAM for your Mac
 - **Real on-screen window counts** per profile — counted, never guessed
 - **Real system CPU %** in the status bar
 - **Running detection** with graceful quit (SIGTERM)
 
-### 🎨 Tell profiles apart at a glance
+### Tell profiles apart at a glance
 - **Distinct title bar color per profile** — merged into each profile's `User/settings.json` (`workbench.colorCustomizations` + `window.titleBarStyle: "custom"`), visible in the window, Cmd+Tab, and Mission Control. Your own settings are preserved; only the title bar keys are touched
 - **Pin, search, sort** (name / recently used / size)
 - **Safe delete** — profiles go to the Trash, never `rm -rf`
@@ -100,7 +100,7 @@ Every pull request to `main` rebuilds all three platforms automatically — see 
 
 ```
 ~/.cursor_profiles/
-  .profiles.json        # names, colors, emoji, launch defaults (shared across OSes)
+  .profiles.json        # names, colors, launch defaults (shared across OSes)
   Work/                 # a full Cursor user-data-dir
   Personal/             # another one — fully independent
 ```

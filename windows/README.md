@@ -6,9 +6,9 @@ Profiles live in `%USERPROFILE%\.cursor_profiles`, metadata in `.profiles.json`
 appears as a protected **Main Cursor** card — launchable and clonable, never deletable.
 Deleting a managed profile sends it to the Recycle Bin, never `rmdir /s`.
 
-**Pin the right instance to the taskbar:** the 📌 button on a card (or "Create Taskbar
+**Pin the right instance to the taskbar:** the Pin button on a card (or "Create Taskbar
 Shortcut…" in its menu) generates a Start Menu shortcut with its own icon — your
-profile's color + emoji, rendered as a real multi-resolution `.ico`. Find it in
+profile's color + initial, rendered as a real multi-resolution `.ico`. Find it in
 Start → Prism, then right-click → **Pin to taskbar**. The shortcut always
 opens that exact `--user-data-dir`, so Work and Personal stay visually distinct even
 when both are pinned. Renaming or recoloring a profile updates its shortcut automatically.
@@ -57,7 +57,7 @@ The exe lands in `bin\Release\net8.0-windows\win-x64\publish\CursorProfiles.exe`
 ## Cursor detection
 
 Checks `%LOCALAPPDATA%\Programs\cursor\Cursor.exe`, `%PROGRAMFILES%\Cursor\Cursor.exe`
-and `PATH`. A custom path can be set in Settings (⚙).
+and `PATH`. A custom path can be set in Settings.
 
 ## Notes
 

@@ -9,9 +9,7 @@ public partial class ProfileEditorWindow : Window
     private readonly ProfileStore _store;
     private readonly ProfileVM? _editing;   // null = create mode
 
-    private string _emoji = Palette.Emojis[0];
     private string _colorHex = Palette.RandomHex();
-    private readonly List<Border> _emojiCells = new();
     private readonly List<Border> _colorCells = new();
 
     public ProfileEditorWindow(ProfileStore store, ProfileVM? editing)
@@ -26,7 +24,6 @@ public partial class ProfileEditorWindow : Window
             Title = "Edit Profile";
             SaveButton.Content = "Save";
             NameBox.Text = vm.Model.DisplayName;
-            _emoji = vm.Model.Emoji;
             _colorHex = vm.Model.ColorHex;
             MemoryBox.Text = vm.Model.DefaultMemoryMB.ToString();
             ProjectBox.Text = vm.Model.DefaultProjectPath ?? "";
@@ -40,31 +37,8 @@ public partial class ProfileEditorWindow : Window
             MemoryBox.Text = _store.Settings.DefaultMemoryMB.ToString();
         }
 
-        BuildEmojiGrid();
         BuildColorGrid();
         UpdatePreview();
-    }
-
-    private void BuildEmojiGrid()
-    {
-        foreach (var e in Palette.Emojis)
-        {
-            var cell = new Border
-            {
-                Width = 34, Height = 34, CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(2), Cursor = System.Windows.Input.Cursors.Hand,
-                Child = new TextBlock
-                {
-                    Text = e, FontSize = 17,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-                Tag = e,
-            };
-            cell.MouseLeftButtonDown += (_, _) => { _emoji = e; UpdatePreview(); };
-            _emojiCells.Add(cell);
-            EmojiPanel.Children.Add(cell);
-        }
     }
 
     private void BuildColorGrid()
@@ -89,13 +63,10 @@ public partial class ProfileEditorWindow : Window
         var c = Palette.ColorFromHex(_colorHex);
         var dim = Color.FromArgb(0xFF, (byte)(c.R * 0.72), (byte)(c.G * 0.72), (byte)(c.B * 0.72));
         PreviewHeader.Background = new LinearGradientBrush(c, dim, 35);
-        PreviewEmoji.Text = _emoji;
+        var name = NameBox.Text.Trim();
+        PreviewInitial.Text = name.Length == 0 ? "?" : name[..1].ToUpperInvariant();
         PreviewName.Text = string.IsNullOrWhiteSpace(NameBox.Text) ? "New Profile" : NameBox.Text;
 
-        foreach (var cell in _emojiCells)
-            cell.Background = (string)cell.Tag == _emoji
-                ? new SolidColorBrush(Color.FromArgb(0x55, c.R, c.G, c.B))
-                : Brushes.Transparent;
         foreach (var cell in _colorCells)
         {
             var selected = (string)cell.Tag == _colorHex;
@@ -129,7 +100,6 @@ public partial class ProfileEditorWindow : Window
         {
             var m = vm.Model.Copy();
             m.DisplayName = name;
-            m.Emoji = _emoji;
             m.ColorHex = _colorHex;
             m.DefaultMemoryMB = memory;
             m.DefaultProjectPath = project.Length == 0 ? null : project;
@@ -138,7 +108,7 @@ public partial class ProfileEditorWindow : Window
         }
         else
         {
-            var created = _store.CreateProfile(name, _emoji, _colorHex, memory,
+            var created = _store.CreateProfile(name, _colorHex, memory,
                 project.Length == 0 ? null : project);
             if (created is not null) DialogResult = true;
         }

@@ -10,7 +10,6 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
 
     var folderName: String          // directory name inside ~/.cursor_profiles
     var displayName: String
-    var emoji: String
     var colorHex: String
     var defaultMemoryMB: Int
     var defaultProjectPath: String?
@@ -21,8 +20,11 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
 
     var id: String { folderName }
 
+    // NOTE: older .profiles.json files may contain an "emoji" key. It is
+    // intentionally absent from CodingKeys — JSONDecoder skips unknown keys,
+    // so old files still load and new files simply omit it.
     enum CodingKeys: String, CodingKey {
-        case folderName, displayName, emoji, colorHex, defaultMemoryMB,
+        case folderName, displayName, colorHex, defaultMemoryMB,
              defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem
     }
 
@@ -30,7 +32,6 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         folderName = try c.decode(String.self, forKey: .folderName)
         displayName = try c.decode(String.self, forKey: .displayName)
-        emoji = try c.decode(String.self, forKey: .emoji)
         colorHex = try c.decode(String.self, forKey: .colorHex)
         defaultMemoryMB = try c.decode(Int.self, forKey: .defaultMemoryMB)
         defaultProjectPath = try c.decodeIfPresent(String.self, forKey: .defaultProjectPath)
@@ -42,7 +43,6 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
 
     init(folderName: String,
          displayName: String,
-         emoji: String = "🖥️",
          colorHex: String = AccentPalette.random().hex,
          defaultMemoryMB: Int = 16384,
          defaultProjectPath: String? = nil,
@@ -52,7 +52,6 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
          isSystem: Bool = false) {
         self.folderName = folderName
         self.displayName = displayName
-        self.emoji = emoji
         self.colorHex = colorHex
         self.defaultMemoryMB = defaultMemoryMB
         self.defaultProjectPath = defaultProjectPath
@@ -63,6 +62,12 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     }
 
     var accentColor: Color { Color(hex: colorHex) ?? .accentColor }
+
+    /// Tile glyph: first letter of the display name, uppercased.
+    var initial: String {
+        guard let first = displayName.trimmingCharacters(in: .whitespaces).first else { return "?" }
+        return String(first).uppercased()
+    }
 }
 
 // MARK: - Accent palette
@@ -90,12 +95,6 @@ struct AccentPalette: Identifiable, Equatable {
 
     static func random() -> AccentPalette { all.randomElement()! }
 }
-
-let emojiChoices: [String] = [
-    "🖥️", "🚀", "⚡️", "🔥", "🧪", "🎨", "🛠️", "🧠", "💼", "🏠",
-    "🌙", "☀️", "🐙", "🦄", "🍕", "🎮", "🔒", "🌈", "💎", "🤖",
-    "👾", "🧬", "📦", "🪄", "🐉", "🍄", "🌊", "🏴‍☠️", "🎧", "🫠",
-]
 
 // MARK: - Color helpers
 

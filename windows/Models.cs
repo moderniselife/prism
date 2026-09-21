@@ -13,7 +13,9 @@ public class CursorProfile
 
     [JsonPropertyName("folderName")] public string FolderName { get; set; } = "";
     [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
-    [JsonPropertyName("emoji")] public string Emoji { get; set; } = "🖥️";
+    // NOTE: older .profiles.json files may contain an "emoji" key. It has no
+    // corresponding property, and System.Text.Json skips unknown keys, so old
+    // files still load and new files simply omit it.
     [JsonPropertyName("colorHex")] public string ColorHex { get; set; } = "#6366F1";
     [JsonPropertyName("defaultMemoryMB")] public int DefaultMemoryMB { get; set; } = 16384;
     [JsonPropertyName("defaultProjectPath")] public string? DefaultProjectPath { get; set; }
@@ -69,13 +71,6 @@ public static class Palette
         ("Rose", "#F43F5E"), ("Orange", "#F97316"), ("Amber", "#F59E0B"),
         ("Emerald", "#10B981"), ("Teal", "#14B8A6"), ("Sky", "#0EA5E9"),
         ("Blue", "#3B82F6"), ("Slate", "#64748B"), ("Lime", "#84CC16"),
-    };
-
-    public static readonly string[] Emojis =
-    {
-        "🖥️", "🚀", "⚡", "🔥", "🧪", "🎨", "🛠️", "🧠", "💼", "🏠",
-        "🌙", "☀️", "🐙", "🦄", "🍕", "🎮", "🔒", "🌈", "💎", "🤖",
-        "👾", "🧬", "📦", "🪄", "🐉", "🍄", "🌊", "🏴‍☠️", "🎧", "⭐",
     };
 
     public static string RandomHex() => All[Random.Shared.Next(All.Length)].Hex;
