@@ -35,6 +35,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/CursorProfiles" "$APP_DIR/Contents/MacOS/CursorProfiles"
 iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/Prism.icns"
+cp "assets/logo.png" "$APP_DIR/Contents/Resources/logo.png"
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

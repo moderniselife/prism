@@ -476,14 +476,20 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Prism Logo (inline SVG-style triangle)
+// MARK: - Prism Logo (assets/logo.png, bundled by build.sh)
 
 struct PrismLogoView: View {
     var size: CGFloat = 24
 
     var body: some View {
-        ZStack {
-            // Gradient triangle
+        if let url = Bundle.main.url(forResource: "logo", withExtension: "png"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            // Fallback if the resource is missing — never blank.
             Triangle()
                 .fill(
                     LinearGradient(
@@ -492,14 +498,6 @@ struct PrismLogoView: View {
                     )
                 )
                 .frame(width: size, height: size)
-
-            // Vertices dots
-            Circle().fill(PrismTheme.Colors.cyan).frame(width: size * 0.15, height: size * 0.15)
-                .offset(y: -size * 0.3)
-            Circle().fill(PrismTheme.Colors.pink).frame(width: size * 0.15, height: size * 0.15)
-                .offset(x: size * 0.25, y: size * 0.2)
-            Circle().fill(PrismTheme.Colors.cyan).frame(width: size * 0.15, height: size * 0.15)
-                .offset(x: -size * 0.25, y: size * 0.2)
         }
     }
 }
