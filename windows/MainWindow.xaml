@@ -2,16 +2,22 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Prism"
-        Width="1000" Height="660" MinWidth="780" MinHeight="500"
+        Width="1020" Height="680" MinWidth="820" MinHeight="540"
         Background="{StaticResource WindowBrush}"
         FontFamily="Segoe UI">
     <DockPanel>
 
         <!-- Header -->
-        <Border DockPanel.Dock="Top" Padding="20,14">
+        <Border DockPanel.Dock="Top" Padding="20,14" BorderThickness="0,0,0,1"
+                BorderBrush="{StaticResource CardBorderBrush}">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="Prism" FontSize="21" FontWeight="Bold"/>
+                    <TextBlock Text="Prism" FontSize="21" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Border CornerRadius="9" Padding="7,2" Margin="8,0,0,0" VerticalAlignment="Center"
+                            Background="#2606B6D4" BorderThickness="1" BorderBrush="#4D06B6D4">
+                        <TextBlock x:Name="VersionPill" Text="v1.0" FontSize="10"
+                                   Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
+                    </Border>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Grid Width="220" Margin="0,0,10,0">
@@ -23,6 +29,8 @@
                     </Grid>
                     <Button x:Name="SortButton" Content="Sort: Recent" Style="{StaticResource GhostButton}"
                             Margin="0,0,10,0" Click="SortButton_Click"/>
+                    <Button x:Name="RunningBadge" Style="{StaticResource GhostButton}"
+                            Margin="0,0,10,0" IsHitTestVisible="False" Focusable="False"/>
                     <Button Content="⚙" Style="{StaticResource IconButton}" FontSize="15"
                             Margin="0,0,10,0" Click="Settings_Click" ToolTip="Settings"/>
                     <Button Content="＋ New Profile" Style="{StaticResource PrimaryButton}"
@@ -31,8 +39,51 @@
             </DockPanel>
         </Border>
 
+        <!-- Filter bar -->
+        <Border DockPanel.Dock="Top" Padding="20,8" BorderThickness="0,0,0,1"
+                BorderBrush="{StaticResource CardBorderBrush}">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                    <TextBlock Text="Profiles:" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource SubTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Button x:Name="FilterAllButton" Tag="0" Style="{StaticResource FilterTab}"
+                            Click="Filter_Click"/>
+                    <Button x:Name="FilterActiveButton" Tag="1" Style="{StaticResource FilterTab}"
+                            Click="Filter_Click"/>
+                    <Button x:Name="FilterCustomButton" Tag="2" Style="{StaticResource FilterTab}"
+                            Click="Filter_Click"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock x:Name="DiskCountText" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{StaticResource SubTextBrush}" Margin="0,0,10,0"/>
+                    <Button Content="⟳" Style="{StaticResource IconButton}" FontSize="13"
+                            Click="Rescan_Click" ToolTip="Rescan profiles"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Status bar : real CPU + live RSS / real RAM, nothing hardcoded -->
+        <Border DockPanel.Dock="Bottom" Padding="20,8" BorderThickness="0,1,0,0"
+                BorderBrush="{StaticResource CardBorderBrush}" Background="#0B0E14">
+            <DockPanel>
+                <TextBlock FontSize="11" VerticalAlignment="Center">
+                    <Run Text="CPU " Foreground="{StaticResource MutedBrush}"/>
+                    <Run x:Name="CpuText" Text="—" Foreground="{StaticResource TextBrush}"/>
+                </TextBlock>
+                <TextBlock Text="|" Margin="14,0" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}"/>
+                <TextBlock FontSize="11" VerticalAlignment="Center" ToolTip="Live resident memory of running Cursor processes / total physical RAM">
+                    <Run Text="RAM " Foreground="{StaticResource MutedBrush}"/>
+                    <Run x:Name="RamLiveText" Text="—" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
+                    <Run x:Name="RamTotalText" Text="" Foreground="{StaticResource MutedBrush}"/>
+                </TextBlock>
+                <TextBlock x:Name="ProfileCountText" FontSize="11" HorizontalAlignment="Right"
+                           VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+            </DockPanel>
+        </Border>
+
         <!-- Body -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,4">
             <StackPanel>
 
                 <Border x:Name="CursorMissingBanner" Visibility="Collapsed"
@@ -62,24 +113,34 @@
                                 </Border.ContextMenu>
                                 <StackPanel>
 
-                                    <!-- Gradient header -->
-                                    <Border Background="{Binding HeaderBrush}" CornerRadius="13,13,0,0" Padding="14,12">
+                                    <!-- 3px accent strip -->
+                                    <Border Height="3" CornerRadius="8,8,0,0"
+                                            Background="{Binding StripBrush}"/>
+
+                                    <!-- Header -->
+                                    <Border Padding="14,12">
                                         <StackPanel Orientation="Horizontal">
-                                            <Border Background="#38FFFFFF" CornerRadius="11"
-                                                    Width="48" Height="48" Margin="0,0,12,0">
-                                                <TextBlock Text="{Binding Emoji}" FontSize="24"
+                                            <Grid Width="44" Height="44" Margin="0,0,12,0">
+                                                <Border Background="{Binding IconBrush}" CornerRadius="12"/>
+                                                <TextBlock Text="{Binding Emoji}" FontSize="22"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
+                                                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
+                                                         HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                         Margin="0,0,3,3"
+                                                         Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
+                                            </Grid>
                                             <StackPanel VerticalAlignment="Center">
                                                 <StackPanel Orientation="Horizontal">
                                                     <TextBlock Text="{Binding DisplayName}" FontWeight="Bold"
-                                                               FontSize="14" Foreground="White" MaxWidth="130"
+                                                               FontSize="14" MaxWidth="130"
                                                                TextTrimming="CharacterEllipsis"/>
-                                                    <Border Background="#40FFFFFF" CornerRadius="6" Padding="5,1"
-                                                            Margin="6,0,0,0" VerticalAlignment="Center"
+                                                    <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
+                                                            VerticalAlignment="Center"
+                                                            BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
                                                             Visibility="{Binding IsSystem, Converter={StaticResource BoolToVis}}"
                                                             ToolTip="Your original Cursor profile (%APPDATA%\Cursor). Launchable and clonable, never deletable from this app.">
-                                                        <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold" Foreground="White"/>
+                                                        <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold"
+                                                                   Foreground="{StaticResource SubTextBrush}"/>
                                                     </Border>
                                                     <TextBlock Text="📌" FontSize="10" Margin="6,0,0,0"
                                                                Visibility="{Binding ShowPin, Converter={StaticResource BoolToVis}}"/>
@@ -87,15 +148,18 @@
                                                 <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                                                     <Ellipse Width="7" Height="7" Fill="{Binding DotBrush}"
                                                              VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding RunningText}" FontSize="11"
-                                                               Foreground="#E6FFFFFF" Margin="5,0,0,0"/>
+                                                    <TextBlock FontSize="11" Margin="5,0,0,0">
+                                                        <Run Text="{Binding RunningText}" Foreground="{Binding StatusBrush}"/>
+                                                        <Run Text=" "/>
+                                                        <Run Text="{Binding PidText}" Foreground="{StaticResource SubTextBrush}"/>
+                                                    </TextBlock>
                                                 </StackPanel>
                                             </StackPanel>
                                         </StackPanel>
                                     </Border>
 
                                     <!-- Details -->
-                                    <StackPanel Margin="14,10,14,14">
+                                    <StackPanel Margin="14,2,14,14">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="💾" FontSize="11" Foreground="{StaticResource SubTextBrush}"/>
                                             <TextBlock Text="{Binding SizeText}" FontSize="11" Margin="4,0,12,0"
@@ -109,10 +173,35 @@
                                                    TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}"/>
 
+                                        <!-- Live memory vs configured limit -->
+                                        <TextBlock FontSize="11" Margin="0,6,0,0"
+                                                   ToolTip="Live resident memory of this profile's Cursor processes (running) or its configured --max-memory limit (idle)">
+                                            <Run Text="Memory " Foreground="{StaticResource MutedBrush}"/>
+                                            <Run Text="{Binding MemoryMain}" Foreground="{Binding MemoryBrush}" FontWeight="SemiBold"/>
+                                            <Run Text="{Binding MemorySuffix}" Foreground="{StaticResource MutedBrush}"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding WindowsText}" FontSize="11" Margin="0,1,0,0"
+                                                   Foreground="{StaticResource SubTextBrush}"/>
+
+                                        <!-- Memory bar: gradient fill positioned by live/limit fraction -->
+                                        <Border Height="4" CornerRadius="2" Margin="0,6,0,0"
+                                                Background="{StaticResource TrackBrush}">
+                                            <Border CornerRadius="2">
+                                                <Border.Background>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Offset="0" Color="{Binding AccentColor}"/>
+                                                        <GradientStop Offset="{Binding MemFraction}" Color="{Binding AccentColor}"/>
+                                                        <GradientStop Offset="{Binding MemFraction}" Color="Transparent"/>
+                                                    </LinearGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                        </Border>
+
                                         <DockPanel Margin="0,10,0,0">
                                             <Button DockPanel.Dock="Right" Content="■" FontSize="11"
                                                     Style="{StaticResource IconButton}" Margin="8,0,0,0"
-                                                    Background="#33F43F5E" Click="Quit_Click"
+                                                    Background="#1AF43F5E" Foreground="{StaticResource DangerBrush}"
+                                                    Click="Quit_Click"
                                                     ToolTip="Quit this profile"
                                                     Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
                                             <Button DockPanel.Dock="Right" Content="⋯" FontSize="13"
@@ -126,13 +215,20 @@
                                                          Width="34" Height="4" Margin="8,0,0,0"
                                                          VerticalAlignment="Center"
                                                          Visibility="{Binding IsDuplicating, Converter={StaticResource BoolToVis}}"/>
-                                            <Button Content="{Binding LaunchLabel}" Style="{StaticResource PrimaryButton}"
+                                            <Button x:Name="LaunchBtn" Content="{Binding LaunchLabel}"
+                                                    Style="{StaticResource PrimaryButton}"
                                                     Background="{Binding AccentBrush}" Click="Launch_Click"
                                                     HorizontalAlignment="Stretch"/>
                                         </DockPanel>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                    <Setter TargetName="LaunchBtn" Property="Background"
+                                            Value="{StaticResource FieldBrush}"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

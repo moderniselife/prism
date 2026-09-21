@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Prism — a native GTK4/libadwaita launcher for isolated Cursor profiles.
 
-Profiles live in ~/.cursor_profiles (same as the macOS/Windows apps); metadata is shared via ~/.cursor_profiles/.profiles.json.
+Profiles live in ~/.cursor_profiles (shared with the macOS/Windows apps);
+metadata is shared via ~/.cursor_profiles/.profiles.json.
 The user's original Cursor profile (~/.config/Cursor) is surfaced as a protected
 "Main Cursor" card — launchable and clonable, never deletable.
 """
@@ -406,6 +407,30 @@ class CursorFinder:
         return None
 
 
+def rss_of_pid(pid: int) -> int:
+    """Live resident bytes for one PID via /proc. 0 if it just exited."""
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def total_physical_memory() -> int:
+    """Real total RAM from /proc/meminfo. 0 if unreadable (UI shows a dash)."""
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
 class Store:
     """Profiles, persistence, launching and background polling."""
 
@@ -413,6 +438,11 @@ class Store:
         self.profiles: list[Profile] = []
         self.sizes: dict[str, int] = {}
         self.running: dict[str, list[int]] = {}
+        self.live_bytes: dict[str, int] = {}
+        self.system_cpu = None  # percent; None until the second sample
+        self.total_memory = total_physical_memory()
+        self._prev_cpu = None
+        self._cpu_lock = threading.Lock()
         self.duplicating: set[str] = set()
         self.settings = self._load_settings()
         self.on_changed = lambda: None      # cards need rebuilding
@@ -670,6 +700,11 @@ class Store:
 
             def is_cursor_main(argv):
                 exe = os.path.basename(argv[0]).lower()
+                # Never match ourselves: this file is prism.py, and a dev
+                # checkout could otherwise look Cursor-adjacent. (The macOS
+                # app once SIGTERM'd itself this way — same guard here.)
+                if "prism" in exe:
+                    return False
                 looks_like_cursor = exe == "cursor" or exe.endswith(".appimage") and "cursor" in exe
                 return looks_like_cursor and not any(a.startswith("--type=") for a in argv)
 
@@ -685,8 +720,34 @@ class Store:
                         and argv[argv.index("--user-data-dir") + 1:argv.index("--user-data-dir") + 2] == [directory]
                     ]
 
+            # Live RSS: VmRSS of matched PIDs only (cheap, no new deps).
+            live = {}
+            for name, pids in result.items():
+                total = 0
+                for pid in pids:
+                    total += rss_of_pid(pid)
+                live[name] = total
+
+            # System CPU % from /proc/stat deltas (None on first sample).
+            cpu = None
+            try:
+                with open("/proc/stat", encoding="utf-8") as f:
+                    nums = [int(x) for x in f.readline().split()[1:9]]
+                idle, total_ticks = nums[3] + nums[4], sum(nums)
+                with self._cpu_lock:
+                    prev = self._prev_cpu
+                    self._prev_cpu = (idle, total_ticks)
+                if prev is not None:
+                    idle_d, total_d = idle - prev[0], total_ticks - prev[1]
+                    if total_d > 0:
+                        cpu = max(0.0, min(100.0, (total_d - idle_d) / total_d * 100.0))
+            except (OSError, ValueError, IndexError):
+                pass
+
             def apply():
                 self.running = result
+                self.live_bytes = live
+                self.system_cpu = cpu
                 self.on_status()
                 return False
 
@@ -725,6 +786,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.store = store
         self.search_text = ""
         self.sort_mode = 0
+        self.filter_mode = 0  # 0 all, 1 active, 2 custom (non-built-in)
+        self._last_visible = set()
         self.status_updaters = []
         self._css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
@@ -767,6 +830,44 @@ class MainWindow(Adw.ApplicationWindow):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         scroller.set_child(outer)
+
+        # Filter row: All / Active / Custom + rescan
+        filter_row = Gtk.Box(spacing=4, margin_top=8, margin_start=12, margin_end=12)
+        filter_lbl = Gtk.Label(label="Profiles:")
+        filter_lbl.add_css_class("heading")
+        filter_row.append(filter_lbl)
+        self.filter_btns = []
+        for i, name in enumerate(["All", "Active", "Custom"]):
+            btn = Gtk.ToggleButton(label=name)
+            btn.add_css_class("flat")
+            filter_row.append(btn)
+            self.filter_btns.append(btn)
+        # Set state before connecting: no rebuild before the window exists.
+        self.filter_btns[0].set_active(True)
+        for i, btn in enumerate(self.filter_btns):
+            btn.connect("toggled", self.on_filter, i)
+        rescan = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Rescan profiles",
+                            halign=Gtk.Align.END, hexpand=True)
+        rescan.connect("clicked", lambda *_: self.store.reload())
+        filter_row.append(rescan)
+        outer.append(filter_row)
+
+        # Status bar: real CPU + live RSS / real RAM. Nothing hardcoded.
+        status_bar = Gtk.Box(spacing=12, margin_top=4, margin_bottom=4,
+                             margin_start=12, margin_end=12)
+        self.cpu_lbl = Gtk.Label(xalign=0)
+        self.cpu_lbl.add_css_class("caption")
+        self.cpu_lbl.add_css_class("dim-label")
+        status_bar.append(self.cpu_lbl)
+        self.ram_lbl = Gtk.Label(xalign=0)
+        self.ram_lbl.add_css_class("caption")
+        self.ram_lbl.add_css_class("dim-label")
+        status_bar.append(self.ram_lbl)
+        self.count_lbl = Gtk.Label(xalign=1, hexpand=True)
+        self.count_lbl.add_css_class("caption")
+        self.count_lbl.add_css_class("dim-label")
+        status_bar.append(self.count_lbl)
+        root.add_bottom_bar(status_bar)
 
         self.banner = Adw.Banner(
             title="Cursor was not found. Install it from cursor.sh, or set a custom path in Preferences.")
@@ -823,8 +924,25 @@ class MainWindow(Adw.ApplicationWindow):
             return (*primary, -stamp)
         return sorted(self.store.profiles, key=key)
 
+    def on_filter(self, button, mode):
+        if not button.get_active():
+            # Keep one tab always selected.
+            if not any(b.get_active() for b in self.filter_btns):
+                button.set_active(True)
+            return
+        self.filter_mode = mode
+        for i, btn in enumerate(self.filter_btns):
+            if i != mode:
+                btn.set_active(False)
+        self.rebuild()
+
     def visible_profiles(self):
-        return [p for p in self.sorted_profiles()
+        profiles = self.sorted_profiles()
+        if self.filter_mode == 1:
+            profiles = [p for p in profiles if self.store.running.get(p.folderName)]
+        elif self.filter_mode == 2:
+            profiles = [p for p in profiles if not p.isSystem]
+        return [p for p in profiles
                 if not self.search_text
                 or self.search_text in p.displayName.lower()
                 or self.search_text in p.folderName.lower()]
@@ -832,20 +950,43 @@ class MainWindow(Adw.ApplicationWindow):
     # -- CSS for per-profile gradients & accents
 
     def regenerate_css(self):
+        # Deep-dark redesign: flat dark cards, per-profile accent strip,
+        # translucent accent icon tiles. (The gradient .hdr-* rules are kept
+        # for the editor preview, which is still a gradient header.)
         rules = [
-            ".profile-card { border-radius: 14px; }",
-            ".card-header { border-radius: 13px 13px 0 0; padding: 12px; }",
+            ".profile-card { background: #0f131c; border: 1px solid alpha(white, 0.12); "
+            "border-radius: 16px; }",
+            # Kept for the editor preview, whose header is still a gradient.
             ".emoji-tile { background: alpha(white, 0.25); border-radius: 11px; font-size: 22px; }",
+            ".card-strip { min-height: 3px; border-radius: 8px 8px 0 0; }",
+            ".card-header { border-radius: 13px 13px 0 0; padding: 12px; }",
             ".on-header { color: white; }",
-            ".badge { background: alpha(white, 0.28); color: white; font-size: 8pt; font-weight: 800; "
+            ".card-name { color: #f2f4f8; font-weight: bold; }",
+            ".card-status-running { color: #34d399; }",
+            ".card-status-idle { color: #a8b0c4; }",
+            ".card-muted { color: #8b94a5; }",
+            ".badge { background: alpha(white, 0.07); color: #b7bfcd; "
+            "border: 1px solid alpha(white, 0.14); font-size: 8pt; font-weight: 800; "
             "border-radius: 6px; padding: 1px 5px; }",
+            ".launch-running { background: #1b2233; color: white; }",
+            "progressbar.memory-track trough { background: #232d44; min-height: 4px; "
+            "border-radius: 2px; border: none; }",
+            "progressbar.memory-track progress { min-height: 4px; border-radius: 2px; border: none; }",
         ]
         for hex_color in {p.colorHex for p in self.store.profiles} | {h for _, h in PALETTE}:
             tag = hex_color.lstrip("#")
             rules.append(
                 f".hdr-{tag} {{ background: linear-gradient(135deg, {hex_color}, {shade(hex_color, 0.68)}); }}")
             rules.append(
+                f".strip-{tag} {{ background: linear-gradient(90deg, {hex_color}, {shade(hex_color, 0.55)}); }}")
+            rules.append(
+                f".tile-{tag} {{ background: alpha({hex_color}, 0.2); border-radius: 12px; font-size: 22px; }}")
+            rules.append(
                 f".btn-{tag} {{ background: {hex_color}; color: white; }}")
+            rules.append(
+                f".mem-{tag} {{ color: {hex_color}; font-weight: bold; }}")
+            rules.append(
+                f".memfill-{tag} progress {{ background: {hex_color}; }}")
             rules.append(
                 f".swatch-{tag} {{ background: {hex_color}; border-radius: 999px; min-width: 24px; min-height: 24px; }}")
         self._css.load_from_data("\n".join(rules).encode())
@@ -866,29 +1007,43 @@ class MainWindow(Adw.ApplicationWindow):
         self.flow.set_visible(has_any)
         self.empty.set_visible(not has_any)
         self.banner.set_revealed(self.store.cursor_path is None)
+        self._last_visible = {p.folderName for p in profiles}
+        self._update_filter_labels()
         self.refresh_status()
+
+    def _update_filter_labels(self):
+        active = sum(1 for p in self.store.profiles if self.store.running.get(p.folderName))
+        custom = sum(1 for p in self.store.profiles if not p.isSystem)
+        self.filter_btns[0].set_label(f"All ({len(self.store.profiles)})")
+        self.filter_btns[1].set_label(f"Active ({active})")
+        self.filter_btns[2].set_label(f"Custom ({custom})")
 
     def build_card(self, profile: Profile):
         tag = profile.colorHex.lstrip("#")
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=250)
+        limit_bytes = profile.defaultMemoryMB * 1024 * 1024
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=280)
         card.add_css_class("card")
         card.add_css_class("profile-card")
 
-        # Gradient header
-        header = Gtk.Box(spacing=12)
-        header.add_css_class("card-header")
-        header.add_css_class(f"hdr-{tag}")
+        # 3px accent strip — the card body itself stays flat dark.
+        strip = Gtk.Box(height_request=3)
+        strip.add_css_class("card-strip")
+        strip.add_css_class(f"strip-{tag}")
+        card.append(strip)
 
-        emoji = Gtk.Label(label=profile.emoji, width_request=48, height_request=48)
-        emoji.add_css_class("emoji-tile")
+        # Flat header (no more full-bleed gradient)
+        header = Gtk.Box(spacing=12, margin_top=12, margin_bottom=8,
+                         margin_start=14, margin_end=14)
+        emoji = Gtk.Label(label=profile.emoji, width_request=44, height_request=44)
+        emoji.add_css_class(f"tile-{tag}")
         header.append(emoji)
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=3)
         name_row = Gtk.Box(spacing=6)
-        name = Gtk.Label(label=profile.displayName, xalign=0, max_width_chars=14,
+        name = Gtk.Label(label=profile.displayName, xalign=0, max_width_chars=16,
                          ellipsize=Pango.EllipsizeMode.END)
         name.add_css_class("heading")
-        name.add_css_class("on-header")
+        name.add_css_class("card-name")
         name_row.append(name)
         if profile.isSystem:
             badge = Gtk.Label(label="BUILT-IN", valign=Gtk.Align.CENTER, tooltip_text=(
@@ -897,25 +1052,27 @@ class MainWindow(Adw.ApplicationWindow):
             badge.add_css_class("badge")
             name_row.append(badge)
         elif profile.isPinned:
-            pin = Gtk.Image.new_from_icon_name("view-pin-symbolic")
-            pin.add_css_class("on-header")
-            name_row.append(pin)
+            pin_img = Gtk.Image.new_from_icon_name("view-pin-symbolic")
+            name_row.append(pin_img)
         title_box.append(name_row)
 
         status_row = Gtk.Box(spacing=5)
         dot = Gtk.Label(label="●")
         status = Gtk.Label(label="Idle", xalign=0)
         status.add_css_class("caption")
-        status.add_css_class("on-header")
+        pid_lbl = Gtk.Label(label="", xalign=0)
+        pid_lbl.add_css_class("caption")
+        pid_lbl.add_css_class("card-muted")
         status_row.append(dot)
         status_row.append(status)
+        status_row.append(pid_lbl)
         title_box.append(status_row)
         header.append(title_box)
         card.append(header)
 
         # Details
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
-                          margin_top=10, margin_bottom=12, margin_start=12, margin_end=12)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                          margin_top=2, margin_bottom=12, margin_start=14, margin_end=14)
         meta = Gtk.Label(xalign=0)
         meta.add_css_class("caption")
         meta.add_css_class("dim-label")
@@ -928,10 +1085,24 @@ class MainWindow(Adw.ApplicationWindow):
             proj.add_css_class("dim-label")
             details.append(proj)
 
+        # Live memory (measured RSS) vs configured limit. Window counts are
+        # omitted on Linux: Wayland exposes no global window list, and a
+        # guessed number would be worse than none.
+        mem = Gtk.Label(xalign=0)
+        mem.add_css_class("caption")
+        details.append(mem)
+
+        mem_bar = Gtk.ProgressBar()
+        mem_bar.add_css_class("memory-track")
+        mem_bar.add_css_class(f"memfill-{tag}")
+        mem_bar.set_show_text(False)
+        details.append(mem_bar)
+
         buttons = Gtk.Box(spacing=6)
         launch = Gtk.Button(hexpand=True)
         launch.add_css_class(f"btn-{tag}")
-        launch.connect("clicked", lambda *_, p=profile: self.store.launch(p))
+        launch.connect("clicked", lambda *_, p=profile: self.store.launch(
+            p, new_window=bool(self.store.running.get(p.folderName))))
         buttons.append(launch)
 
         options = Gtk.Button(icon_name="applications-system-symbolic",
@@ -960,11 +1131,34 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Live status updates without rebuilding the grid
         def update():
-            running = bool(self.store.running.get(profile.folderName))
+            pids = self.store.running.get(profile.folderName) or []
+            running = bool(pids)
             duplicating = profile.folderName in self.store.duplicating
-            dot.set_markup(f'<span foreground="{"#4ADE80" if running else "#FFFFFF80"}">●</span>')
+            live = self.store.live_bytes.get(profile.folderName, 0) if running else 0
+            dot.set_markup(f'<span foreground="{"#34d399" if running else "#6b7484"}">●</span>')
             status.set_label("Running" if running else "Idle")
-            launch.set_label("New Window" if running else "Launch")
+            status.get_style_context().add_class(
+                "card-status-running" if running else "card-status-idle")
+            status.get_style_context().remove_class(
+                "card-status-idle" if running else "card-status-running")
+            pid_lbl.set_label(f"PID {pids[0]}" if pids else "")
+            if running:
+                mem.set_markup(
+                    f"Memory <span foreground=\"{profile.colorHex}\"><b>{format_bytes(live)}</b></span>"
+                    f" / {format_bytes(limit_bytes)} limit")
+                mem_bar.set_fraction(min(1.0, live / limit_bytes) if limit_bytes else 0.0)
+            else:
+                mem.set_markup(
+                    f"Memory <span foreground=\"#a8b0c4\">{format_bytes(limit_bytes)} limit</span>")
+                mem_bar.set_fraction(0.0)
+            if running:
+                launch.set_label("New Window")
+                launch.remove_css_class(f"btn-{tag}")
+                launch.add_css_class("launch-running")
+            else:
+                launch.set_label("Launch")
+                launch.remove_css_class("launch-running")
+                launch.add_css_class(f"btn-{tag}")
             stop.set_visible(running)
             spinner.set_visible(duplicating)
             spinner.set_spinning(duplicating)
@@ -1045,6 +1239,20 @@ class MainWindow(Adw.ApplicationWindow):
     def refresh_status(self, *_):
         for update in self.status_updaters:
             update()
+        live_total = sum(self.store.live_bytes.get(p.folderName, 0)
+                         for p in self.store.profiles
+                         if self.store.running.get(p.folderName))
+        cpu = f"{self.store.system_cpu:.0f}%" if self.store.system_cpu is not None else "—"
+        self.cpu_lbl.set_label(f"CPU {cpu}")
+        total = format_bytes(self.store.total_memory) if self.store.total_memory else "—"
+        self.ram_lbl.set_label(f"RAM {format_bytes(live_total)} / {total}")
+        self.count_lbl.set_label(f"{len(self.store.profiles)} profiles")
+        self._update_filter_labels()
+        # Keep Active-tab membership truthful between rebuilds.
+        if self.filter_mode == 1:
+            now = {p.folderName for p in self.visible_profiles()}
+            if now != getattr(self, "_last_visible", None):
+                self.rebuild()
 
 
 class EditorDialog(Adw.Window):
@@ -1319,6 +1527,9 @@ class CursorProfilesApp(Adw.Application):
         self.store = None
 
     def do_activate(self):
+        # Deep-dark redesign: pin libadwaita to dark so custom surfaces,
+        # borders and accent rules render as designed on any system theme.
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         window = self.get_active_window()
         if not window:
             if self.store is None:

@@ -196,27 +196,38 @@ final class ProfileStore: ObservableObject {
         copy.isSystem = false
 
         duplicating.insert(profile.folderName)
-        let finished: (Error?) -> Void = { [weak self] error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.duplicating.remove(profile.folderName)
-                if let error {
-                    self.lastError = "Could not duplicate profile: \(error.localizedDescription)"
-                    try? FileManager.default.removeItem(at: dest)
-                } else {
-                    self.profiles.append(copy)
-                    self.saveMetadata()
-                    self.refreshSizes()
-                }
+        // Sendable state only crosses the thread hop; the finish step
+        // runs MainActor-isolated via Task.
+        let folderName = profile.folderName
+        let sourceURL = source
+        let destURL = dest
+        let finishedCopy = copy
+        Task.detached(priority: .userInitiated) {
+            let copyErrorMessage: String?
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destURL)
+                copyErrorMessage = nil
+            } catch {
+                copyErrorMessage = error.localizedDescription
+            }
+            Task { @MainActor [weak self] in
+                self?.finishDuplicate(folderName: folderName, copy: finishedCopy,
+                                      dest: destURL, errorMessage: copyErrorMessage)
             }
         }
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try FileManager.default.copyItem(at: source, to: dest)
-                finished(nil)
-            } catch {
-                finished(error)
-            }
+    }
+
+    @MainActor
+    private func finishDuplicate(folderName: String, copy: CursorProfile,
+                                 dest: URL, errorMessage: String?) {
+        duplicating.remove(folderName)
+        if let errorMessage {
+            lastError = "Could not duplicate profile: \(errorMessage)"
+            try? FileManager.default.removeItem(at: dest)
+        } else {
+            profiles.append(copy)
+            saveMetadata()
+            refreshSizes()
         }
     }
 
@@ -306,14 +317,16 @@ final class ProfileStore: ObservableObject {
     /// the Mac while the app sits unattended in the background.
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            guard NSApp.isActive else { return }
-            DispatchQueue.main.async { self?.refreshRunning() }
+            Task { @MainActor in
+                guard let self, NSApp.isActive else { return }
+                self.refreshRunning()
+            }
         }
     }
 
     func refreshRunning() {
         let items = profiles.map { ($0.folderName, directory(for: $0), $0.isSystem) }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Task.detached(priority: .utility) {
             let processes = CursorLauncher.processList()
             let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
                 ($0.pid, (rssKB: $0.rssKB, cpu: $0.cpuPercent))
@@ -342,7 +355,7 @@ final class ProfileStore: ObservableObject {
             for (name, pids) in pidsByName {
                 winsByName[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
             }
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 self?.runningPIDs = pidsByName
                 self?.liveMemory = memByName
                 self?.liveCPU = cpuByName
@@ -358,12 +371,14 @@ final class ProfileStore: ObservableObject {
 
     func refreshSizes() {
         let items = profiles.map { ($0.folderName, directory(for: $0)) }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Task.detached(priority: .utility) {
+            var result: [String: Int64] = [:]
             for (name, dir) in items {
-                let size = Self.directorySize(dir)
-                DispatchQueue.main.async {
-                    self?.sizes[name] = size
-                }
+                result[name] = Self.directorySize(dir)
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for (name, size) in result { self.sizes[name] = size }
             }
         }
     }

@@ -28,7 +28,7 @@
 
 ---
 
-A Mojo Layers project. **Three native apps, one profile format**:
+A Mojo Layers project. **Three native apps, one profile format:**
 
 | Platform | Stack | Location | Launch |
 |----------|-------|----------|--------|

@@ -2,6 +2,7 @@ import SwiftUI
 
 // MARK: - Spotlight Command Bar
 
+@MainActor
 struct SpotlightCommandBar: View {
     @EnvironmentObject var store: ProfileStore
     @Environment(\.dismiss) private var dismiss
@@ -413,6 +414,7 @@ struct SpotlightCommandBar: View {
 
 // MARK: - Spotlight Item
 
+@MainActor
 struct SpotlightItem: View {
     let profile: CursorProfile
     let isRunning: Bool

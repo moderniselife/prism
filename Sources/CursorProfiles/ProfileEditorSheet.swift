@@ -5,6 +5,7 @@ import SwiftUI
 // Only real, persisted fields: name, icon, accent color, memory limit,
 // project folder. No fake engines, no decorative toggles, no daemons.
 
+@MainActor
 struct ProfileEditorSheet: View {
     enum Mode {
         case create

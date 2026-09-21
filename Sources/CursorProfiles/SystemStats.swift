@@ -79,6 +79,7 @@ extension Notification.Name {
 
 enum PrismUI {
     /// Bring the hub window forward (and create nothing fake).
+    @MainActor
     static func openHub() {
         NSApp.activate(ignoringOtherApps: true)
         for window in NSApp.windows
@@ -88,6 +89,7 @@ enum PrismUI {
     }
 
     /// Open the hub, then ask it to present the New Profile sheet.
+    @MainActor
     static func newProfile() {
         openHub()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {

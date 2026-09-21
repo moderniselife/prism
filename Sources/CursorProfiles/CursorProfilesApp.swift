@@ -59,6 +59,7 @@ private enum MenuMetrics {
     static let maxItems = 6
 }
 
+@MainActor
 struct MenuBarDropdown: View {
     @EnvironmentObject var store: ProfileStore
     @State private var searchText = ""
@@ -271,6 +272,7 @@ struct MenuBarDropdown: View {
 
 // MARK: - Menu Bar Profile Item (fixed widths throughout)
 
+@MainActor
 struct MenuBarProfileItem: View {
     let profile: CursorProfile
     let store: ProfileStore
@@ -476,7 +478,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // handles the toggle, so this handler stays out of the way.
 
 enum QuickSwitchHotkey {
-    private static var hotKeyRef: EventHotKeyRef?
+    /// Written once during launch on the main thread, never mutated after.
+    private final class HotKeyStorage: @unchecked Sendable {
+        var ref: EventHotKeyRef?
+    }
+    private static let storage = HotKeyStorage()
 
     static func register() {
         var type = EventTypeSpec(
@@ -495,7 +501,7 @@ enum QuickSwitchHotkey {
         let hotID = EventHotKeyID(signature: OSType(0x5052534D), id: 1)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey),
                             hotID, GetApplicationEventTarget(), 0, &ref)
-        hotKeyRef = ref
+        storage.ref = ref
     }
 
     private static func pressed() {

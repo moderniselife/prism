@@ -20,6 +20,7 @@ enum SortMode: String, CaseIterable, Identifiable {
 
 // MARK: - Main Hub Window
 
+@MainActor
 struct ContentView: View {
     @EnvironmentObject var store: ProfileStore
     @State private var search = ""

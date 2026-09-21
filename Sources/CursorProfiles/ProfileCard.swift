@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
 struct ProfileCard: View {
     @EnvironmentObject var store: ProfileStore
     let profile: CursorProfile
@@ -365,6 +366,7 @@ extension FileManager {
 
 // MARK: - Launch options popover (redesigned)
 
+@MainActor
 struct LaunchOptionsView: View {
     @EnvironmentObject var store: ProfileStore
     @Environment(\.dismiss) private var dismiss

@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.IO;
 using System.Management;
+using System.Runtime.InteropServices;
 
 namespace CursorProfiles;
 
-public record ProcessEntry(int Pid, string CommandLine);
+public record ProcessEntry(int Pid, long WorkingSetBytes, string CommandLine);
 
 public static class CursorLauncher
 {
@@ -64,23 +65,64 @@ public static class CursorLauncher
         Process.Start(psi);
     }
 
-    /// <summary>One WMI snapshot of all Cursor.exe processes with their command lines.</summary>
+    /// <summary>One WMI snapshot of all Cursor.exe processes: command line plus
+    /// live working-set bytes, so detection and memory agree with each other.</summary>
     public static List<ProcessEntry> ProcessList()
     {
         var result = new List<ProcessEntry>();
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'Cursor.exe'");
+                "SELECT ProcessId, CommandLine, WorkingSetSize FROM Win32_Process WHERE Name = 'Cursor.exe'");
             foreach (var obj in searcher.Get())
             {
                 var pid = Convert.ToInt32(obj["ProcessId"]);
                 var cmd = obj["CommandLine"]?.ToString() ?? "";
-                result.Add(new ProcessEntry(pid, cmd));
+                long ws = 0;
+                try { ws = Convert.ToInt64(obj["WorkingSetSize"]); } catch { /* treat as 0 */ }
+                result.Add(new ProcessEntry(pid, ws, cmd));
             }
         }
         catch { /* WMI unavailable — treat as nothing running */ }
         return result;
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc proc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    /// <summary>Real on-screen window counts per PID. Counted via EnumWindows,
+    /// never guessed — invisible windows don't count.</summary>
+    public static Dictionary<int, int> VisibleWindowCounts(IEnumerable<int> pids)
+    {
+        var wanted = new HashSet<int>(pids);
+        var counts = new Dictionary<int, int>();
+        if (wanted.Count == 0) return counts;
+        try
+        {
+            EnumWindowsProc callback = (hWnd, _) =>
+            {
+                if (IsWindowVisible(hWnd))
+                {
+                    GetWindowThreadProcessId(hWnd, out var pid);
+                    var id = (int)pid;
+                    if (wanted.Contains(id))
+                        counts[id] = counts.TryGetValue(id, out var c) ? c + 1 : 1;
+                }
+                return true;
+            };
+            EnumWindows(callback, IntPtr.Zero);
+            GC.KeepAlive(callback);
+        }
+        catch { /* enumeration failed — report what we have */ }
+        return counts;
     }
 
     /// <summary>Main Cursor process for a managed profile (matched by --user-data-dir).</summary>

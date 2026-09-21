@@ -130,7 +130,7 @@ enum Format {
     }
 }
 
-// MARK: - Name sanitizing (letters, digits, _ and - only)
+// MARK: - Folder-name sanitizing (letters, digits, _ and - only)
 
 enum ProfileNaming {
     static func sanitizeFolderName(_ raw: String) -> String {

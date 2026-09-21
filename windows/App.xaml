@@ -4,15 +4,18 @@
              StartupUri="MainWindow.xaml">
     <Application.Resources>
 
-        <!-- Palette -->
-        <SolidColorBrush x:Key="WindowBrush" Color="#14141C"/>
-        <SolidColorBrush x:Key="CardBrush" Color="#1E1F2B"/>
-        <SolidColorBrush x:Key="CardBorderBrush" Color="#2C2D3C"/>
-        <SolidColorBrush x:Key="TextBrush" Color="#F2F3F8"/>
-        <SolidColorBrush x:Key="SubTextBrush" Color="#9AA0B4"/>
-        <SolidColorBrush x:Key="FieldBrush" Color="#262736"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#6366F1"/>
+        <!-- Palette — deep dark, macOS redesign parity -->
+        <SolidColorBrush x:Key="WindowBrush" Color="#07090E"/>
+        <SolidColorBrush x:Key="CardBrush" Color="#0F131C"/>
+        <SolidColorBrush x:Key="CardBorderBrush" Color="#232B3D"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F2F4F8"/>
+        <SolidColorBrush x:Key="SubTextBrush" Color="#A8B0C4"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#6B7484"/>
+        <SolidColorBrush x:Key="FieldBrush" Color="#1B2233"/>
+        <SolidColorBrush x:Key="TrackBrush" Color="#232D44"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#06B6D4"/>
         <SolidColorBrush x:Key="DangerBrush" Color="#F43F5E"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="#34D399"/>
 
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
@@ -86,11 +89,19 @@
         </Style>
 
         <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
-            <Setter Property="Background" Value="#22FFFFFF"/>
+            <Setter Property="Background" Value="{StaticResource FieldBrush}"/>
         </Style>
 
         <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
             <Setter Property="Padding" Value="10,8"/>
+        </Style>
+
+        <!-- Filter tab (selected state is driven from code-behind) -->
+        <Style x:Key="FilterTab" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource SubTextBrush}"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Padding" Value="10,5"/>
         </Style>
 
         <!-- Card container -->
@@ -98,20 +109,20 @@
             <Setter Property="Background" Value="{StaticResource CardBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="CornerRadius" Value="16"/>
             <Setter Property="Margin" Value="8"/>
-            <Setter Property="Width" Value="260"/>
+            <Setter Property="Width" Value="280"/>
             <Setter Property="Effect">
                 <Setter.Value>
-                    <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.35" Color="Black"/>
+                    <DropShadowEffect BlurRadius="16" ShadowDepth="4" Opacity="0.45" Color="Black"/>
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="#4C4D63"/>
+                    <Setter Property="BorderBrush" Value="#2E3A52"/>
                     <Setter Property="Effect">
                         <Setter.Value>
-                            <DropShadowEffect BlurRadius="22" ShadowDepth="5" Opacity="0.5" Color="Black"/>
+                            <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.55" Color="Black"/>
                         </Setter.Value>
                     </Setter>
                 </Trigger>

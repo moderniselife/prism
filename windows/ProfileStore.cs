@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -16,6 +17,8 @@ public class ProfileVM : INotifyPropertyChanged
 
     private long? _sizeBytes;
     private List<int> _runningPids = new();
+    private long _liveBytes;
+    private int _windowCount;
     private bool _isDuplicating;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -31,9 +34,12 @@ public class ProfileVM : INotifyPropertyChanged
     public void RaiseAll()
     {
         foreach (var p in new[] { nameof(DisplayName), nameof(Emoji), nameof(HeaderBrush),
-                 nameof(AccentBrush), nameof(SizeText), nameof(LastLaunchedText), nameof(IsRunning),
+                 nameof(AccentBrush), nameof(AccentColor), nameof(StripBrush), nameof(IconBrush),
+                 nameof(SizeText), nameof(LastLaunchedText), nameof(IsRunning),
                  nameof(IsSystem), nameof(ShowPin), nameof(ProjectText), nameof(HasProject),
-                 nameof(RunningText), nameof(DotBrush), nameof(LaunchLabel), nameof(IsDuplicating) })
+                 nameof(RunningText), nameof(StatusBrush), nameof(PidText), nameof(DotBrush),
+                 nameof(LaunchLabel), nameof(MemoryMain), nameof(MemorySuffix), nameof(MemoryBrush),
+                 nameof(WindowsText), nameof(MemFraction), nameof(IsDuplicating) })
             Raise(p);
     }
 
@@ -49,9 +55,28 @@ public class ProfileVM : INotifyPropertyChanged
         set
         {
             _runningPids = value;
-            Raise(nameof(IsRunning)); Raise(nameof(RunningText));
-            Raise(nameof(DotBrush)); Raise(nameof(LaunchLabel));
+            Raise(nameof(IsRunning)); Raise(nameof(RunningText)); Raise(nameof(StatusBrush));
+            Raise(nameof(PidText)); Raise(nameof(DotBrush)); Raise(nameof(LaunchLabel));
+            Raise(nameof(MemoryMain)); Raise(nameof(MemorySuffix)); Raise(nameof(MemoryBrush));
+            Raise(nameof(WindowsText)); Raise(nameof(MemFraction));
         }
+    }
+
+    /// <summary>Live resident bytes (summed working set of this profile's processes).</summary>
+    public long LiveBytes
+    {
+        get => _liveBytes;
+        set
+        {
+            _liveBytes = value;
+            Raise(nameof(MemoryMain)); Raise(nameof(MemFraction));
+        }
+    }
+
+    public int WindowCount
+    {
+        get => _windowCount;
+        set { _windowCount = value; Raise(nameof(WindowsText)); }
     }
 
     public bool IsDuplicating
@@ -73,10 +98,57 @@ public class ProfileVM : INotifyPropertyChanged
     public string ProjectText => Model.DefaultProjectPath ?? "";
     public bool HasProject => !string.IsNullOrEmpty(Model.DefaultProjectPath);
 
+    public string PidText => IsRunning && _runningPids.Count > 0 ? $"PID {_runningPids[0]}" : "";
+
+    private long LimitBytes => (long)Model.DefaultMemoryMB * 1024 * 1024;
+
+    /// <summary>Live RSS when running, configured limit when idle. Never a guess.</summary>
+    public string MemoryMain => IsRunning ? Format.Bytes(_liveBytes) : Format.Bytes(LimitBytes);
+    public string MemorySuffix => IsRunning ? $" / {Format.Bytes(LimitBytes)} limit" : " limit";
+    public string WindowsText => !IsRunning ? "" : _windowCount switch
+    {
+        0 => "starting…",
+        1 => "1 window",
+        _ => $"{_windowCount} windows",
+    };
+
+    /// <summary>Honest fill: live RSS against the configured --max-memory limit.</summary>
+    public double MemFraction => IsRunning && LimitBytes > 0
+        ? Math.Min(1.0, (double)_liveBytes / LimitBytes) : 0.0;
+
     public Brush AccentBrush => new SolidColorBrush(Palette.ColorFromHex(Model.ColorHex));
+    public Color AccentColor => Palette.ColorFromHex(Model.ColorHex);
+    public Brush MemoryBrush => IsRunning ? AccentBrush
+        : new SolidColorBrush(Color.FromRgb(0xA8, 0xB0, 0xC4));
+    public Brush StatusBrush => IsRunning
+        ? new SolidColorBrush(Color.FromRgb(0x34, 0xD3, 0x99))
+        : new SolidColorBrush(Color.FromRgb(0xA8, 0xB0, 0xC4));
     public Brush DotBrush => IsRunning
-        ? new SolidColorBrush(Color.FromRgb(0x4A, 0xDE, 0x80))
-        : new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF));
+        ? new SolidColorBrush(Color.FromRgb(0x34, 0xD3, 0x99))
+        : new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x84));
+
+    /// <summary>Per-profile icon tint (accent at ~20% alpha).</summary>
+    public Brush IconBrush
+    {
+        get
+        {
+            var c = Palette.ColorFromHex(Model.ColorHex);
+            return new SolidColorBrush(Color.FromArgb(0x33, c.R, c.G, c.B));
+        }
+    }
+
+    /// <summary>3px top strip: horizontal accent gradient. The card body itself
+    /// stays flat dark — the strip carries the profile color.</summary>
+    public Brush StripBrush
+    {
+        get
+        {
+            var c = Palette.ColorFromHex(Model.ColorHex);
+            var dim = Color.FromArgb(0xFF,
+                (byte)(c.R * 0.55), (byte)(c.G * 0.55), (byte)(c.B * 0.55));
+            return new LinearGradientBrush(c, dim, new Point(0, 0), new Point(1, 0));
+        }
+    }
 
     public Brush HeaderBrush
     {
@@ -97,8 +169,19 @@ public class ProfileStore
     public List<ProfileVM> Profiles { get; } = new();
 
     public event Action? Changed;
+    /// <summary>Fired after every running-poll: card values flow through
+    /// INotifyPropertyChanged, this is for the header/status bar.</summary>
+    public event Action? StatsChanged;
     public event Action<string>? Error;
     public event Action<string>? Info;
+
+    /// <summary>Real system CPU % (null until the second sample).</summary>
+    public double? SystemCpuPercent { get; private set; }
+
+    public long TotalPhysicalMemoryBytes => SystemMonitor.TotalPhysicalMemoryBytes;
+
+    /// <summary>Real summed working set of every running profile.</summary>
+    public long LiveBytesTotal => Profiles.Where(p => p.IsRunning).Sum(p => p.LiveBytes);
 
     private const string MetadataName = ".profiles.json";
     private readonly DispatcherTimer _pollTimer;
@@ -419,12 +502,34 @@ public class ProfileStore
     {
         var snapshot = Profiles.Select(vm => (vm, dir: DirectoryFor(vm.Model), vm.Model.IsSystem)).ToList();
         var processes = await Task.Run(CursorLauncher.ProcessList);
+        var bytesByPid = processes.ToDictionary(p => p.Pid, p => p.WorkingSetBytes);
+        var matched = new Dictionary<ProfileVM, List<int>>();
+        var wanted = new List<int>();
         foreach (var (vm, dir, isSystem) in snapshot)
         {
-            vm.RunningPids = isSystem
+            var pids = isSystem
                 ? CursorLauncher.SystemProfilePids(processes)
                 : CursorLauncher.Pids(processes, dir);
+            matched[vm] = pids;
+            wanted.AddRange(pids);
         }
+        var windowsByPid = wanted.Count == 0
+            ? new Dictionary<int, int>()
+            : await Task.Run(() => CursorLauncher.VisibleWindowCounts(wanted));
+        foreach (var (vm, pids) in matched)
+        {
+            vm.RunningPids = pids;
+            long bytes = 0;
+            foreach (var pid in pids)
+                if (bytesByPid.TryGetValue(pid, out var b)) bytes += b;
+            vm.LiveBytes = bytes;
+            var windows = 0;
+            foreach (var pid in pids)
+                if (windowsByPid.TryGetValue(pid, out var w)) windows += w;
+            vm.WindowCount = windows;
+        }
+        SystemCpuPercent = SystemMonitor.SampleCpuPercent();
+        StatsChanged?.Invoke();
     }
 
     public async void RefreshSizes()
