@@ -34,7 +34,7 @@ final class ProfileStore: ObservableObject {
 
     let profilesDir: URL
     private let metadataName = ".profiles.json"
-    private var pollTimer: Timer?
+    private var pollTask: Task<Void, Never>?
 
     var resolvedCursorPath: String? {
         CursorLauncher.findCursor(customPath: customCursorPath.isEmpty ? nil : customCursorPath)
@@ -193,24 +193,28 @@ final class ProfileStore: ObservableObject {
         copy.isSystem = false
 
         duplicating.insert(profile.folderName)
-        // Sendable state only crosses the thread hop; the finish step
-        // runs MainActor-isolated via Task.
+        // Sendable snapshots cross the thread hop; the finish step runs in
+        // this Task, which inherits MainActor isolation from duplicate().
         let folderName = profile.folderName
         let sourceURL = source
         let destURL = dest
         let finishedCopy = copy
-        Task.detached(priority: .userInitiated) {
-            let copyErrorMessage: String?
-            do {
-                try FileManager.default.copyItem(at: sourceURL, to: destURL)
-                copyErrorMessage = nil
-            } catch {
-                copyErrorMessage = error.localizedDescription
-            }
-            Task { @MainActor [weak self] in
-                self?.finishDuplicate(folderName: folderName, copy: finishedCopy,
-                                      dest: destURL, errorMessage: copyErrorMessage)
-            }
+        Task { [weak self] in
+            let copyErrorMessage = await Task.detached(priority: .userInitiated) {
+                Self.copyProfileData(source: sourceURL, dest: destURL)
+            }.value
+            self?.finishDuplicate(folderName: folderName, copy: finishedCopy,
+                                  dest: destURL, errorMessage: copyErrorMessage)
+        }
+    }
+
+    /// Pure file copy: Sendable in/out, never touches the store.
+    private static nonisolated func copyProfileData(source: URL, dest: URL) -> String? {
+        do {
+            try FileManager.default.copyItem(at: source, to: dest)
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
@@ -278,7 +282,8 @@ final class ProfileStore: ObservableObject {
             var p = profile
             p.lastLaunchedAt = Date()
             update(p)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
                 self?.refreshRunning()
             }
         } catch {
@@ -288,7 +293,8 @@ final class ProfileStore: ObservableObject {
 
     func quit(_ profile: CursorProfile) {
         CursorLauncher.quit(pids: runningPIDs[profile.folderName] ?? [])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
             self?.refreshRunning()
         }
     }
@@ -297,7 +303,8 @@ final class ProfileStore: ObservableObject {
         for profile in profiles where isRunning(profile) {
             CursorLauncher.quit(pids: runningPIDs[profile.folderName] ?? [])
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
             self?.refreshRunning()
         }
     }
@@ -313,68 +320,89 @@ final class ProfileStore: ObservableObject {
     /// actually open and key — no reason to keep scanning every process on
     /// the Mac while the app sits unattended in the background.
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, NSApp.isActive else { return }
+        // Structured poll loop. The Task inherits MainActor isolation from
+        // this method, so touching the store needs no annotations — and
+        // crucially no explicit @MainActor on the closure, which would flip
+        // checking to Sendable-capture rules and forbid even weak self.
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard let self, NSApp.isActive else { continue }
                 self.refreshRunning()
             }
         }
     }
 
+    private struct RunningSnapshot: Sendable {
+        var pids: [String: [Int32]] = [:]
+        var memory: [String: UInt64] = [:]
+        var cpu: [String: Double] = [:]
+        var windows: [String: Int] = [:]
+    }
+
     func refreshRunning() {
         let items = profiles.map { ($0.folderName, directory(for: $0), $0.isSystem) }
-        Task.detached(priority: .utility) {
-            let processes = CursorLauncher.processList()
-            let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
-                ($0.pid, (rssKB: $0.rssKB, cpu: $0.cpuPercent))
-            })
-            var pidsByName: [String: [Int32]] = [:]
-            var memByName: [String: UInt64] = [:]
-            var cpuByName: [String: Double] = [:]
-            var allPIDs: [Int32] = []
-            for (name, dir, isSystem) in items {
-                let matched = isSystem
-                    ? CursorLauncher.systemProfilePIDs(in: processes)
-                    : CursorLauncher.pids(in: processes, profileDir: dir)
-                pidsByName[name] = matched
-                var rss: Int64 = 0
-                var cpu = 0.0
-                for pid in matched {
-                    rss += statsByPid[pid]?.rssKB ?? 0
-                    cpu += statsByPid[pid]?.cpu ?? 0
-                }
-                memByName[name] = UInt64(max(0, rss)) * 1024
-                cpuByName[name] = cpu
-                allPIDs.append(contentsOf: matched)
-            }
-            let winsByPid = SystemStats.windowCounts(for: allPIDs)
-            var winsByName: [String: Int] = [:]
-            for (name, pids) in pidsByName {
-                winsByName[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
-            }
-            Task { @MainActor [weak self] in
-                self?.runningPIDs = pidsByName
-                self?.liveMemory = memByName
-                self?.liveCPU = cpuByName
-                self?.windowCounts = winsByName
-                // host_statistics is microseconds-cheap; sample on main to
-                // respect @MainActor isolation.
-                if let sysCPU = self?.cpuMonitor.usage() {
-                    self?.systemCPU = sysCPU
-                }
-            }
+        Task { [weak self] in
+            let snapshot = await Task.detached(priority: .utility) {
+                Self.computeRunningSnapshot(items: items)
+            }.value
+            self?.applyRunningSnapshot(snapshot)
         }
+    }
+
+    /// Pure computation: Sendable in, Sendable out, never touches the store.
+    private static nonisolated func computeRunningSnapshot(
+        items: [(folderName: String, dir: URL, isSystem: Bool)]
+    ) -> RunningSnapshot {
+        let processes = CursorLauncher.processList()
+        let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
+            ($0.pid, (rssKB: $0.rssKB, cpu: $0.cpuPercent))
+        })
+        var snapshot = RunningSnapshot()
+        var allPIDs: [Int32] = []
+        for item in items {
+            let matched = item.isSystem
+                ? CursorLauncher.systemProfilePIDs(in: processes)
+                : CursorLauncher.pids(in: processes, profileDir: item.dir)
+            snapshot.pids[item.folderName] = matched
+            var rss: Int64 = 0
+            var cpu = 0.0
+            for pid in matched {
+                rss += statsByPid[pid]?.rssKB ?? 0
+                cpu += statsByPid[pid]?.cpu ?? 0
+            }
+            snapshot.memory[item.folderName] = UInt64(max(0, rss)) * 1024
+            snapshot.cpu[item.folderName] = cpu
+            allPIDs.append(contentsOf: matched)
+        }
+        let winsByPid = SystemStats.windowCounts(for: allPIDs)
+        for (name, pids) in snapshot.pids {
+            snapshot.windows[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
+        }
+        return snapshot
+    }
+
+    @MainActor
+    private func applyRunningSnapshot(_ snapshot: RunningSnapshot) {
+        runningPIDs = snapshot.pids
+        liveMemory = snapshot.memory
+        liveCPU = snapshot.cpu
+        windowCounts = snapshot.windows
+        // host_statistics is microseconds-cheap; sample on main to
+        // respect @MainActor isolation.
+        if let sysCPU = cpuMonitor.usage() { systemCPU = sysCPU }
     }
 
     func refreshSizes() {
         let items = profiles.map { ($0.folderName, directory(for: $0)) }
-        Task.detached(priority: .utility) {
-            var result: [String: Int64] = [:]
-            for (name, dir) in items {
-                result[name] = Self.directorySize(dir)
-            }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                var sizes: [String: Int64] = [:]
+                for (name, dir) in items { sizes[name] = Self.directorySize(dir) }
+                return sizes
+            }.value
+            if let self {
                 for (name, size) in result { self.sizes[name] = size }
             }
         }
