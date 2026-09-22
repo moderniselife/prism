@@ -1,18 +1,21 @@
-# Release pipeline. Push a tag like `tui-v1.2.3` and this ships everything:
-# GoReleaser binaries + checksums + Homebrew cask (TUI), the macOS .app zip,
-# platform wheels on PyPI, the npm package, a Winget submission PR, and the
-# tap's Prism.app cask.
+# Release pipeline. Push a tag like `tui-v1.2.3` and this ships everything
+# it can: TUI binaries + checksums, the GUI apps (mac .app zip, Windows
+# single-file exe, Linux tarball), and — only where their secret exists —
+# PyPI wheels, the npm package, the Homebrew tap casks, and a Winget PR.
 #
-# One-time setup (all in repo Settings → Secrets and actions, unless noted):
-#   1. Create the (initially empty) `moderniselife/homebrew-prism` tap repo.
-#   2. TAP_GITHUB_TOKEN  — classic PAT with `repo` scope (writes the tap).
-#   3. NPM_TOKEN         — npm access token with publish rights.
-#   4. PYPI_API_TOKEN    — PyPI API token for the `prism-tui` project.
-#   5. WINGET_TOKEN      — classic PAT with `public_repo` scope, plus a fork
-#      of microsoft/winget-pkgs under `moderniselife`.
-#   6. Winget FIRST release is manual: vedantmgoyal9/winget-releaser refuses
-#      brand-new packages. Submit v1 by hand once (komac or manual manifest
-#      PR to winget-pkgs); automation takes over from v2 onward.
+# Design: the release itself plus all binaries need nothing but GITHUB_TOKEN,
+# so a tag push always produces a downloadable release. Every registry that
+# needs a secret is a gated job that skips silently until its token exists.
+# Gate pattern: a `gate` step maps secret presence to an output (secrets
+# can't be branched on any other way), publish steps check that output.
+#
+# One-time setup (repo Settings → Secrets and variables → Actions):
+#   TAP_GITHUB_TOKEN (classic, `repo`) — Homebrew tap pushes
+#   NPM_TOKEN                            — npm publish rights
+#   PYPI_API_TOKEN                       — the `prism-tui` PyPI project
+#   WINGET_TOKEN (classic, `public_repo`) + fork of microsoft/winget-pkgs
+# Winget's first version must be submitted by hand (komac); automation
+# takes over from the second release onward.
 name: Release
 
 on:
@@ -23,7 +26,18 @@ permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
+            gh release create "${{ github.ref_name }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tui:
+    needs: [create-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,12 +53,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
 
   mac-app:
-    # The GUI app stays exactly as it was — this just attaches a signed zip
-    # of it to the same release (feeds the brew cask below).
-    needs: [goreleaser]
+    needs: [create-release]
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -54,10 +65,36 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  windows-gui:
+    needs: [create-release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Publish self-contained single-file exe
+        run: dotnet publish windows/CursorProfiles.csproj -c Release -r win-x64 --self-contained -o gui/win-x64 /p:PublishSingleFile=true
+      - run: gh release upload "${{ github.ref_name }}" gui/win-x64/Prism.exe --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  linux-gui:
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m py_compile linux/prism.py
+      - run: tar -czf prism-linux.tar.gz linux/
+      - run: gh release upload "${{ github.ref_name }}" prism-linux.tar.gz --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   wheels:
-    # One platform wheel per GoReleaser asset. The plat tag is asserted by us
-    # (the payload is a static binary, so any runner can pack any platform).
-    needs: [goreleaser]
+    needs: [tui]
     strategy:
       fail-fast: false
       matrix:
@@ -110,74 +147,131 @@ jobs:
           name: wheel-${{ matrix.plat }}
           path: /tmp/wheeldist/*.whl
           retention-days: 3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   pypi-publish:
     needs: [wheels]
     runs-on: ubuntu-latest
     steps:
+      - id: gate
+        run: '[ -n "${{ secrets.PYPI_API_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
       - uses: actions/download-artifact@v4
+        if: steps.gate.outputs.has == 'true'
         with:
           pattern: wheel-*
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: steps.gate.outputs.has == 'true'
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
 
   npm-publish:
-    needs: [goreleaser]
+    needs: [tui]
     runs-on: ubuntu-latest
     steps:
+      - id: gate
+        run: '[ -n "${{ secrets.NPM_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.has == 'true'
       - uses: actions/setup-node@v4
+        if: steps.gate.outputs.has == 'true'
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - name: Stamp version and release tag
+        if: steps.gate.outputs.has == 'true'
         env:
           TAG: ${{ github.ref_name }}
         run: |
           node -e 'const fs=require("fs"); const p="npm/prism-tui/package.json"; const j=JSON.parse(fs.readFileSync(p)); const tag=process.env.TAG; const ver=tag.replace(/^tui-v/,""); j.version=ver; j.prism.releaseTag=tag; fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");'
-      - run: npm publish --access public
+      - name: Publish
+        if: steps.gate.outputs.has == 'true'
+        run: npm publish --access public
         working-directory: npm/prism-tui
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  winget:
-    # Requires a prior manual submission (see header) + fork + WINGET_TOKEN.
-    needs: [goreleaser]
+  tap-tui:
+    # TUI cask in the Homebrew tap (GoReleaser's formula support is
+    # deprecated upstream, so the tap is managed here like the app cask).
+    needs: [tui]
     runs-on: ubuntu-latest
     steps:
-      - id: ver
-        run: echo "version=${GITHUB_REF_NAME#tui-v}" >> "$GITHUB_OUTPUT"
-      - uses: vedantmgoyal9/winget-releaser@main
-        with:
-          identifier: ModerniseLife.PrismTUI
-          version: ${{ steps.ver.outputs.version }}
-          installers-regex: 'prism-tui-windows-amd64\.zip$'
-          token: ${{ secrets.WINGET_TOKEN }}
+      - id: gate
+        run: '[ -n "${{ secrets.TAP_GITHUB_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.has == 'true'
+      - name: Render and push cask
+        if: steps.gate.outputs.has == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#tui-v}"
+          gh release download "$TAG" -p checksums.txt -D /tmp/tap --repo moderniselife/prism
+          SHA_ARM=$(grep "prism-tui-darwin-arm64.tar.gz" /tmp/tap/checksums.txt | cut -d' ' -f1)
+          SHA_INTEL=$(grep "prism-tui-darwin-amd64.tar.gz" /tmp/tap/checksums.txt | cut -d' ' -f1)
+          sed -e "s/__VERSION__/$VER/" -e "s/__SHA_ARM__/$SHA_ARM/" -e "s/__SHA_INTEL__/$SHA_INTEL/" \
+            packaging/homebrew-cask/prism-tui.rb > /tmp/prism-tui.rb
+          rm -rf /tmp/taprepo && git clone \
+            "https://x-access-token:${TAP_TOKEN}@github.com/moderniselife/homebrew-prism.git" /tmp/taprepo
+          mkdir -p /tmp/taprepo/Casks && cp /tmp/prism-tui.rb /tmp/taprepo/Casks/prism-tui.rb
+          cd /tmp/taprepo && git add Casks/prism-tui.rb
+          git diff --cached --quiet || {
+            git -c user.name="github-actions[bot]" \
+                -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -m "prism-tui $VER" && git push
+          }
 
   cask-update:
-    # Pushes the Prism.app cask (version + zip sha256) into the tap repo.
-    needs: [goreleaser, mac-app]
+    # Prism.app cask in the tap.
+    needs: [tui, mac-app]
     runs-on: macos-14
     steps:
+      - id: gate
+        run: '[ -n "${{ secrets.TAP_GITHUB_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
       - uses: actions/checkout@v4
-      - run: |
+        if: steps.gate.outputs.has == 'true'
+      - name: Render and push cask
+        if: steps.gate.outputs.has == 'true'
+        env:
+          TAG: ${{ github.ref_name }}
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"; VER="${TAG#tui-v}"
+          VER="${TAG#tui-v}"
           gh release download "$TAG" -p Prism.app.zip -D /tmp/cask --repo moderniselife/prism
           SHA=$(shasum -a 256 /tmp/cask/Prism.app.zip | cut -d' ' -f1)
           sed -e "s/__VERSION__/$VER/" -e "s/__SHA256__/$SHA/" \
             packaging/homebrew-cask/prism.rb > /tmp/prism.rb
-          rm -rf /tmp/tap && git clone \
-            "https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/moderniselife/homebrew-prism.git" /tmp/tap
-          mkdir -p /tmp/tap/Casks && cp /tmp/prism.rb /tmp/tap/Casks/prism.rb
-          cd /tmp/tap && git add Casks/prism.rb
+          rm -rf /tmp/taprepo && git clone \
+            "https://x-access-token:${TAP_TOKEN}@github.com/moderniselife/homebrew-prism.git" /tmp/taprepo
+          mkdir -p /tmp/taprepo/Casks && cp /tmp/prism.rb /tmp/taprepo/Casks/prism.rb
+          cd /tmp/taprepo && git add Casks/prism.rb
           git diff --cached --quiet || {
             git -c user.name="github-actions[bot]" \
                 -c user.email="github-actions[bot]@users.noreply.github.com" \
               commit -m "prism $VER" && git push
           }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  winget:
+    needs: [tui]
+    runs-on: ubuntu-latest
+    steps:
+      - id: gate
+        run: '[ -n "${{ secrets.WINGET_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
+      - id: ver
+        if: steps.gate.outputs.has == 'true'
+        run: echo "version=${GITHUB_REF_NAME#tui-v}" >> "$GITHUB_OUTPUT"
+      - uses: vedantmgoyal9/winget-releaser@main
+        if: steps.gate.outputs.has == 'true'
+        with:
+          identifier: ModerniseLife.PrismTUI
+          version: ${{ steps.ver.outputs.version }}
+          installers-regex: 'prism-tui-windows-amd64\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
