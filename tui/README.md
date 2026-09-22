@@ -55,7 +55,9 @@ runtime needed anywhere.
 ## Develop
 
 ```bash
-go build -o prism-tui .   # needs Go 1.23+
-go test ./...
-gofmt -l .
+go run ./tui              # from the repo root (go.work wires it up)
+go build -o prism-tui ./tui
+go test ./tui/...
+gofmt -l tui/
 ```
+Needs Go 1.24+.
