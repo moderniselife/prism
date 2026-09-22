@@ -1,0 +1,26 @@
+# No sdist is published on purpose: the payload is a platform binary, so
+# each wheel is platform-specific. CI builds one wheel per OS from the
+# matching GoReleaser asset (see .github/workflows/release.yml).
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism-tui"
+version = "0.0.0"
+description = "Prism for the terminal — manage isolated Cursor profiles from your shell"
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+prism-tui = "prism_tui:main"
+
+[project.urls]
+Homepage = "https://github.com/moderniselife/prism"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["prism_tui*"]
+
+[tool.setuptools.package-data]
+prism_tui = ["bin/*"]

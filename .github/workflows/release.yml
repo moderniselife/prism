@@ -1,0 +1,183 @@
+# Release pipeline. Push a tag like `tui-v1.2.3` and this ships everything:
+# GoReleaser binaries + checksums + Homebrew cask (TUI), the macOS .app zip,
+# platform wheels on PyPI, the npm package, a Winget submission PR, and the
+# tap's Prism.app cask.
+#
+# One-time setup (all in repo Settings → Secrets and actions, unless noted):
+#   1. Create the (initially empty) `moderniselife/homebrew-prism` tap repo.
+#   2. TAP_GITHUB_TOKEN  — classic PAT with `repo` scope (writes the tap).
+#   3. NPM_TOKEN         — npm access token with publish rights.
+#   4. PYPI_API_TOKEN    — PyPI API token for the `prism-tui` project.
+#   5. WINGET_TOKEN      — classic PAT with `public_repo` scope, plus a fork
+#      of microsoft/winget-pkgs under `moderniselife`.
+#   6. Winget FIRST release is manual: vedantmgoyal9/winget-releaser refuses
+#      brand-new packages. Submit v1 by hand once (komac or manual manifest
+#      PR to winget-pkgs); automation takes over from v2 onward.
+name: Release
+
+on:
+  push:
+    tags: ["tui-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+  mac-app:
+    # The GUI app stays exactly as it was — this just attaches a signed zip
+    # of it to the same release (feeds the brew cask below).
+    needs: [goreleaser]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build.sh
+      - run: ditto -c -k --keepParent build/Prism.app Prism.app.zip
+      - run: gh release upload "${{ github.ref_name }}" Prism.app.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  wheels:
+    # One platform wheel per GoReleaser asset. The plat tag is asserted by us
+    # (the payload is a static binary, so any runner can pack any platform).
+    needs: [goreleaser]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, asset: prism-tui-darwin-arm64.tar.gz, plat: macosx_11_0_arm64 }
+          - { os: macos-14, asset: prism-tui-darwin-amd64.tar.gz, plat: macosx_11_0_x86_64 }
+          - { os: ubuntu-latest, asset: prism-tui-linux-amd64.tar.gz, plat: manylinux_2_17_x86_64 }
+          - { os: ubuntu-latest, asset: prism-tui-linux-arm64.tar.gz, plat: manylinux_2_17_aarch64 }
+          - { os: windows-latest, asset: prism-tui-windows-amd64.zip, plat: win_amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Stage binary and stamp version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#tui-v}"
+          gh release download "$TAG" -p "${{ matrix.asset }}" -D assets --repo moderniselife/prism
+          rm -rf wheelbuild stage && mkdir -p wheelbuild stage
+          cp -r pypi/prism-tui/README.md pypi/prism-tui/pyproject.toml \
+                pypi/prism-tui/setup.py pypi/prism-tui/prism_tui wheelbuild/
+          mkdir -p wheelbuild/prism_tui/bin
+          # Archives hold the binary plus a README — stage the binary only.
+          tar -xf "assets/${{ matrix.asset }}" -C stage
+          BIN=prism-tui; if [ "${{ runner.os }}" = Windows ]; then BIN=prism-tui.exe; fi
+          cp "stage/$BIN" wheelbuild/prism_tui/bin/
+          chmod +x wheelbuild/prism_tui/bin/"$BIN" 2>/dev/null || true
+          python - "$VER" <<'EOF'
+          import sys
+          ver = sys.argv[1]
+          p = "wheelbuild/pyproject.toml"
+          s = open(p).read().replace('version = "0.0.0"', f'version = "{ver}"', 1)
+          open(p, "w").write(s)
+          p = "wheelbuild/prism_tui/__init__.py"
+          s = open(p).read().replace('__version__ = "0.0.0"', f'__version__ = "{ver}"', 1)
+          open(p, "w").write(s)
+          EOF
+      - name: Build wheel
+        shell: bash
+        run: |
+          python -m pip install -U setuptools wheel
+          cd wheelbuild && python setup.py -q bdist_wheel --plat-name "${{ matrix.plat }}" -d /tmp/wheeldist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.plat }}
+          path: /tmp/wheeldist/*.whl
+          retention-days: 3
+
+  pypi-publish:
+    needs: [wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  npm-publish:
+    needs: [goreleaser]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Stamp version and release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node -e 'const fs=require("fs"); const p="npm/prism-tui/package.json"; const j=JSON.parse(fs.readFileSync(p)); const tag=process.env.TAG; const ver=tag.replace(/^tui-v/,""); j.version=ver; j.prism.releaseTag=tag; fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");'
+      - run: npm publish --access public
+        working-directory: npm/prism-tui
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  winget:
+    # Requires a prior manual submission (see header) + fork + WINGET_TOKEN.
+    needs: [goreleaser]
+    runs-on: ubuntu-latest
+    steps:
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#tui-v}" >> "$GITHUB_OUTPUT"
+      - uses: vedantmgoyal9/winget-releaser@main
+        with:
+          identifier: ModerniseLife.PrismTUI
+          version: ${{ steps.ver.outputs.version }}
+          installers-regex: 'prism-tui-windows-amd64\.zip$'
+          token: ${{ secrets.WINGET_TOKEN }}
+
+  cask-update:
+    # Pushes the Prism.app cask (version + zip sha256) into the tap repo.
+    needs: [goreleaser, mac-app]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"; VER="${TAG#tui-v}"
+          gh release download "$TAG" -p Prism.app.zip -D /tmp/cask --repo moderniselife/prism
+          SHA=$(shasum -a 256 /tmp/cask/Prism.app.zip | cut -d' ' -f1)
+          sed -e "s/__VERSION__/$VER/" -e "s/__SHA256__/$SHA/" \
+            packaging/homebrew-cask/prism.rb > /tmp/prism.rb
+          rm -rf /tmp/tap && git clone \
+            "https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/moderniselife/homebrew-prism.git" /tmp/tap
+          mkdir -p /tmp/tap/Casks && cp /tmp/prism.rb /tmp/tap/Casks/prism.rb
+          cd /tmp/tap && git add Casks/prism.rb
+          git diff --cached --quiet || {
+            git -c user.name="github-actions[bot]" \
+                -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -m "prism $VER" && git push
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

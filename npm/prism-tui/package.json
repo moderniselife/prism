@@ -1,0 +1,29 @@
+{
+  "name": "prism-tui",
+  "version": "0.0.0-dev",
+  "description": "Prism for the terminal — manage isolated Cursor profiles from your shell",
+  "homepage": "https://github.com/moderniselife/prism",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moderniselife/prism.git",
+    "directory": "npm/prism-tui"
+  },
+  "license": "UNLICENSED",
+  "bin": {
+    "prism-tui": "bin/prism-tui"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "prism": {
+    "repo": "moderniselife/prism"
+  }
+}

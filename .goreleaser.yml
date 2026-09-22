@@ -1,0 +1,59 @@
+# GoReleaser: prism-tui binaries for every platform, Homebrew formula,
+# checksums. Runs on version tags (v*) via .github/workflows/release.yml.
+# Test locally without publishing: `goreleaser release --snapshot --clean`.
+version: 2
+
+project_name: prism-tui
+
+builds:
+  - id: prism-tui
+    dir: ./tui
+    binary: prism-tui
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - id: tui
+    ids: [prism-tui]
+    # Deterministic names — the npm/pip installers construct these URLs.
+    name_template: "prism-tui-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+    files:
+      - src: tui/README.md
+        dst: README.md
+
+checksum:
+  name_template: checksums.txt
+
+# Binary cask (not a formula): GoReleaser's formula support is deprecated
+# upstream in favor of casks for prebuilt binaries. Installs with:
+#   brew install --cask moderniselife/prism/prism-tui
+homebrew_casks:
+  - name: prism-tui
+    repository:
+      owner: moderniselife
+      name: homebrew-prism
+      # Requires a TAP_GITHUB_TOKEN secret (classic PAT, repo scope).
+      # Create the (initially empty) homebrew-prism repo first.
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/moderniselife/prism"
+    description: "Prism for the terminal — manage isolated Cursor profiles from your shell"
+    binaries:
+      - prism-tui
+    hooks:
+      post:
+        # Our binaries are unsigned; clear quarantine so Gatekeeper
+        # doesn't block first run on macOS.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/prism-tui"]
+          end

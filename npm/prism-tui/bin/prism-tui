@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+// Launcher: execs the platform binary downloaded by postinstall.
+const { spawnSync } = require("node:child_process");
+const { existsSync } = require("node:fs");
+const path = require("node:path");
+
+function binaryPath() {
+  const exe = process.platform === "win32" ? "prism-tui.exe" : "prism-tui";
+  return path.join(__dirname, "..", "binaries", exe);
+}
+
+const bin = binaryPath();
+if (!existsSync(bin)) {
+  console.error(
+    "prism-tui: binary not found. Reinstall the package " +
+      "(postinstall downloads it from GitHub releases), or set " +
+      "PRISM_TUI_SKIP_DOWNLOAD=1 only for source checkouts where you " +
+      "place a binary in npm/prism-tui/binaries/ yourself."
+  );
+  process.exit(1);
+}
+
+const res = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
+process.exit(res.status ?? 1);

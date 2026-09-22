@@ -1,5 +1,14 @@
 build/
+dist/
 .DS_Store
 windows/bin/
 windows/obj/
+windows/publish/
 __pycache__/
+node_modules/
+npm/prism-tui/binaries/
+pypi/prism-tui/build/
+pypi/prism-tui/dist/
+pypi/prism-tui/*.egg-info
+tui/prism-tui
+tui/prism-tui.exe

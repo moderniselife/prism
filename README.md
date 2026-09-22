@@ -21,20 +21,23 @@
 <p align="center">
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="#terminal-tui">Terminal</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#layout">Layout</a> ·
+  <a href="#releasing">Releasing</a> ·
   <a href="#faq">FAQ</a>
 </p>
 
 ---
 
-A Mojo Layers project. **Three native apps, one profile format:**
+A Mojo Layers project. **Three native apps plus a terminal client, one profile format:**
 
 | Platform | Stack | Location | Launch |
 |----------|-------|----------|--------|
 | macOS | SwiftUI | `Sources/` + `build.sh` | `./build.sh && open "build/Prism.app"` |
 | Windows | WPF / .NET 8 | [`windows/`](windows/) | `dotnet build windows/CursorProfiles.csproj -c Release` |
 | Linux | GTK4 + libadwaita (Python) | [`linux/`](linux/) | `python3 linux/prism.py` |
+| Terminal | Go + Bubble Tea | [`tui/`](tui/) | `go run ./tui` (or `prism-tui`) |
 
 All three read and write the same `~/.cursor_profiles` directory and `.profiles.json` metadata, so profiles roam across operating systems. Every number the UI shows is **measured live** — resident memory from `ps`, window counts from the on-screen window list, CPU from the kernel. Nothing is hardcoded.
 
@@ -96,6 +99,27 @@ python3 linux/prism.py
 
 Every pull request to `main` rebuilds all three platforms automatically — see [`.github/workflows/pr.yml`](.github/workflows/pr.yml).
 
+## Terminal (TUI)
+
+`prism-tui` is Prism for the terminal — same profiles, no app. List, filter,
+launch, stop, create and delete profiles with live RSS and system stats.
+See [`tui/README.md`](tui/README.md) for keys.
+
+```bash
+npm i -g prism-tui            # Node users
+pipx install prism-tui        # Python users
+brew install --cask moderniselife/prism/prism-tui
+winget install ModerniseLife.PrismTUI
+```
+
+Or grab a static binary from
+[GitHub releases](https://github.com/moderniselife/prism/releases) — no
+runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
+
+> First run opens unsigned on macOS Gatekeeper the same way as the `.app`
+> below: right-click → Open once. The Homebrew cask clears quarantine
+> automatically.
+
 ## How it works
 
 ```
@@ -126,7 +150,31 @@ Sources/CursorProfiles/
   Models.swift              # Profile model, palette, formatting helpers
 assets/
   logo.png                  # Source of truth for the logo + macOS app icon
+tui/
+  main.go, store.go,        # TUI: entry, profiles/persistence/launch/detect
+  stats.go, colorize.go, ui.go
+npm/prism-tui/              # npm wrapper (downloads the release binary)
+pypi/prism-tui/             # PyPI wrapper (platform wheels bundle it)
+packaging/homebrew-cask/    # Prism.app cask template for the tap
 ```
+
+## Releasing
+
+Push a tag like `tui-v1.2.3` and [`.github/workflows/release.yml`](.github/workflows/release.yml)
+ships everything: GoReleaser binaries + checksums + the Homebrew TUI cask,
+the signed `Prism.app.zip`, five platform wheels on PyPI, the npm package,
+a Winget submission PR, and the tap's `Prism.app` cask update.
+
+One-time setup before the first release:
+
+1. Create the empty **`moderniselife/homebrew-prism`** tap repo.
+2. Repo secrets: **`TAP_GITHUB_TOKEN`** (classic PAT, `repo` scope),
+   **`NPM_TOKEN`** (publish rights), **`PYPI_API_TOKEN`**,
+   **`WINGET_TOKEN`** (classic PAT, `public_repo` scope), plus a fork of
+   `microsoft/winget-pkgs` under `moderniselife`.
+3. **Winget's first version must be submitted by hand** — the automation
+   refuses brand-new packages. Run `komac update ModerniseLife.PrismTUI`
+   once against a published release, then automation takes over.
 
 ## FAQ
 
