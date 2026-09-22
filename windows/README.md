@@ -46,13 +46,37 @@ Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 dotnet run
 ```
 
-Or publish a single-file exe:
+Or publish the shippable exe — self-contained single-file, runtime and
+dependencies bundled, no .NET install needed on the target machine:
 
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained false
+dotnet publish -c Release -r win-x64 --self-contained -o publish/win-x64 /p:PublishSingleFile=true
 ```
 
-The exe lands in `bin\Release\net8.0-windows\win-x64\publish\CursorProfiles.exe`.
+The exe lands at `publish\win-x64\Prism.exe`. That one file is the whole
+app — don't split it up; running the exe without its published folder
+mates is the classic "double-click and nothing happens".
+
+## If it won't start
+
+Silent exits leave evidence — check in this order:
+
+1. **Run the published exe**, not a lone file copied out of `bin\Release`.
+   The framework-dependent build needs its sibling `.dll` +
+   `.runtimeconfig.json` next to it; the single-file publish above has no
+   such requirement.
+2. **Read the crash log** at `%TEMP%\Prism-crash.log` — every unhandled
+   exception is written there, plus an error dialog when possible.
+3. **Run from a terminal** (`cmd`, not double-click) so host errors print:
+   ```powershell
+   publish\win-x64\Prism.exe
+   ```
+   With the SDK installed you get full managed output via the DLL instead:
+   ```powershell
+   dotnet bin\Debug\net8.0-windows\Prism.dll
+   ```
+4. **Event Viewer** → Windows Logs → Application → `.NET Runtime` entries
+   at the launch timestamp.
 
 ## Cursor detection
 

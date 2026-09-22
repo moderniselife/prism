@@ -36,11 +36,14 @@ jobs:
           dotnet-version: 8.0.x
       - name: Build
         run: dotnet build windows/CursorProfiles.csproj -c Release
-      - name: Upload build output
+      - name: Publish self-contained single-file exe
+        # The shippable artifact: runtime + deps bundled, one double-clickable file.
+        run: dotnet publish windows/CursorProfiles.csproj -c Release -r win-x64 --self-contained -o publish/win-x64 /p:PublishSingleFile=true
+      - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
           name: Prism-Windows
-          path: windows/bin/Release/net8.0-windows/
+          path: publish/win-x64/Prism.exe
           retention-days: 7
 
   build-linux:

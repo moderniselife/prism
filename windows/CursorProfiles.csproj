@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>CursorProfiles</AssemblyName>
+    <AssemblyName>Prism</AssemblyName>
     <RootNamespace>CursorProfiles</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Allows building (not running) this Windows app from macOS/Linux CI. -->
