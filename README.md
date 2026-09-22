@@ -112,6 +112,9 @@ brew install --cask moderniselife/prism/prism-tui
 winget install ModerniseLife.PrismTUI
 ```
 
+> **Package registries go live with the first `tui-v*` release** — until
+> then, run it from source (below). Binaries are already on the way.
+
 Or grab a static binary from
 [GitHub releases](https://github.com/moderniselife/prism/releases) — no
 runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
