@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Prism — a native GTK4/libadwaita launcher for isolated Cursor profiles.
+"""Prism — a native GTK4/libadwaita launcher for isolated profiles.
 
-Profiles live in ~/.cursor_profiles (shared with the macOS/Windows apps);
-metadata is shared via ~/.cursor_profiles/.profiles.json.
-The user's original Cursor profile (~/.config/Cursor) is surfaced as a protected
-"Main Cursor" card — launchable and clonable, never deletable.
+Cursor profiles live in ~/.cursor_profiles, Claude Code profiles in
+~/.claude_code_profiles and Claude Desktop profiles in
+~/.claude_desktop_profiles (shared with the macOS/Windows/TUI apps).
+Each app's original data is surfaced as a protected built-in card —
+launchable and clonable, never deletable.
 """
 
 import json
@@ -33,10 +34,58 @@ except ImportError:
 
 APP_ID = "com.mojolayers.Prism"
 PROFILES_DIR = Path.home() / ".cursor_profiles"
+CODE_PROFILES_DIR = Path.home() / ".claude_code_profiles"
+DESKTOP_PROFILES_DIR = Path.home() / ".claude_desktop_profiles"
 METADATA_PATH = PROFILES_DIR / ".profiles.json"
 SETTINGS_PATH = PROFILES_DIR / ".launcher-settings.json"
 SYSTEM_DATA_DIR = Path(GLib.get_user_config_dir()) / "Cursor"
 SYSTEM_FOLDER_NAME = "__cursor-default__"
+SYSTEM_CODE_FOLDER_NAME = "__claude-code-default__"
+SYSTEM_DESKTOP_FOLDER_NAME = "__claude-desktop-default__"
+
+# App identifiers. Absent in files predating multi-app support (= cursor).
+APP_CURSOR = "cursor"
+APP_CODE = "claude-code"
+APP_DESKTOP = "claude-desktop"
+
+CODE_SYSTEM_DATA_DIR = Path.home() / ".claude"
+DESKTOP_SYSTEM_DATA_DIR = Path(GLib.get_user_config_dir()) / "Claude"
+
+APPS = (APP_CURSOR, APP_CODE, APP_DESKTOP)
+
+
+def normalize_app(app):
+    return app if app in APPS else APP_CURSOR
+
+
+def app_label(app):
+    return {APP_CODE: "Claude Code", APP_DESKTOP: "Claude Desktop"}.get(app, "Cursor")
+
+
+def system_marker_for(app):
+    return {APP_CODE: SYSTEM_CODE_FOLDER_NAME,
+            APP_DESKTOP: SYSTEM_DESKTOP_FOLDER_NAME}.get(app, SYSTEM_FOLDER_NAME)
+
+
+def system_display_name_for(app):
+    return {APP_CODE: "Main Claude Code",
+            APP_DESKTOP: "Main Claude Desktop"}.get(app, "Main Cursor")
+
+
+def profiles_dir_for(app):
+    return {APP_CODE: CODE_PROFILES_DIR,
+            APP_DESKTOP: DESKTOP_PROFILES_DIR}.get(app, PROFILES_DIR)
+
+
+def system_data_dir_for(app):
+    if app == APP_CODE:
+        override = os.environ.get("CLAUDE_CONFIG_DIR")
+        if override:
+            return Path(override)
+        return CODE_SYSTEM_DATA_DIR
+    if app == APP_DESKTOP:
+        return DESKTOP_SYSTEM_DATA_DIR
+    return SYSTEM_DATA_DIR
 
 LAUNCHERS_DIR = Path(GLib.get_user_data_dir()) / "applications"
 LAUNCHER_ICONS_DIR = Path(GLib.get_user_data_dir()) / "icons" / "hicolor" / "256x256" / "apps"
@@ -105,7 +154,9 @@ class Profile:
     displayName: str
     # NOTE: older .profiles.json files may contain an "emoji" key. It has no
     # corresponding field; .get() lookups below simply ignore it, so old
-    # files still load and new files omit it.
+    # files still load and new files omit it. Likewise a missing "app" means
+    # a Cursor profile (predates multi-app support).
+    app: str = APP_CURSOR
     colorHex: str = "#6366F1"
     defaultMemoryMB: int = 16384
     defaultProjectPath: str | None = None
@@ -124,6 +175,7 @@ class Profile:
         return {
             "folderName": self.folderName,
             "displayName": self.displayName,
+            "app": normalize_app(self.app),
             "colorHex": self.colorHex,
             "defaultMemoryMB": self.defaultMemoryMB,
             "defaultProjectPath": self.defaultProjectPath,
@@ -138,6 +190,7 @@ class Profile:
         return cls(
             folderName=data["folderName"],
             displayName=data["displayName"],
+            app=normalize_app(data.get("app", APP_CURSOR)),
             colorHex=data.get("colorHex", "#6366F1"),
             defaultMemoryMB=data.get("defaultMemoryMB", 16384),
             defaultProjectPath=data.get("defaultProjectPath"),
@@ -160,7 +213,7 @@ class TitleBarColorizer:
         """Merge this profile's title-bar colors into its User/settings.json,
         preserving every other setting already there. No-op for the built-in
         profile — the user's real settings are never touched."""
-        if profile.isSystem:
+        if profile.isSystem or normalize_app(profile.app) != APP_CURSOR:
             return
 
         user_dir = profile_dir / "User"
@@ -260,19 +313,29 @@ class LauncherBuilder:
     )
 
     @staticmethod
+    def slug(profile: "Profile") -> str:
+        # Folder names are globally unique across apps, so one slug works
+        # everywhere; the app prefix keeps launchers distinguishable.
+        prefix = {APP_CODE: "claude-code", APP_DESKTOP: "claude-desktop"}.get(
+            normalize_app(profile.app), "cursor")
+        return f"{prefix}-profile-{profile.folderName}"
+
+    @staticmethod
     def desktop_path(profile: "Profile") -> Path:
-        return LAUNCHERS_DIR / f"cursor-profile-{profile.folderName}.desktop"
+        return LAUNCHERS_DIR / f"{LauncherBuilder.slug(profile)}.desktop"
 
     @staticmethod
     def icon_path(profile: "Profile") -> Path:
-        return LAUNCHER_ICONS_DIR / f"cursor-profile-{profile.folderName}.png"
+        return LAUNCHER_ICONS_DIR / f"{LauncherBuilder.slug(profile)}.png"
 
     @classmethod
     def exists(cls, profile: "Profile") -> bool:
         return cls.desktop_path(profile).exists()
 
     @classmethod
-    def create_or_update(cls, profile: "Profile", profile_dir: Path, cursor_path: str | None):
+    def create_or_update(cls, profile: "Profile", profile_dir: Path,
+                         cursor_path: str | None, code_path: str | None = None,
+                         desktop_path: str | None = None):
         LAUNCHERS_DIR.mkdir(parents=True, exist_ok=True)
         LAUNCHER_ICONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -282,27 +345,68 @@ class LauncherBuilder:
         else:
             icon_value = "utilities-terminal"  # themed fallback, always resolvable
 
-        exe = cursor_path or "cursor"
-        exec_parts = [_desktop_quote(exe)]
-        if not profile.isSystem:
-            exec_parts += ["--user-data-dir", _desktop_quote(str(profile_dir))]
-        exec_parts.append(f"--max-memory={profile.defaultMemoryMB}")
-        if profile.defaultProjectPath:
-            exec_parts.append(_desktop_quote(profile.defaultProjectPath))
-        exec_line = " ".join(exec_parts)
+        app = normalize_app(profile.app)
+        if app == APP_CODE:
+            # .desktop files cannot set env vars: run through sh so the
+            # profile travels in CLAUDE_CONFIG_DIR. Terminal=true keeps the
+            # interactive CLI (and its login flow) visible.
+            exe = code_path or "claude"
+            work = profile.defaultProjectPath or str(Path.home())
+            inner = (f"CLAUDE_CONFIG_DIR={_desktop_quote(str(profile_dir))} "
+                     f"exec {_desktop_quote(exe)}")
+            exec_line = f"sh -c {_desktop_quote(inner)}"
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={profile.displayName} (Claude Code)\n"
+                f"Comment=Open Claude Code with the \"{profile.displayName}\" profile\n"
+                f"Exec={exec_line}\n"
+                f"Path={work}\n"
+                f"Icon={icon_value}\n"
+                "Terminal=true\n"
+                "Categories=Development;\n"
+                "StartupNotify=true\n"
+            )
+        elif app == APP_DESKTOP:
+            exe = desktop_path or "claude-desktop"
+            exec_parts = [_desktop_quote(exe)]
+            if not profile.isSystem:
+                exec_parts.append(_desktop_quote(f"--user-data-dir={profile_dir}"))
+            exec_line = " ".join(exec_parts)
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={profile.displayName} (Claude Desktop)\n"
+                f"Comment=Open Claude Desktop with the \"{profile.displayName}\" profile\n"
+                f"Exec={exec_line}\n"
+                f"Icon={icon_value}\n"
+                "Terminal=false\n"
+                "Categories=Development;\n"
+                "StartupWMClass=Claude\n"
+                "StartupNotify=true\n"
+            )
+        else:
+            exe = cursor_path or "cursor"
+            exec_parts = [_desktop_quote(exe)]
+            if not profile.isSystem:
+                exec_parts += ["--user-data-dir", _desktop_quote(str(profile_dir))]
+            exec_parts.append(f"--max-memory={profile.defaultMemoryMB}")
+            if profile.defaultProjectPath:
+                exec_parts.append(_desktop_quote(profile.defaultProjectPath))
+            exec_line = " ".join(exec_parts)
 
-        content = (
-            "[Desktop Entry]\n"
-            "Type=Application\n"
-            f"Name={profile.displayName}\n"
-            f"Comment=Open Cursor with the \"{profile.displayName}\" profile\n"
-            f"Exec={exec_line}\n"
-            f"Icon={icon_value}\n"
-            "Terminal=false\n"
-            "Categories=Development;\n"
-            "StartupWMClass=Cursor\n"
-            "StartupNotify=true\n"
-        )
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={profile.displayName}\n"
+                f"Comment=Open Cursor with the \"{profile.displayName}\" profile\n"
+                f"Exec={exec_line}\n"
+                f"Icon={icon_value}\n"
+                "Terminal=false\n"
+                "Categories=Development;\n"
+                "StartupWMClass=Cursor\n"
+                "StartupNotify=true\n"
+            )
         cls.desktop_path(profile).write_text(content)
         os.chmod(cls.desktop_path(profile), 0o755)
         cls._refresh_desktop_database()
@@ -406,6 +510,45 @@ class CursorFinder:
                 return path
         return None
 
+    @staticmethod
+    def code_candidates():
+        home = Path.home()
+        return [
+            shutil.which("claude"),
+            "/usr/bin/claude",
+            "/usr/local/bin/claude",
+            str(home / ".local/bin/claude"),
+        ]
+
+    @classmethod
+    def find_code(cls, custom_path):
+        if custom_path and os.access(custom_path, os.X_OK):
+            return custom_path
+        for path in cls.code_candidates():
+            if path and os.access(path, os.X_OK):
+                return path
+        return None
+
+    @staticmethod
+    def desktop_candidates():
+        home = Path.home()
+        return [
+            shutil.which("claude-desktop"),
+            "/usr/bin/claude-desktop",
+            "/usr/local/bin/claude-desktop",
+            "/opt/Claude/claude-desktop",
+            str(home / ".local/bin/claude-desktop"),
+        ]
+
+    @classmethod
+    def find_desktop(cls, custom_path):
+        if custom_path and os.access(custom_path, os.X_OK):
+            return custom_path
+        for path in cls.desktop_candidates():
+            if path and os.access(path, os.X_OK):
+                return path
+        return None
+
 
 def rss_of_pid(pid: int) -> int:
     """Live resident bytes for one PID via /proc. 0 if it just exited."""
@@ -458,7 +601,8 @@ class Store:
         try:
             return json.loads(SETTINGS_PATH.read_text())
         except (OSError, ValueError):
-            return {"customCursorPath": "", "defaultMemoryMB": 16384}
+            return {"customCursorPath": "", "customCodePath": "",
+                    "customDesktopPath": "", "defaultMemoryMB": 16384}
 
     def save_settings(self):
         PROFILES_DIR.mkdir(parents=True, exist_ok=True)
@@ -468,62 +612,98 @@ class Store:
     def cursor_path(self):
         return CursorFinder.find(self.settings.get("customCursorPath") or None)
 
+    @property
+    def code_path(self):
+        return CursorFinder.find_code(self.settings.get("customCodePath") or None)
+
+    @property
+    def desktop_path(self):
+        return CursorFinder.find_desktop(self.settings.get("customDesktopPath") or None)
+
     # -- persistence
 
     def directory_for(self, profile: Profile) -> Path:
-        return SYSTEM_DATA_DIR if profile.isSystem else PROFILES_DIR / profile.folderName
+        app = normalize_app(profile.app)
+        if profile.isSystem:
+            return system_data_dir_for(app)
+        return profiles_dir_for(app) / profile.folderName
+
+    def metadata_path_for(self, app: str) -> Path:
+        return profiles_dir_for(app) / ".profiles.json"
 
     def reload(self):
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        known = []
-        try:
-            known = [Profile.from_json(x) for x in json.loads(METADATA_PATH.read_text())]
-        except (OSError, ValueError, KeyError):
-            pass
-
-        on_disk = [p.name for p in PROFILES_DIR.iterdir()
-                   if p.is_dir() and not p.name.startswith(".")]
-
-        for name in on_disk:
-            if not any(p.folderName == name for p in known):
-                display = name.removeprefix("custom_")
-                _, hex_color = PALETTE[hash(name) % len(PALETTE)]
-                known.append(Profile(folderName=name, displayName=display, colorHex=hex_color))
-        # Drop metadata for folders that no longer exist (never the built-in one).
-        known = [p for p in known if p.isSystem or p.folderName in on_disk]
-
-        # Surface the user's original Cursor profile — visible, launchable, protected.
-        if not any(p.isSystem for p in known) and SYSTEM_DATA_DIR.exists():
-            known.insert(0, Profile(
-                folderName=SYSTEM_FOLDER_NAME,
-                displayName="Main Cursor",
-                colorHex="#3B82F6",
-                isPinned=True,
-                isSystem=True,
-            ))
-
-        self.profiles = known
+        self.profiles = []
+        for app in APPS:
+            self.profiles.extend(self.reload_app(app))
         self.save_metadata()
         self.on_changed()
         self.refresh_sizes()
         self.refresh_running()
 
+    def reload_app(self, app: str) -> list:
+        app_dir = profiles_dir_for(app)
+        app_dir.mkdir(parents=True, exist_ok=True)
+        known = []
+        try:
+            known = [Profile.from_json(x)
+                     for x in json.loads(self.metadata_path_for(app).read_text())]
+        except (OSError, ValueError, KeyError):
+            pass
+
+        # Foreign built-ins (from a copied metadata file) belong to their own
+        # app; hand-created folders are adopted into this app.
+        known = [q for q in known
+                 if not (q.isSystem and q.folderName != system_marker_for(app))]
+        for q in known:
+            q.app = app
+
+        on_disk = [x.name for x in app_dir.iterdir()
+                   if x.is_dir() and not x.name.startswith(".")]
+
+        for name in on_disk:
+            if not any(q.folderName == name for q in known):
+                display = name.removeprefix("custom_")
+                _, hex_color = PALETTE[hash(name) % len(PALETTE)]
+                known.append(Profile(folderName=name, displayName=display,
+                                     app=app, colorHex=hex_color))
+        # Drop metadata for folders that no longer exist (never the built-in one).
+        known = [q for q in known if q.isSystem or q.folderName in on_disk]
+
+        # Surface the user's original app data — visible, launchable, protected. — visible, launchable, protected.
+        if not any(q.isSystem for q in known) and system_data_dir_for(app).exists():
+            known.insert(0, Profile(
+                folderName=system_marker_for(app),
+                displayName=system_display_name_for(app),
+                app=app,
+                colorHex="#3B82F6",
+                isPinned=True,
+                isSystem=True,
+            ))
+        return known
+
     def save_metadata(self):
-        PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-        METADATA_PATH.write_text(json.dumps(
-            [p.to_json() for p in self.profiles], indent=2, ensure_ascii=False))
+        for app in APPS:
+            app_dir = profiles_dir_for(app)
+            app_dir.mkdir(parents=True, exist_ok=True)
+            (app_dir / ".profiles.json").write_text(json.dumps(
+                [q.to_json() for q in self.profiles
+                 if normalize_app(q.app) == app],
+                indent=2, ensure_ascii=False))
 
     # -- CRUD
 
     def unique_folder_name(self, base: str) -> str:
         folder, counter = base, 2
         existing = {p.folderName.lower() for p in self.profiles}
-        while folder.lower() in existing or folder == SYSTEM_FOLDER_NAME:
+        reserved = {SYSTEM_FOLDER_NAME, SYSTEM_CODE_FOLDER_NAME,
+                    SYSTEM_DESKTOP_FOLDER_NAME}
+        while folder.lower() in existing or folder in reserved:
             folder = f"{base}-{counter}"
             counter += 1
         return folder
 
-    def create(self, name, color_hex, memory_mb, project_path):
+    def create(self, name, color_hex, memory_mb, project_path, app=APP_CURSOR):
+        app = normalize_app(app)
         base = sanitize_folder_name(name.replace(" ", "_"))
         if not base:
             self.on_error("Profile name must contain at least one letter, number, hyphen or underscore.")
@@ -531,21 +711,37 @@ class Store:
         profile = Profile(
             folderName=self.unique_folder_name(base),
             displayName=name.strip(),
+            app=app,
             colorHex=color_hex,
             defaultMemoryMB=memory_mb,
             defaultProjectPath=project_path or None,
         )
+        profile_dir = self.directory_for(profile)
         try:
-            self.directory_for(profile).mkdir(parents=True, exist_ok=True)
+            profile_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             self.on_error(f"Could not create profile folder: {e}")
             return None
+        if app == APP_DESKTOP:
+            self.seed_desktop_config(system_data_dir_for(app), profile_dir)
         self.profiles.append(profile)
         self.save_metadata()
         self.on_changed()
         self.refresh_sizes()
-        TitleBarColorizer.apply(profile, self.directory_for(profile))
+        TitleBarColorizer.apply(profile, profile_dir)
         return profile
+
+    @staticmethod
+    def seed_desktop_config(system_dir: Path, profile_dir: Path):
+        """Copy just claude_desktop_config.json (MCP/connectors) into a fresh
+        profile — never gigabytes of Electron cache."""
+        try:
+            src = system_dir / "claude_desktop_config.json"
+            dst = profile_dir / "claude_desktop_config.json"
+            if src.is_file() and not dst.exists():
+                shutil.copy2(src, dst)
+        except OSError:
+            pass
 
     def update(self, profile: Profile):
         self.save_metadata()
@@ -562,7 +758,9 @@ class Store:
 
     def create_or_update_launcher(self, profile: Profile, announce=True):
         try:
-            LauncherBuilder.create_or_update(profile, self.directory_for(profile), self.cursor_path)
+            LauncherBuilder.create_or_update(profile, self.directory_for(profile),
+                                             self.cursor_path, self.code_path,
+                                             self.desktop_path)
             if announce:
                 if cairo is None:
                     self.on_error(LauncherBuilder.ICON_UNAVAILABLE_MESSAGE)
@@ -576,13 +774,23 @@ class Store:
         LauncherBuilder.remove(profile)
 
     def duplicate(self, profile: Profile):
-        """Clone a profile. For the built-in profile the original is only read."""
-        base = "Main-Cursor-Clone" if profile.isSystem else profile.folderName + "-copy"
+        """Clone a profile. For the built-in profile the original is only read.
+        Desktop duplicates are config-only (full Electron dirs are gigabytes
+        of cache); Code/Cursor duplicates copy the whole folder."""
+        app = normalize_app(profile.app)
+        if profile.isSystem:
+            base = {APP_CODE: "Main-Claude-Code-Clone",
+                    APP_DESKTOP: "Main-Claude-Desktop-Clone"}.get(app, "Main-Cursor-Clone")
+            display = system_display_name_for(app) + " Clone"
+        else:
+            base = profile.folderName + "-copy"
+            display = profile.displayName + " Copy"
         folder = self.unique_folder_name(base)
-        source, dest = self.directory_for(profile), PROFILES_DIR / folder
+        source, dest = self.directory_for(profile), profiles_dir_for(app) / folder
         copy = Profile(
             folderName=folder,
-            displayName="Main Cursor Clone" if profile.isSystem else profile.displayName + " Copy",
+            displayName=display,
+            app=app,
             colorHex=profile.colorHex,
             defaultMemoryMB=profile.defaultMemoryMB,
             defaultProjectPath=profile.defaultProjectPath,
@@ -593,8 +801,14 @@ class Store:
         def work():
             error = None
             try:
-                shutil.copytree(source, dest, symlinks=True,
-                                ignore_dangling_symlinks=True, dirs_exist_ok=True)
+                if app == APP_DESKTOP:
+                    dest.mkdir(parents=True, exist_ok=True)
+                    src = source / "claude_desktop_config.json"
+                    if src.is_file():
+                        shutil.copy2(src, dest / "claude_desktop_config.json")
+                else:
+                    shutil.copytree(source, dest, symlinks=True,
+                                    ignore_dangling_symlinks=True, dirs_exist_ok=True)
             except (OSError, shutil.Error) as e:
                 error = str(e)
                 shutil.rmtree(dest, ignore_errors=True)
@@ -618,7 +832,7 @@ class Store:
     def delete(self, profile: Profile):
         """Move the profile folder to the Trash (recoverable)."""
         if profile.isSystem:
-            self.on_error("The built-in Cursor profile can't be deleted from here — it's your original Cursor data.")
+            self.on_error("The built-in profile can't be deleted from here — it's your original app data.")
             return
         if self.running.get(profile.folderName):
             self.on_error(f"'{profile.displayName}' is running. Quit it before deleting.")
@@ -637,6 +851,16 @@ class Store:
     # -- launch / quit
 
     def launch(self, profile: Profile, project_path=None, memory_mb=None, new_window=False):
+        app = normalize_app(profile.app)
+        if app == APP_CODE:
+            self.launch_code(profile, project_path)
+        elif app == APP_DESKTOP:
+            self.launch_desktop(profile, new_window)
+        else:
+            self.launch_cursor(profile, project_path, memory_mb, new_window)
+        GLib.timeout_add_seconds(2, lambda: (self.refresh_running(), False)[1])
+
+    def launch_cursor(self, profile: Profile, project_path=None, memory_mb=None, new_window=False):
         exe = self.cursor_path
         if not exe:
             self.on_error("Cursor could not be found. Install it from cursor.sh or set a custom path in Preferences.")
@@ -646,7 +870,7 @@ class Store:
             profile_dir = self.directory_for(profile)
             profile_dir.mkdir(parents=True, exist_ok=True)
             args += ["--user-data-dir", str(profile_dir)]
-            # Idempotent — also covers profiles adopted from disk that never went through create().
+            # Idempotent: also covers profiles adopted from disk that never went through create().
             TitleBarColorizer.apply(profile, profile_dir)
         args.append(f"--max-memory={memory_mb or profile.defaultMemoryMB}")
         if new_window:
@@ -663,10 +887,88 @@ class Store:
         profile.lastLaunchedAt = datetime.now(timezone.utc)
         self.save_metadata()
         self.on_status()
-        GLib.timeout_add_seconds(2, lambda: (self.refresh_running(), False)[1])
+
+    def launch_desktop(self, profile: Profile, new_window=False):
+        exe = self.desktop_path
+        if not exe:
+            self.on_error("Claude Desktop could not be found. Install it or set a custom path in Preferences.")
+            return
+        args = [exe]
+        if not profile.isSystem:
+            # Chromium switches need "--user-data-dir=<path>" (a separate
+            # value isn't parsed). Verified on Windows with the standalone
+            # build; not yet verified on Linux packages.
+            profile_dir = self.directory_for(profile)
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            args.append(f"--user-data-dir={profile_dir}")
+        if new_window:
+            args.append("--new-window")
+        try:
+            subprocess.Popen(args, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.on_error(f"Failed to launch Claude Desktop: {e}")
+            return
+        profile.lastLaunchedAt = datetime.now(timezone.utc)
+        self.save_metadata()
+        self.on_status()
+
+    def launch_code(self, profile: Profile, project_path=None):
+        exe = self.code_path
+        if not exe:
+            self.on_error("Claude Code could not be found. Install it (see code.claude.com/docs) "
+                          "or set a custom path in Preferences.")
+            return
+        profile_dir = self.directory_for(profile)
+        if not profile.isSystem:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+        work = project_path or profile.defaultProjectPath or str(Path.home())
+        # The CLI is interactive: open a real terminal with CLAUDE_CONFIG_DIR
+        # set so login prompts stay visible. First launch walks through login.
+        terminal = self.find_terminal()
+        if not terminal:
+            self.on_error(
+                "No terminal emulator found. Run this yourself: "
+                f'CLAUDE_CONFIG_DIR="{profile_dir}" {exe}')
+            return
+        cmd = (f'CLAUDE_CONFIG_DIR="{profile_dir}" exec "{exe}"; '
+               f'echo; echo "[Prism] session ended - press Enter to close."; read _')
+        try:
+            subprocess.Popen([*terminal, "sh", "-c", cmd], cwd=work,
+                             start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.on_error(f"Failed to launch Claude Code: {e}")
+            return
+        profile.lastLaunchedAt = datetime.now(timezone.utc)
+        self.save_metadata()
+        self.on_status()
+
+    @staticmethod
+    def find_terminal():
+        """A terminal emulator argv prefix, or None. Covers the common Linux
+        desktops; GNOME/KDE/Xfce/VTE-based fallbacks in order."""
+        candidates = [
+            ["x-terminal-emulator", "-e"],
+            ["gnome-terminal", "--"],
+            ["konsole", "-e"],
+            ["xfce4-terminal", "-e"],
+            ["mate-terminal", "-e"],
+            ["kgx", "-e"],
+            ["alacritty", "-e"],
+            ["kitty", "--"],
+            ["foot", "-e"],
+            ["xterm", "-e"],
+        ]
+        for argv in candidates:
+            if shutil.which(argv[0]):
+                return argv
+        return None
 
     def quit_profile(self, profile: Profile):
         for pid in self.running.get(profile.folderName, []):
+            if pid <= 0:
+                continue  # sentinel marker, not a real process
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -680,7 +982,8 @@ class Store:
         return True
 
     def refresh_running(self):
-        snapshot = [(p.folderName, str(self.directory_for(p)), p.isSystem) for p in self.profiles]
+        snapshot = [(p.folderName, str(self.directory_for(p)), p.isSystem,
+                     normalize_app(p.app)) for p in self.profiles]
 
         def work():
             processes = []
@@ -705,16 +1008,55 @@ class Store:
                 looks_like_cursor = exe == "cursor" or exe.endswith(".appimage") and "cursor" in exe
                 return looks_like_cursor and not any(a.startswith("--type=") for a in argv)
 
+            def is_desktop_main(argv):
+                exe = os.path.basename(argv[0]).lower()
+                if "prism" in exe:
+                    return False
+                joined = "\0".join(argv).lower()
+                if "claude-code" in joined:
+                    # Bundled CLI helper shares the Desktop's process family.
+                    return False
+                # No bare-`claude` fallback: that name belongs to the Code CLI,
+                # which would otherwise light up the built-in Desktop profile.
+                looks = exe == "claude-desktop"
+                return looks and not any(a.startswith("--type=") for a in argv)
+
+            def user_data_dir(argv):
+                for a in argv:
+                    if a.startswith("--user-data-dir="):
+                        return a.split("=", 1)[1]
+                if "--user-data-dir" in argv:
+                    nxt = argv[argv.index("--user-data-dir") + 1:argv.index("--user-data-dir") + 2]
+                    return nxt[0] if nxt else None
+                return None
+
+            any_desktop = any(is_desktop_main(argv) for _, argv in processes)
             result = {}
-            for name, directory, is_system in snapshot:
-                if is_system:
+            for name, directory, is_system, app in snapshot:
+                if app == APP_CODE:
+                    # The CLI is a terminal session, not a trackable GUI app.
+                    result[name] = []
+                elif app == APP_DESKTOP:
+                    if is_system:
+                        result[name] = [
+                            pid for pid, argv in processes
+                            if is_desktop_main(argv) and user_data_dir(argv) is None]
+                    else:
+                        result[name] = [
+                            pid for pid, argv in processes
+                            if is_desktop_main(argv) and user_data_dir(argv) == directory]
+                    if (not result[name] and any_desktop
+                            and os.path.isfile(os.path.join(directory, "lockfile"))):
+                        # Electron holds a lockfile in a live user-data-dir.
+                        # -1 is a sentinel, never signaled (see quit_profile).
+                        result[name] = [-1]
+                elif is_system:
                     result[name] = [pid for pid, argv in processes
                                     if is_cursor_main(argv) and "--user-data-dir" not in argv]
                 else:
                     result[name] = [
                         pid for pid, argv in processes
-                        if is_cursor_main(argv) and "--user-data-dir" in argv
-                        and argv[argv.index("--user-data-dir") + 1:argv.index("--user-data-dir") + 2] == [directory]
+                        if is_cursor_main(argv) and user_data_dir(argv) == directory
                     ]
 
             # Live RSS: VmRSS of matched PIDs only (cheap, no new deps).
@@ -722,7 +1064,8 @@ class Store:
             for name, pids in result.items():
                 total = 0
                 for pid in pids:
-                    total += rss_of_pid(pid)
+                    if pid > 0:
+                        total += rss_of_pid(pid)
                 live[name] = total
 
             # System CPU % from /proc/stat deltas (None on first sample).
@@ -783,7 +1126,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.store = store
         self.search_text = ""
         self.sort_mode = 0
-        self.filter_mode = 0  # 0 all, 1 active, 2 custom (non-built-in)
+        self.filter_mode = 0  # 0 all, 1 active, 2 custom, 3 cursor, 4 code, 5 desktop
         self._last_visible = set()
         self.status_updaters = []
         self._css = Gtk.CssProvider()
@@ -834,7 +1177,7 @@ class MainWindow(Adw.ApplicationWindow):
         filter_lbl.add_css_class("heading")
         filter_row.append(filter_lbl)
         self.filter_btns = []
-        for i, name in enumerate(["All", "Active", "Custom"]):
+        for i, name in enumerate(["All", "Active", "Custom", "Cursor", "Code", "Desktop"]):
             btn = Gtk.ToggleButton(label=name)
             btn.add_css_class("flat")
             filter_row.append(btn)
@@ -882,7 +1225,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.empty = Adw.StatusPage(
             icon_name="folder-templates-symbolic",
             title="No profiles yet",
-            description="Each profile is a fully isolated Cursor instance — its own settings, extensions, login and chat history.",
+description="Each profile is a fully isolated instance — its own settings, login and history, per app.",
             vexpand=True)
         empty_btn = Gtk.Button(label="Create your first profile", halign=Gtk.Align.CENTER)
         empty_btn.add_css_class("suggested-action")
@@ -939,10 +1282,18 @@ class MainWindow(Adw.ApplicationWindow):
             profiles = [p for p in profiles if self.store.running.get(p.folderName)]
         elif self.filter_mode == 2:
             profiles = [p for p in profiles if not p.isSystem]
+        elif self.filter_mode == 3:
+            profiles = [p for p in profiles if normalize_app(p.app) == APP_CURSOR]
+        elif self.filter_mode == 4:
+            profiles = [p for p in profiles if normalize_app(p.app) == APP_CODE]
+        elif self.filter_mode == 5:
+            profiles = [p for p in profiles if normalize_app(p.app) == APP_DESKTOP]
         return [p for p in profiles
                 if not self.search_text
                 or self.search_text in p.displayName.lower()
-                or self.search_text in p.folderName.lower()]
+                or self.search_text in p.folderName.lower()
+                or self.search_text in app_label(normalize_app(p.app)).lower()
+                or self.search_text in normalize_app(p.app)]
 
     # -- CSS for per-profile gradients & accents
 
@@ -1012,15 +1363,26 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_status()
 
     def _update_filter_labels(self):
-        active = sum(1 for p in self.store.profiles if self.store.running.get(p.folderName))
-        custom = sum(1 for p in self.store.profiles if not p.isSystem)
-        self.filter_btns[0].set_label(f"All ({len(self.store.profiles)})")
+        profiles = self.store.profiles
+        active = sum(1 for p in profiles if self.store.running.get(p.folderName))
+        custom = sum(1 for p in profiles if not p.isSystem)
+        counts = {
+            3: sum(1 for p in profiles if normalize_app(p.app) == APP_CURSOR),
+            4: sum(1 for p in profiles if normalize_app(p.app) == APP_CODE),
+            5: sum(1 for p in profiles if normalize_app(p.app) == APP_DESKTOP),
+        }
+        self.filter_btns[0].set_label(f"All ({len(profiles)})")
         self.filter_btns[1].set_label(f"Active ({active})")
         self.filter_btns[2].set_label(f"Custom ({custom})")
+        self.filter_btns[3].set_label(f"Cursor ({counts[3]})")
+        self.filter_btns[4].set_label(f"Code ({counts[4]})")
+        self.filter_btns[5].set_label(f"Desktop ({counts[5]})")
 
     def build_card(self, profile: Profile):
         tag = profile.colorHex.lstrip("#")
-        limit_bytes = profile.defaultMemoryMB * 1024 * 1024
+        app = normalize_app(profile.app)
+        has_cap = app == APP_CURSOR
+        limit_bytes = profile.defaultMemoryMB * 1024 * 1024 if has_cap else 0
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=280)
         card.add_css_class("card")
         card.add_css_class("profile-card")
@@ -1049,11 +1411,17 @@ class MainWindow(Adw.ApplicationWindow):
         name_row.append(name)
         if profile.isSystem:
             badge = Gtk.Label(label="BUILT-IN", valign=Gtk.Align.CENTER, tooltip_text=(
-                "Your original Cursor profile (~/.config/Cursor). "
+                f"Your original {app_label(app)} data. "
                 "Launchable and clonable, never deletable from this app."))
             badge.add_css_class("badge")
             name_row.append(badge)
-        elif profile.isPinned:
+        if app != APP_CURSOR:
+            app_badge = Gtk.Label(
+                label={APP_CODE: "CODE", APP_DESKTOP: "DESKTOP"}[app],
+                valign=Gtk.Align.CENTER, tooltip_text=app_label(app))
+            app_badge.add_css_class("badge")
+            name_row.append(app_badge)
+        if not profile.isSystem and profile.isPinned:
             pin_img = Gtk.Image.new_from_icon_name("view-pin-symbolic")
             name_row.append(pin_img)
         title_box.append(name_row)
@@ -1143,20 +1511,33 @@ class MainWindow(Adw.ApplicationWindow):
                 "card-status-running" if running else "card-status-idle")
             status.get_style_context().remove_class(
                 "card-status-idle" if running else "card-status-running")
-            pid_lbl.set_label(f"PID {pids[0]}" if pids else "")
-            if running:
+            real = next((q for q in pids if q > 0), 0)
+            pid_lbl.set_label(f"PID {real}" if real else "")
+            if running and has_cap:
                 mem.set_markup(
                     f"Memory <span foreground=\"{profile.colorHex}\"><b>{format_bytes(live)}</b></span>"
                     f" / {format_bytes(limit_bytes)} limit")
                 mem_bar.set_fraction(min(1.0, live / limit_bytes) if limit_bytes else 0.0)
-            else:
+            elif running:
+                mem.set_markup(
+                    f"Memory <span foreground=\"{profile.colorHex}\"><b>{format_bytes(live)}</b></span> live")
+                mem_bar.set_fraction(0.0)
+            elif has_cap:
                 mem.set_markup(
                     f"Memory <span foreground=\"#a8b0c4\">{format_bytes(limit_bytes)} limit</span>")
+                mem_bar.set_fraction(0.0)
+            else:
+                mem.set_markup(
+                    "Memory <span foreground=\"#a8b0c4\">no memory cap</span>")
                 mem_bar.set_fraction(0.0)
             if running:
                 launch.set_label("New Window")
                 launch.remove_css_class(f"btn-{tag}")
                 launch.add_css_class("launch-running")
+            elif app == APP_CODE:
+                launch.set_label("Open Terminal")
+                launch.remove_css_class("launch-running")
+                launch.add_css_class(f"btn-{tag}")
             else:
                 launch.set_label("Launch")
                 launch.remove_css_class("launch-running")
@@ -1306,6 +1687,16 @@ class EditorDialog(Adw.Window):
         self.name_entry.connect("changed", lambda *_: self.update_preview())
         form.append(self._labeled("Name", self.name_entry))
 
+        self.app_model = Gtk.StringList.new(
+            ["Cursor (editor)", "Claude Code (CLI)", "Claude Desktop"])
+        self.app_drop = Gtk.DropDown(model=self.app_model)
+        current_app = normalize_app(profile.app) if profile else APP_CURSOR
+        self.app_drop.set_selected(
+            {APP_CURSOR: 0, APP_CODE: 1, APP_DESKTOP: 2}.get(current_app, 0))
+        self.app_drop.set_sensitive(profile is None)  # app is fixed after creation
+        self.app_drop.connect("notify::selected", lambda *_: self.on_app_changed())
+        form.append(self._labeled("App", self.app_drop))
+
         color_box = Gtk.Box(spacing=6)
         self.color_buttons = {}
         for color_name, hex_color in PALETTE:
@@ -1321,7 +1712,9 @@ class EditorDialog(Adw.Window):
         default_mb = profile.defaultMemoryMB if profile else store.settings.get("defaultMemoryMB", 16384)
         self.memory = Gtk.SpinButton.new_with_range(512, 262144, 1024)
         self.memory.set_value(default_mb)
-        form.append(self._labeled("Memory limit (MB)", self.memory))
+        self.memory_row = self._labeled("Memory limit (MB, Cursor only)", self.memory)
+        form.append(self.memory_row)
+        self.on_app_changed()
 
         project_row = Gtk.Box(spacing=6)
         self.project = Gtk.Entry(hexpand=True, placeholder_text="Optional",
@@ -1334,7 +1727,8 @@ class EditorDialog(Adw.Window):
 
         if profile:
             note = Gtk.Label(xalign=0, label=(
-                "Built-in profile — ~/.config/Cursor" if profile.isSystem
+                f"Built-in profile — {app_label(normalize_app(profile.app))} data"
+                if profile.isSystem
                 else f"Folder: {profile.folderName}"))
             note.add_css_class("caption")
             note.add_css_class("dim-label")
@@ -1350,6 +1744,16 @@ class EditorDialog(Adw.Window):
         box.append(label)
         box.append(widget)
         return box
+
+    def selected_app(self):
+        return {0: APP_CURSOR, 1: APP_CODE, 2: APP_DESKTOP}.get(
+            self.app_drop.get_selected(), APP_CURSOR)
+
+    def on_app_changed(self):
+        # Memory cap only applies to Cursor; dim the field for Claude apps.
+        is_cursor = self.selected_app() == APP_CURSOR
+        self.memory.set_sensitive(is_cursor)
+        self.memory_row.set_opacity(1.0 if is_cursor else 0.45)
 
     def set_color(self, hex_color):
         self.color_hex = hex_color
@@ -1394,7 +1798,8 @@ class EditorDialog(Adw.Window):
             self.store.update(p)
             self.close()
         else:
-            if self.store.create(name, self.color_hex, memory, project):
+            if self.store.create(name, self.color_hex, memory, project,
+                                 app=self.selected_app()):
                 self.close()
 
 
@@ -1425,16 +1830,25 @@ class LaunchOptionsDialog(Adw.Window):
 
         self.memory = Gtk.SpinButton.new_with_range(512, 262144, 1024)
         self.memory.set_value(profile.defaultMemoryMB)
-        form.append(EditorDialog._labeled("Memory limit (MB)", self.memory))
+        is_cursor = normalize_app(profile.app) == APP_CURSOR
+        self.memory.set_sensitive(is_cursor)
+        mem_row = EditorDialog._labeled("Memory limit (MB, Cursor only)", self.memory)
+        mem_row.set_opacity(1.0 if is_cursor else 0.45)
+        form.append(mem_row)
 
         project_row = Gtk.Box(spacing=6)
         self.project = Gtk.Entry(hexpand=True, placeholder_text="Optional",
                                  text=profile.defaultProjectPath or "")
+        is_desktop = normalize_app(profile.app) == APP_DESKTOP
+        self.project.set_sensitive(not is_desktop)
         browse = Gtk.Button(label="Choose…")
+        browse.set_sensitive(not is_desktop)
         browse.connect("clicked", self.pick_folder)
         project_row.append(self.project)
         project_row.append(browse)
-        form.append(EditorDialog._labeled("Project folder", project_row))
+        proj_row = EditorDialog._labeled("Project folder", project_row)
+        proj_row.set_opacity(0.45 if is_desktop else 1.0)
+        form.append(proj_row)
 
         self.new_window = Gtk.CheckButton(label="Force a new window")
         form.append(self.new_window)
@@ -1478,6 +1892,25 @@ class PreferencesDialog(Adw.PreferencesWindow):
         custom.set_text(store.settings.get("customCursorPath", ""))
         custom.connect("changed", lambda row: self._set("customCursorPath", row.get_text().strip()))
         cursor_group.add(custom)
+
+        code_group = Adw.PreferencesGroup(title="Claude Code (CLI)")
+        page.add(code_group)
+        code_group.add(Adw.ActionRow(title="Detected path",
+                                    subtitle=store.code_path or "Not found"))
+        code_custom = Adw.EntryRow(title="Custom path (empty = auto-detect)")
+        code_custom.set_text(store.settings.get("customCodePath", ""))
+        code_custom.connect("changed", lambda row: self._set("customCodePath", row.get_text().strip()))
+        code_group.add(code_custom)
+
+        desktop_group = Adw.PreferencesGroup(title="Claude Desktop (app)")
+        page.add(desktop_group)
+        desktop_group.add(Adw.ActionRow(title="Detected path",
+                                       subtitle=store.desktop_path or "Not found"))
+        desktop_custom = Adw.EntryRow(title="Custom path (empty = auto-detect)")
+        desktop_custom.set_text(store.settings.get("customDesktopPath", ""))
+        desktop_custom.connect("changed", lambda row: self._set("customDesktopPath",
+                                                                row.get_text().strip()))
+        desktop_group.add(desktop_custom)
 
         defaults_group = Adw.PreferencesGroup(title="New profile defaults")
         page.add(defaults_group)

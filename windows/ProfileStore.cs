@@ -36,7 +36,8 @@ public class ProfileVM : INotifyPropertyChanged
         foreach (var p in new[] { nameof(DisplayName), nameof(Initial), nameof(HeaderBrush),
                  nameof(AccentBrush), nameof(AccentColor), nameof(StripBrush), nameof(IconBrush),
                  nameof(SizeText), nameof(LastLaunchedText), nameof(IsRunning),
-                 nameof(IsSystem), nameof(ShowPin), nameof(ProjectText), nameof(HasProject),
+                 nameof(IsSystem), nameof(AppName), nameof(AppBadge), nameof(ShowAppBadge),
+                 nameof(ShowPin), nameof(ProjectText), nameof(HasProject),
                  nameof(RunningText), nameof(StatusBrush), nameof(PidText), nameof(DotBrush),
                  nameof(LaunchLabel), nameof(MemoryMain), nameof(MemorySuffix), nameof(MemoryBrush),
                  nameof(WindowsText), nameof(MemFraction), nameof(IsDuplicating) })
@@ -97,22 +98,51 @@ public class ProfileVM : INotifyPropertyChanged
         }
     }
     public bool IsSystem => Model.IsSystem;
+    public string AppName => Model.AppLabel;
+    public string AppBadge => Model.AppBadge;
+    public bool ShowAppBadge => Model.ShowAppBadge;
+    public string LaunchLabel => Model.NormalizedApp == CursorProfile.AppClaudeCode && !IsRunning
+        ? "Open Terminal"
+        : IsRunning ? "New Window" : "Launch";
     public bool ShowPin => Model.IsPinned && !Model.IsSystem;
     public bool IsRunning => _runningPids.Count > 0;
     public string RunningText => IsRunning ? "Running" : "Idle";
-    public string LaunchLabel => IsRunning ? "New Window" : "Launch";
     public string SizeText => Format.Bytes(_sizeBytes);
     public string LastLaunchedText => Format.Relative(Model.LastLaunchedAt);
     public string ProjectText => Model.DefaultProjectPath ?? "";
     public bool HasProject => !string.IsNullOrEmpty(Model.DefaultProjectPath);
 
-    public string PidText => IsRunning && _runningPids.Count > 0 ? $"PID {_runningPids[0]}" : "";
+    public string PidText
+    {
+        get
+        {
+            if (!IsRunning) return "";
+            var real = _runningPids.FirstOrDefault(pid => pid > 0);
+            return real > 0 ? $"PID {real}" : "";
+        }
+    }
 
-    private long LimitBytes => (long)Model.DefaultMemoryMB * 1024 * 1024;
+    private bool HasMemoryCap => Model.NormalizedApp == CursorProfile.AppCursor;
+    private long LimitBytes => HasMemoryCap ? (long)Model.DefaultMemoryMB * 1024 * 1024 : 0;
 
-    /// <summary>Live RSS when running, configured limit when idle. Never a guess.</summary>
-    public string MemoryMain => IsRunning ? Format.Bytes(_liveBytes) : Format.Bytes(LimitBytes);
-    public string MemorySuffix => IsRunning ? $" / {Format.Bytes(LimitBytes)} limit" : " limit";
+    /// <summary>Live RSS when running, configured limit when idle. Never a guess.
+    /// Claude apps have no --max-memory cap, so idle shows a dash.</summary>
+    public string MemoryMain
+    {
+        get
+        {
+            if (IsRunning) return Format.Bytes(_liveBytes);
+            return HasMemoryCap ? Format.Bytes(LimitBytes) : "—";
+        }
+    }
+    public string MemorySuffix
+    {
+        get
+        {
+            if (!HasMemoryCap) return IsRunning ? " live" : " · no memory cap";
+            return IsRunning ? $" / {Format.Bytes(LimitBytes)} limit" : " limit";
+        }
+    }
     public string WindowsText => !IsRunning ? "" : _windowCount switch
     {
         0 => "starting…",
@@ -127,13 +157,13 @@ public class ProfileVM : INotifyPropertyChanged
     public Brush AccentBrush => new SolidColorBrush(Palette.ColorFromHex(Model.ColorHex));
     public Color AccentColor => Palette.ColorFromHex(Model.ColorHex);
     public Brush MemoryBrush => IsRunning ? AccentBrush
-        : new SolidColorBrush(Color.FromRgb(0xA8, 0xB0, 0xC4));
+        : new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x8E));
     public Brush StatusBrush => IsRunning
         ? new SolidColorBrush(Color.FromRgb(0x34, 0xD3, 0x99))
-        : new SolidColorBrush(Color.FromRgb(0xA8, 0xB0, 0xC4));
+        : new SolidColorBrush(Color.FromRgb(0x8E, 0x8E, 0x8E));
     public Brush DotBrush => IsRunning
         ? new SolidColorBrush(Color.FromRgb(0x34, 0xD3, 0x99))
-        : new SolidColorBrush(Color.FromRgb(0x6B, 0x74, 0x84));
+        : new SolidColorBrush(Color.FromRgb(0x6E, 0x6E, 0x6E));
 
     /// <summary>Per-profile icon tint (accent at ~20% alpha).</summary>
     public Brush IconBrush
@@ -173,6 +203,8 @@ public class ProfileVM : INotifyPropertyChanged
 public class ProfileStore
 {
     public string ProfilesDir { get; }
+    public string CodeDir { get; }
+    public string DesktopDir { get; }
     public LauncherSettings Settings { get; }
     public List<ProfileVM> Profiles { get; } = new();
 
@@ -197,33 +229,105 @@ public class ProfileStore
     public static string SystemDataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Cursor");
 
+    /// <summary>Real (built-in) data location per app.</summary>
+    public static string SystemDataDirFor(string app)
+    {
+        var normalized = app == CursorProfile.AppClaudeCode ? app
+            : app == CursorProfile.AppClaudeDesktop ? app : CursorProfile.AppCursor;
+        if (normalized == CursorProfile.AppClaudeCode)
+        {
+            var env = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+            if (!string.IsNullOrWhiteSpace(env)) return env;
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
+        }
+        if (normalized == CursorProfile.AppClaudeDesktop)
+        {
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var store = Path.Combine(local, "Packages", "Claude_pzs8sxrjxfjjc",
+                "LocalCache", "Roaming", "Claude");
+            if (Directory.Exists(store)) return store;
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude");
+        }
+        return SystemDataDir;
+    }
+
+    public string DirForApp(string app) => app switch
+    {
+        CursorProfile.AppClaudeCode => CodeDir,
+        CursorProfile.AppClaudeDesktop => DesktopDir,
+        _ => ProfilesDir,
+    };
+
     public string? ResolvedCursorPath => CursorLauncher.FindCursor(
         string.IsNullOrWhiteSpace(Settings.CustomCursorPath) ? null : Settings.CustomCursorPath);
 
-    public ProfileStore()
+    public string? ResolvedCodePath => ClaudeLauncher.FindClaudeCode(
+        string.IsNullOrWhiteSpace(Settings.CustomCodePath) ? null : Settings.CustomCodePath);
+
+    public string? ResolvedDesktopPath => ClaudeLauncher.FindClaudeDesktop(
+        string.IsNullOrWhiteSpace(Settings.CustomDesktopPath) ? null : Settings.CustomDesktopPath);
+
+    /// <summary>
+    /// True when managed Desktop profiles exist but the standalone installer
+    /// build (the only one that honors --user-data-dir) isn't installed.
+    /// </summary>
+    public bool NeedsStandaloneDesktop =>
+        Profiles.Any(p => p.Model.NormalizedApp == CursorProfile.AppClaudeDesktop && !p.Model.IsSystem)
+        && ClaudeLauncher.FindClassicDesktop(
+            string.IsNullOrWhiteSpace(Settings.CustomDesktopPath) ? null : Settings.CustomDesktopPath) is null;
+
+    /// <summary>Raised when a Desktop profile can't launch without the standalone installer build.</summary>
+    public event Action<string>? DesktopInstallRequired;
+
+    public ProfileStore(string? profilesDir = null, string? codeDir = null, string? desktopDir = null)
     {
-        ProfilesDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor_profiles");
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        ProfilesDir = profilesDir ?? Path.Combine(home, ".cursor_profiles");
+        CodeDir = codeDir ?? Path.Combine(home, ".claude_code_profiles");
+        DesktopDir = desktopDir ?? Path.Combine(home, ".claude_desktop_profiles");
         Settings = LauncherSettings.Load(ProfilesDir);
         Reload();
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
-        _pollTimer.Tick += (_, _) => RefreshRunning();
+        _pollTimer.Tick += (_, _) =>
+        {
+            ThemeManager.RefreshIfSystem(); // follow OS theme flips within seconds
+            RefreshRunning();
+        };
         _pollTimer.Start();
     }
 
     public string DirectoryFor(CursorProfile p) =>
-        p.IsSystem ? SystemDataDir : Path.Combine(ProfilesDir, p.FolderName);
+        p.IsSystem ? SystemDataDirFor(p.NormalizedApp) : Path.Combine(DirForApp(p.NormalizedApp), p.FolderName);
 
     // MARK: Loading
 
     public void Reload()
     {
-        Directory.CreateDirectory(ProfilesDir);
+        Profiles.Clear();
+        foreach (var app in new[] { CursorProfile.AppCursor, CursorProfile.AppClaudeCode, CursorProfile.AppClaudeDesktop })
+            foreach (var p in LoadApp(app))
+                Profiles.Add(new ProfileVM(p));
+        SaveMetadata();
+        Changed?.Invoke();
+        RefreshSizes();
+        RefreshRunning();
+    }
 
-        var known = LoadMetadata();
+    private List<CursorProfile> LoadApp(string app)
+    {
+        var dir = DirForApp(app);
+        Directory.CreateDirectory(dir);
 
-        var onDisk = Directory.EnumerateDirectories(ProfilesDir)
+        var known = LoadMetadata(dir);
+        // Foreign built-ins (from a copied metadata file) belong to their own
+        // app; hand-created folders are adopted into this app.
+        known.RemoveAll(p => p.IsSystem && p.FolderName != CursorProfile.SystemMarkerFor(app));
+        foreach (var p in known) p.App = app;
+
+        var onDisk = Directory.EnumerateDirectories(dir)
             .Select(Path.GetFileName)
             .Where(n => n is not null && !n.StartsWith('.'))
             .Cast<string>()
@@ -237,38 +341,35 @@ public class ProfileStore
             {
                 FolderName = name,
                 DisplayName = display,
+                App = app,
                 ColorHex = Palette.RandomHex(),
             });
         }
         // Drop metadata for folders that no longer exist (never the built-in one).
         known.RemoveAll(p => !p.IsSystem && !onDisk.Contains(p.FolderName));
 
-        // Surface the user's original Cursor profile — visible, launchable, protected.
-        if (!known.Any(p => p.IsSystem) && Directory.Exists(SystemDataDir))
+        // Surface the original app data — visible, launchable, protected.
+        if (!known.Any(p => p.IsSystem) && Directory.Exists(SystemDataDirFor(app)))
         {
             known.Insert(0, new CursorProfile
             {
-                FolderName = CursorProfile.SystemFolderName,
-                DisplayName = "Main Cursor",
+                FolderName = CursorProfile.SystemMarkerFor(app),
+                DisplayName = CursorProfile.SystemDisplayNameFor(app),
+                App = app,
                 ColorHex = "#3B82F6",
                 IsPinned = true,
                 IsSystem = true,
             });
         }
 
-        Profiles.Clear();
-        foreach (var p in known) Profiles.Add(new ProfileVM(p));
-        SaveMetadata();
-        Changed?.Invoke();
-        RefreshSizes();
-        RefreshRunning();
+        return known;
     }
 
-    private List<CursorProfile> LoadMetadata()
+    private List<CursorProfile> LoadMetadata(string dir)
     {
         try
         {
-            var path = Path.Combine(ProfilesDir, MetadataName);
+            var path = Path.Combine(dir, MetadataName);
             if (File.Exists(path))
                 return JsonSerializer.Deserialize<List<CursorProfile>>(File.ReadAllText(path)) ?? new();
         }
@@ -280,10 +381,13 @@ public class ProfileStore
     {
         try
         {
-            var json = JsonSerializer.Serialize(
-                Profiles.Select(p => p.Model).ToList(),
-                new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(Path.Combine(ProfilesDir, MetadataName), json);
+            foreach (var app in new[] { CursorProfile.AppCursor, CursorProfile.AppClaudeCode, CursorProfile.AppClaudeDesktop })
+            {
+                var json = JsonSerializer.Serialize(
+                    Profiles.Select(p => p.Model).Where(p => p.NormalizedApp == app).ToList(),
+                    new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(Path.Combine(DirForApp(app), MetadataName), json);
+            }
         }
         catch (Exception e) { Error?.Invoke($"Could not save profile metadata: {e.Message}"); }
     }
@@ -291,8 +395,14 @@ public class ProfileStore
     // MARK: CRUD
 
     public ProfileVM? CreateProfile(string displayName, string colorHex,
+                                    int memoryMB, string? projectPath) =>
+        CreateProfile(displayName, CursorProfile.AppCursor, colorHex, memoryMB, projectPath);
+
+    public ProfileVM? CreateProfile(string displayName, string app, string colorHex,
                                     int memoryMB, string? projectPath)
     {
+        if (app != CursorProfile.AppClaudeCode && app != CursorProfile.AppClaudeDesktop)
+            app = CursorProfile.AppCursor;
         var baseName = ProfileNaming.SanitizeFolderName(displayName.Replace(' ', '_'));
         if (baseName.Length == 0)
         {
@@ -305,31 +415,56 @@ public class ProfileStore
         {
             FolderName = folder,
             DisplayName = displayName.Trim(),
+            App = app,
             ColorHex = colorHex,
             DefaultMemoryMB = memoryMB,
             DefaultProjectPath = string.IsNullOrWhiteSpace(projectPath) ? null : projectPath,
         };
-        try { Directory.CreateDirectory(DirectoryFor(profile)); }
+        var dir = DirectoryFor(profile);
+        try { Directory.CreateDirectory(dir); }
         catch (Exception e)
         {
             Error?.Invoke($"Could not create profile folder: {e.Message}");
             return null;
         }
+        if (app == CursorProfile.AppClaudeDesktop)
+            SeedDesktopConfig(SystemDataDirFor(app), dir);
         var vm = new ProfileVM(profile);
         Profiles.Add(vm);
         SaveMetadata();
         Changed?.Invoke();
         RefreshSizes();
-        TitleBarColorizer.Apply(profile, DirectoryFor(profile));
+        if (app == CursorProfile.AppCursor)
+            TitleBarColorizer.Apply(profile, dir);
         return vm;
+    }
+
+    /// <summary>Seed a fresh Desktop profile with the main install's MCP/connectors
+    /// config — without copying gigabytes of cache.</summary>
+    private static void SeedDesktopConfig(string systemDir, string profileDir)
+    {
+        try
+        {
+            var src = Path.Combine(systemDir, "claude_desktop_config.json");
+            var dst = Path.Combine(profileDir, "claude_desktop_config.json");
+            if (File.Exists(src) && !File.Exists(dst))
+                File.Copy(src, dst);
+        }
+        catch { /* best-effort */ }
     }
 
     private string UniqueFolderName(string baseName)
     {
         var folder = baseName;
         var counter = 2;
-        while (folder == CursorProfile.SystemFolderName ||
-               Profiles.Any(p => string.Equals(p.Model.FolderName, folder, StringComparison.OrdinalIgnoreCase)))
+        // Folder names stay globally unique across apps: live-stats maps are
+        // keyed by folder name in every client.
+        bool Taken(string f) =>
+            f == CursorProfile.SystemFolderName ||
+            f == CursorProfile.SystemCodeFolderName ||
+            f == CursorProfile.SystemDesktopFolderName ||
+            Profiles.Any(p => string.Equals(p.Model.FolderName, f, StringComparison.OrdinalIgnoreCase));
+        while (Taken(folder))
         {
             folder = $"{baseName}-{counter++}";
         }
@@ -350,7 +485,7 @@ public class ProfileStore
         // Keep an existing shortcut in sync with name/icon/launch changes.
         if (cosmeticsChanged && !updated.IsSystem && HasShortcut(vm))
             CreateOrUpdateShortcut(vm, announce: false);
-        if (colorChanged)
+        if (colorChanged && updated.NormalizedApp == CursorProfile.AppCursor)
             TitleBarColorizer.Apply(updated, DirectoryFor(updated));
     }
 
@@ -364,7 +499,8 @@ public class ProfileStore
     {
         try
         {
-            ShortcutBuilder.CreateOrUpdate(vm.Model, DirectoryFor(vm.Model), Settings.CustomCursorPath);
+            ShortcutBuilder.CreateOrUpdate(vm.Model, DirectoryFor(vm.Model),
+                Settings.CustomCursorPath, Settings.CustomCodePath, Settings.CustomDesktopPath);
             if (announce)
             {
                 Info?.Invoke(
@@ -382,18 +518,32 @@ public class ProfileStore
     public void RemoveShortcut(ProfileVM vm) => ShortcutBuilder.Remove(vm.Model);
 
     /// <summary>Duplicate a profile; for the built-in one this clones the original
-    /// Cursor data into a new managed profile (the original is only read).</summary>
+    /// app data into a new managed profile (the original is only read).
+    /// Desktop duplicates are config-only (full Electron dirs are gigabytes
+    /// of cache); Code/Cursor duplicates copy the whole folder.</summary>
     public async void Duplicate(ProfileVM vm)
     {
         var profile = vm.Model;
-        var baseName = profile.IsSystem ? "Main-Cursor-Clone" : profile.FolderName + "-copy";
+        var app = profile.NormalizedApp;
+        var baseName = profile.IsSystem ? app switch
+        {
+            CursorProfile.AppClaudeCode => "Main-Claude-Code-Clone",
+            CursorProfile.AppClaudeDesktop => "Main-Claude-Desktop-Clone",
+            _ => "Main-Cursor-Clone",
+        } : profile.FolderName + "-copy";
         var folder = UniqueFolderName(baseName);
         var source = DirectoryFor(profile);
-        var dest = Path.Combine(ProfilesDir, folder);
+        var dest = Path.Combine(DirForApp(app), folder);
 
         var copy = profile.Copy();
         copy.FolderName = folder;
-        copy.DisplayName = profile.IsSystem ? "Main Cursor Clone" : profile.DisplayName + " Copy";
+        copy.App = app;
+        copy.DisplayName = profile.IsSystem ? app switch
+        {
+            CursorProfile.AppClaudeCode => "Main Claude Code Clone",
+            CursorProfile.AppClaudeDesktop => "Main Claude Desktop Clone",
+            _ => "Main Cursor Clone",
+        } : profile.DisplayName + " Copy";
         copy.CreatedAt = DateTime.UtcNow;
         copy.LastLaunchedAt = null;
         copy.IsPinned = false;
@@ -402,7 +552,10 @@ public class ProfileStore
         vm.IsDuplicating = true;
         try
         {
-            await Task.Run(() => CopyDirectory(source, dest));
+            if (app == CursorProfile.AppClaudeDesktop)
+                await Task.Run(() => CopyDesktopConfig(source, dest));
+            else
+                await Task.Run(() => CopyDirectory(source, dest));
             Profiles.Add(new ProfileVM(copy));
             SaveMetadata();
             Changed?.Invoke();
@@ -414,6 +567,15 @@ public class ProfileStore
             try { if (Directory.Exists(dest)) Directory.Delete(dest, true); } catch { }
         }
         finally { vm.IsDuplicating = false; }
+    }
+
+    /// <summary>Fresh Desktop profile carrying over just MCP/connectors config.</summary>
+    private static void CopyDesktopConfig(string source, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        var src = Path.Combine(source, "claude_desktop_config.json");
+        if (File.Exists(src))
+            File.Copy(src, Path.Combine(dest, "claude_desktop_config.json"), overwrite: true);
     }
 
     private static void CopyDirectory(string source, string dest)
@@ -433,7 +595,7 @@ public class ProfileStore
     {
         if (vm.Model.IsSystem)
         {
-            Error?.Invoke("The built-in Cursor profile can't be deleted from here — it's your original Cursor data.");
+            Error?.Invoke("The built-in profile can't be deleted from here — it's your original app data.");
             return;
         }
         if (vm.IsRunning)
@@ -471,16 +633,42 @@ public class ProfileStore
     public void Launch(ProfileVM vm, string? projectPath = null, int? memoryMB = null, bool newWindow = false)
     {
         var p = vm.Model;
-        // Idempotent — also covers profiles adopted from disk that never went through CreateProfile.
-        TitleBarColorizer.Apply(p, DirectoryFor(p));
+        var app = p.NormalizedApp;
         try
         {
-            CursorLauncher.Launch(
-                userDataDir: p.IsSystem ? null : DirectoryFor(p),
-                cursorPath: string.IsNullOrWhiteSpace(Settings.CustomCursorPath) ? null : Settings.CustomCursorPath,
-                memoryMB: memoryMB ?? p.DefaultMemoryMB,
-                projectPath: projectPath ?? p.DefaultProjectPath,
-                newWindow: newWindow);
+            switch (app)
+            {
+                case CursorProfile.AppClaudeCode:
+                    // Idempotent for adopted Code profiles (dir may not exist yet).
+                    ClaudeLauncher.LaunchCode(
+                        profileDir: DirectoryFor(p),
+                        displayName: p.DisplayName,
+                        codePath: string.IsNullOrWhiteSpace(Settings.CustomCodePath) ? null : Settings.CustomCodePath,
+                        projectPath: projectPath ?? p.DefaultProjectPath,
+                        isSystem: p.IsSystem);
+                    break;
+                case CursorProfile.AppClaudeDesktop:
+                    ClaudeLauncher.LaunchDesktop(
+                        profileDir: p.IsSystem ? null : DirectoryFor(p),
+                        desktopPath: string.IsNullOrWhiteSpace(Settings.CustomDesktopPath) ? null : Settings.CustomDesktopPath,
+                        newWindow: newWindow);
+                    break;
+                default:
+                    // Idempotent — also covers profiles adopted from disk that never went through CreateProfile.
+                    TitleBarColorizer.Apply(p, DirectoryFor(p));
+                    CursorLauncher.Launch(
+                        userDataDir: p.IsSystem ? null : DirectoryFor(p),
+                        cursorPath: string.IsNullOrWhiteSpace(Settings.CustomCursorPath) ? null : Settings.CustomCursorPath,
+                        memoryMB: memoryMB ?? p.DefaultMemoryMB,
+                        projectPath: projectPath ?? p.DefaultProjectPath,
+                        newWindow: newWindow);
+                    break;
+            }
+        }
+        catch (DesktopInstallRequiredException e)
+        {
+            DesktopInstallRequired?.Invoke(e.Message);
+            return;
         }
         catch (Exception e)
         {
@@ -496,7 +684,10 @@ public class ProfileStore
 
     public void Quit(ProfileVM vm)
     {
-        CursorLauncher.Quit(vm.RunningPids);
+        if (vm.Model.NormalizedApp == CursorProfile.AppClaudeDesktop)
+            ClaudeLauncher.Quit(vm.RunningPids);
+        else
+            CursorLauncher.Quit(vm.RunningPids);
         Task.Delay(1500).ContinueWith(_ => RefreshRunning(),
             TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -505,18 +696,29 @@ public class ProfileStore
 
     public async void RefreshRunning()
     {
-        var snapshot = Profiles.Select(vm => (vm, dir: DirectoryFor(vm.Model), vm.Model.IsSystem)).ToList();
+        var snapshot = Profiles.Select(vm => (vm, dir: DirectoryFor(vm.Model), vm.Model.IsSystem, app: vm.Model.NormalizedApp)).ToList();
         var processes = await Task.Run(CursorLauncher.ProcessList);
+        var desktopProcesses = await Task.Run(ClaudeLauncher.DesktopProcessList);
         var bytesByPid = processes.ToDictionary(p => p.Pid, p => p.WorkingSetBytes);
+        foreach (var d in desktopProcesses)
+            bytesByPid[d.Pid] = d.WorkingSetBytes;
+        var anyDesktopAlive = desktopProcesses.Count > 0;
         var matched = new Dictionary<ProfileVM, List<int>>();
         var wanted = new List<int>();
-        foreach (var (vm, dir, isSystem) in snapshot)
+        foreach (var (vm, dir, isSystem, app) in snapshot)
         {
-            var pids = isSystem
-                ? CursorLauncher.SystemProfilePids(processes)
-                : CursorLauncher.Pids(processes, dir);
+            List<int> pids = app switch
+            {
+                CursorProfile.AppClaudeCode => new List<int>(),
+                CursorProfile.AppClaudeDesktop when isSystem =>
+                    ClaudeLauncher.SystemDesktopPids(desktopProcesses),
+                CursorProfile.AppClaudeDesktop =>
+                    ClaudeLauncher.DesktopPids(desktopProcesses, dir),
+                _ when isSystem => CursorLauncher.SystemProfilePids(processes),
+                _ => CursorLauncher.Pids(processes, dir),
+            };
             matched[vm] = pids;
-            wanted.AddRange(pids);
+            wanted.AddRange(pids.Where(pid => pid > 0));
         }
         var windowsByPid = wanted.Count == 0
             ? new Dictionary<int, int>()

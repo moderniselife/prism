@@ -1,0 +1,18 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Neutral dark: plain grays, no blue wash. Same keys as Light.xaml. -->
+    <SolidColorBrush x:Key="WindowBrush" Color="#1E1E1E"/>
+    <SolidColorBrush x:Key="CardBrush" Color="#2A2A2A"/>
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#404040"/>
+    <SolidColorBrush x:Key="CardHoverBorderBrush" Color="#5E5E5E"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#F5F5F5"/>
+    <SolidColorBrush x:Key="SubTextBrush" Color="#B8B8B8"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#848484"/>
+    <SolidColorBrush x:Key="FieldBrush" Color="#2E2E2E"/>
+    <SolidColorBrush x:Key="TrackBrush" Color="#3D3D3D"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#F85149"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#3FB950"/>
+
+</ResourceDictionary>

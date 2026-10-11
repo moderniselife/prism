@@ -76,7 +76,9 @@ struct MenuBarDropdown: View {
         guard !searchText.isEmpty else { return sortedProfiles }
         return sortedProfiles.filter {
             $0.displayName.localizedCaseInsensitiveContains(searchText) ||
-            $0.defaultProjectPath?.localizedCaseInsensitiveContains(searchText) == true
+            $0.defaultProjectPath?.localizedCaseInsensitiveContains(searchText) == true ||
+            $0.appLabel.localizedCaseInsensitiveContains(searchText) ||
+            $0.normalizedApp.localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -312,7 +314,7 @@ struct MenuBarProfileItem: View {
                     }
                     .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
 
-                    if let pids = store.runningPIDs[profile.folderName], let pid = pids.first {
+                    if let pids = store.runningPIDs[profile.folderName], let pid = pids.first(where: { $0 > 0 }) {
                         Text("PID \(pid)")
                             .font(.system(size: 9, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.textMuted)
@@ -335,8 +337,14 @@ struct MenuBarProfileItem: View {
                             .foregroundStyle(profile.accentColor)
                             .lineLimit(1)
                             .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
-                    } else {
+                    } else if profile.hasMemoryCap {
                         Text("\(formatMB(profile.defaultMemoryMB)) limit")
+                            .font(.system(size: 9, design: .rounded))
+                            .foregroundStyle(PrismTheme.Colors.textTertiary)
+                            .lineLimit(1)
+                            .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
+                    } else {
+                        Text(profile.appLabel)
                             .font(.system(size: 9, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                             .lineLimit(1)

@@ -5,7 +5,7 @@
 <h1 align="center">Prism</h1>
 
 <p align="center">
-  <strong>One launcher for every Cursor you run.</strong><br />
+  <strong>One launcher for every Cursor you run — plus Claude Code and Claude Desktop.</strong><br />
   Isolated profiles — own settings, extensions, login, chat history — with live stats,<br />
   instant switching, and per-profile title bar colors so you never mix up Work and Personal again.
 </p>
@@ -126,13 +126,15 @@ runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
 ## How it works
 
 ```
-~/.cursor_profiles/
+~/.cursor_profiles/          # Cursor editor profiles
   .profiles.json        # names, colors, launch defaults (shared across OSes)
   Work/                 # a full Cursor user-data-dir
   Personal/             # another one — fully independent
+~/.claude_code_profiles/     # Claude Code profiles (each dir = a CLAUDE_CONFIG_DIR)
+~/.claude_desktop_profiles/  # Claude Desktop profiles (--user-data-dir)
 ```
 
-Launching a profile runs Cursor with `--user-data-dir <profile> --max-memory <limit>`, so isolation is enforced by Cursor itself rather than by anything Prism fakes. The built-in profile launches with no `--user-data-dir` at all — byte-for-byte identical to opening Cursor normally.
+Launching a Cursor profile runs Cursor with `--user-data-dir <profile> --max-memory <limit>`, so isolation is enforced by Cursor itself rather than by anything Prism fakes. The built-in profile launches with no `--user-data-dir` at all — byte-for-byte identical to opening Cursor normally. Claude Code profiles set `CLAUDE_CONFIG_DIR` (the documented multi-account switch — separate login, settings, history per profile). Claude Desktop profiles launch with `--user-data-dir=<profile>` too, so each has its own login and several run side by side. On Windows this needs the standalone installer build of Claude Desktop (the Microsoft Store build drops launch flags) — Prism prompts you with the download link. Verified on Windows; macOS and Linux are untested.
 
 ## Layout
 
@@ -146,7 +148,8 @@ Sources/CursorProfiles/
   SettingsView.swift        # Cursor path, defaults, storage
   ProfileStore.swift        # Metadata, CRUD, live RSS/CPU/window polling
   SystemStats.swift         # Real CPU/RAM/window measurement + global hotkey helpers
-  CursorLauncher.swift      # Find/launch/quit Cursor processes
+   CursorLauncher.swift      # Find/launch/quit Cursor processes
+   ClaudeLauncher.swift      # Find/launch Claude Code (CLAUDE_CONFIG_DIR) & Desktop (--user-data-dir)
   TitleBarColorizer.swift   # Merges per-profile title bar colors into User/settings.json
   PrismTheme.swift          # Adaptive light/dark design system
   MeshBackgroundView.swift  # Ambient background

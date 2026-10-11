@@ -3,20 +3,20 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Prism"
         Width="1020" Height="680" MinWidth="820" MinHeight="540"
-        Background="{StaticResource WindowBrush}"
+        Background="{DynamicResource WindowBrush}"
         FontFamily="Segoe UI">
     <DockPanel>
 
         <!-- Header -->
         <Border DockPanel.Dock="Top" Padding="20,14" BorderThickness="0,0,0,1"
-                BorderBrush="{StaticResource CardBorderBrush}">
+                BorderBrush="{DynamicResource CardBorderBrush}">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                     <TextBlock Text="Prism" FontSize="21" FontWeight="Bold" VerticalAlignment="Center"/>
                     <Border CornerRadius="9" Padding="7,2" Margin="8,0,0,0" VerticalAlignment="Center"
-                            Background="#2606B6D4" BorderThickness="1" BorderBrush="#4D06B6D4">
+                            Background="{DynamicResource FieldBrush}" BorderThickness="1" BorderBrush="{DynamicResource AccentBrush}">
                         <TextBlock x:Name="VersionPill" Text="v1.0" FontSize="10"
-                                   Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
+                                   Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
                     </Border>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -24,7 +24,7 @@
                         <TextBox x:Name="SearchBox" Style="{StaticResource DarkField}"
                                  TextChanged="SearchBox_TextChanged"/>
                         <TextBlock x:Name="SearchHint" Text="Search profiles…" Margin="10,0,0,0"
-                                   VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}"
+                                   VerticalAlignment="Center" Foreground="{DynamicResource SubTextBrush}"
                                    IsHitTestVisible="False"/>
                     </Grid>
                     <Button x:Name="SortButton" Content="Sort: Recent" Style="{StaticResource GhostButton}"
@@ -41,21 +41,27 @@
 
         <!-- Filter bar -->
         <Border DockPanel.Dock="Top" Padding="20,8" BorderThickness="0,0,0,1"
-                BorderBrush="{StaticResource CardBorderBrush}">
+                BorderBrush="{DynamicResource CardBorderBrush}">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                     <TextBlock Text="Profiles:" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{StaticResource SubTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                               Foreground="{DynamicResource SubTextBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <Button x:Name="FilterAllButton" Tag="0" Style="{StaticResource FilterTab}"
-                            Click="Filter_Click"/>
+                             Click="Filter_Click"/>
                     <Button x:Name="FilterActiveButton" Tag="1" Style="{StaticResource FilterTab}"
-                            Click="Filter_Click"/>
+                             Click="Filter_Click"/>
                     <Button x:Name="FilterCustomButton" Tag="2" Style="{StaticResource FilterTab}"
-                            Click="Filter_Click"/>
+                             Click="Filter_Click"/>
+                    <Button x:Name="FilterCursorButton" Tag="3" Style="{StaticResource FilterTab}"
+                             Click="Filter_Click" ToolTip="Cursor editor profiles"/>
+                    <Button x:Name="FilterCodeButton" Tag="4" Style="{StaticResource FilterTab}"
+                             Click="Filter_Click" ToolTip="Claude Code CLI profiles"/>
+                    <Button x:Name="FilterDesktopButton" Tag="5" Style="{StaticResource FilterTab}"
+                             Click="Filter_Click" ToolTip="Claude Desktop app profiles"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock x:Name="DiskCountText" FontSize="11" VerticalAlignment="Center"
-                               Foreground="{StaticResource SubTextBrush}" Margin="0,0,10,0"/>
+                               Foreground="{DynamicResource SubTextBrush}" Margin="0,0,10,0"/>
                     <Button Content="⟳" Style="{StaticResource IconButton}" FontSize="13"
                             Click="Rescan_Click" ToolTip="Rescan profiles"/>
                 </StackPanel>
@@ -64,21 +70,21 @@
 
         <!-- Status bar : real CPU + live RSS / real RAM, nothing hardcoded -->
         <Border DockPanel.Dock="Bottom" Padding="20,8" BorderThickness="0,1,0,0"
-                BorderBrush="{StaticResource CardBorderBrush}" Background="#0B0E14">
+                BorderBrush="{DynamicResource CardBorderBrush}" Background="{DynamicResource CardBrush}">
             <DockPanel>
                 <TextBlock FontSize="11" VerticalAlignment="Center">
-                    <Run Text="CPU " Foreground="{StaticResource MutedBrush}"/>
-                    <Run x:Name="CpuText" Text="—" Foreground="{StaticResource TextBrush}"/>
+                    <Run Text="CPU " Foreground="{DynamicResource MutedBrush}"/>
+                    <Run x:Name="CpuText" Text="—" Foreground="{DynamicResource TextBrush}"/>
                 </TextBlock>
                 <TextBlock Text="|" Margin="14,0" VerticalAlignment="Center"
-                           Foreground="{StaticResource MutedBrush}"/>
+                           Foreground="{DynamicResource MutedBrush}"/>
                 <TextBlock FontSize="11" VerticalAlignment="Center" ToolTip="Live resident memory of running Cursor processes / total physical RAM">
-                    <Run Text="RAM " Foreground="{StaticResource MutedBrush}"/>
-                    <Run x:Name="RamLiveText" Text="—" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold"/>
-                    <Run x:Name="RamTotalText" Text="" Foreground="{StaticResource MutedBrush}"/>
+                    <Run Text="RAM " Foreground="{DynamicResource MutedBrush}"/>
+                    <Run x:Name="RamLiveText" Text="—" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
+                    <Run x:Name="RamTotalText" Text="" Foreground="{DynamicResource MutedBrush}"/>
                 </TextBlock>
                 <TextBlock x:Name="ProfileCountText" FontSize="11" HorizontalAlignment="Right"
-                           VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                           VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
             </DockPanel>
         </Border>
 
@@ -94,6 +100,15 @@
                         <Button Content="Open Settings" Style="{StaticResource GhostButton}"
                                 HorizontalAlignment="Right" Click="Settings_Click"/>
                     </DockPanel>
+                </Border>
+
+                <Border x:Name="DesktopStoreBanner" Visibility="Collapsed"
+                        Background="#33F59E0B" CornerRadius="10" Padding="14,10" Margin="16,4,16,8">
+                    <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+                        <Run Text="⚠  Separate Claude Desktop profiles need the standalone installer version of Claude Desktop (the Store version can't run extra profiles). "/>
+                        <Hyperlink Click="InstallDesktop_Click">Download it</Hyperlink>
+                        <Run Text=" — you can keep the Store version too."/>
+                    </TextBlock>
                 </Border>
 
                 <ItemsControl x:Name="Cards">
@@ -125,7 +140,7 @@
                                                 <TextBlock Text="{Binding Initial}" FontSize="20" FontWeight="Bold"
                                                            Foreground="{Binding AccentBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
+                                                <Ellipse Width="8" Height="8" Fill="{DynamicResource SuccessBrush}"
                                                          HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                          Margin="0,0,3,3"
                                                          Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
@@ -133,31 +148,41 @@
                                             <StackPanel VerticalAlignment="Center">
                                                 <StackPanel Orientation="Horizontal">
                                                     <TextBlock Text="{Binding DisplayName}" FontWeight="Bold"
-                                                               FontSize="14" MaxWidth="130"
+                                                               FontSize="14" MaxWidth="150"
                                                                TextTrimming="CharacterEllipsis"/>
+                                                     <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
+                                                             VerticalAlignment="Center"
+                                                             BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}"
+                                                             Visibility="{Binding IsSystem, Converter={StaticResource BoolToVis}}"
+                                                             ToolTip="Your original app data. Launchable and clonable, never deletable from this app.">
+                                                         <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold"
+                                                                    Foreground="{DynamicResource SubTextBrush}"/>
+                                                     </Border>
+                                                     <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
+                                                             VerticalAlignment="Center"
+                                                             BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}"
+                                                             Visibility="{Binding ShowAppBadge, Converter={StaticResource BoolToVis}}"
+                                                             ToolTip="{Binding AppName}">
+                                                         <TextBlock Text="{Binding AppBadge}" FontSize="8" FontWeight="Bold"
+                                                                    Foreground="{DynamicResource AccentBrush}"/>
+                                                     </Border>
                                                     <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
                                                             VerticalAlignment="Center"
-                                                            BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
-                                                            Visibility="{Binding IsSystem, Converter={StaticResource BoolToVis}}"
-                                                            ToolTip="Your original Cursor profile (%APPDATA%\Cursor). Launchable and clonable, never deletable from this app.">
-                                                        <TextBlock Text="BUILT-IN" FontSize="8" FontWeight="Bold"
-                                                                   Foreground="{StaticResource SubTextBrush}"/>
-                                                    </Border>
-                                                    <Border CornerRadius="6" Padding="5,1" Margin="6,0,0,0"
-                                                            VerticalAlignment="Center"
-                                                            BorderThickness="1" BorderBrush="{StaticResource CardBorderBrush}"
+                                                            BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}"
                                                             Visibility="{Binding ShowPin, Converter={StaticResource BoolToVis}}">
                                                         <TextBlock Text="PIN" FontSize="8" FontWeight="Bold"
-                                                                   Foreground="{StaticResource SubTextBrush}"/>
+                                                                   Foreground="{DynamicResource SubTextBrush}"/>
                                                     </Border>
                                                 </StackPanel>
                                                 <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                                                     <Ellipse Width="7" Height="7" Fill="{Binding DotBrush}"
                                                              VerticalAlignment="Center"/>
                                                     <TextBlock FontSize="11" Margin="5,0,0,0">
-                                                        <Run Text="{Binding RunningText}" Foreground="{Binding StatusBrush}"/>
+                                                        <!-- Run.Text binds TwoWay by default: force OneWay,
+                                                             the VM properties are read-only. -->
+                                                        <Run Text="{Binding RunningText, Mode=OneWay}" Foreground="{Binding StatusBrush}"/>
                                                         <Run Text=" "/>
-                                                        <Run Text="{Binding PidText}" Foreground="{StaticResource SubTextBrush}"/>
+                                                        <Run Text="{Binding PidText, Mode=OneWay}" Foreground="{DynamicResource SubTextBrush}"/>
                                                     </TextBlock>
                                                 </StackPanel>
                                             </StackPanel>
@@ -166,30 +191,30 @@
 
                                     <!-- Details -->
                                     <StackPanel Margin="14,2,14,14">
-                                        <TextBlock FontSize="11" Foreground="{StaticResource SubTextBrush}">
+                                        <TextBlock FontSize="11" Foreground="{DynamicResource SubTextBrush}">
                                             <Run Text="Disk "/>
-                                            <Run Text="{Binding SizeText}"/>
+                                            <Run Text="{Binding SizeText, Mode=OneWay}"/>
                                             <Run Text="  ·  "/>
-                                            <Run Text="{Binding LastLaunchedText}"/>
+                                            <Run Text="{Binding LastLaunchedText, Mode=OneWay}"/>
                                         </TextBlock>
                                         <TextBlock Text="{Binding ProjectText}" FontSize="11" Margin="0,6,0,0"
-                                                   Foreground="{StaticResource SubTextBrush}"
+                                                   Foreground="{DynamicResource SubTextBrush}"
                                                    TextTrimming="CharacterEllipsis"
                                                    Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}"/>
 
                                         <!-- Live memory vs configured limit -->
                                         <TextBlock FontSize="11" Margin="0,6,0,0"
-                                                   ToolTip="Live resident memory of this profile's Cursor processes (running) or its configured --max-memory limit (idle)">
-                                            <Run Text="Memory " Foreground="{StaticResource MutedBrush}"/>
-                                            <Run Text="{Binding MemoryMain}" Foreground="{Binding MemoryBrush}" FontWeight="SemiBold"/>
-                                            <Run Text="{Binding MemorySuffix}" Foreground="{StaticResource MutedBrush}"/>
+                                                   ToolTip="Live resident memory of this profile's processes (running) or its configured limit (idle). Claude apps have no memory cap.">
+                                            <Run Text="Memory " Foreground="{DynamicResource MutedBrush}"/>
+                                            <Run Text="{Binding MemoryMain, Mode=OneWay}" Foreground="{Binding MemoryBrush}" FontWeight="SemiBold"/>
+                                            <Run Text="{Binding MemorySuffix, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}"/>
                                         </TextBlock>
                                         <TextBlock Text="{Binding WindowsText}" FontSize="11" Margin="0,1,0,0"
-                                                   Foreground="{StaticResource SubTextBrush}"/>
+                                                   Foreground="{DynamicResource SubTextBrush}"/>
 
                                         <!-- Memory bar: gradient fill positioned by live/limit fraction -->
                                         <Border Height="4" CornerRadius="2" Margin="0,6,0,0"
-                                                Background="{StaticResource TrackBrush}">
+                                                Background="{DynamicResource TrackBrush}">
                                             <Border CornerRadius="2">
                                                 <Border.Background>
                                                     <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -204,7 +229,7 @@
                                         <DockPanel Margin="0,10,0,0">
                                             <Button DockPanel.Dock="Right" Content="■" FontSize="11"
                                                     Style="{StaticResource IconButton}" Margin="8,0,0,0"
-                                                    Background="#1AF43F5E" Foreground="{StaticResource DangerBrush}"
+                                                    Background="#1AF43F5E" Foreground="{DynamicResource DangerBrush}"
                                                     Click="Quit_Click"
                                                     ToolTip="Quit this profile"
                                                     Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}"/>
@@ -230,7 +255,7 @@
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding IsRunning}" Value="True">
                                     <Setter TargetName="LaunchBtn" Property="Background"
-                                            Value="{StaticResource FieldBrush}"/>
+                                            Value="{DynamicResource FieldBrush}"/>
                                 </DataTrigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
@@ -242,8 +267,8 @@
                             HorizontalAlignment="Center">
                     <TextBlock Text="No profiles yet" FontSize="20" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Margin="0,12,0,4"/>
-                    <TextBlock Text="Each profile is a fully isolated Cursor instance — its own settings, extensions, login and chat history."
-                               Foreground="{StaticResource SubTextBrush}" TextAlignment="Center"
+                    <TextBlock Text="Each profile is a fully isolated instance — its own settings, login and history, per app."
+                               Foreground="{DynamicResource SubTextBrush}" TextAlignment="Center"
                                MaxWidth="420" TextWrapping="Wrap"/>
                     <Button Content="＋ Create your first profile" Style="{StaticResource PrimaryButton}"
                             HorizontalAlignment="Center" Margin="0,16,0,0" Click="NewProfile_Click"/>

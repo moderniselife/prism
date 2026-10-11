@@ -7,6 +7,9 @@ enum ProfileFilter: String, CaseIterable, Identifiable {
     case all = "All"
     case active = "Active"
     case custom = "Custom" // non-built-in profiles (nothing here is sandboxed)
+    case cursor = "Cursor"
+    case code = "Code"
+    case desktop = "Desktop"
 
     var id: String { rawValue }
 }
@@ -38,7 +41,9 @@ struct ContentView: View {
         if !search.isEmpty {
             list = list.filter {
                 $0.displayName.localizedCaseInsensitiveContains(search) ||
-                $0.folderName.localizedCaseInsensitiveContains(search)
+                $0.folderName.localizedCaseInsensitiveContains(search) ||
+                $0.appLabel.localizedCaseInsensitiveContains(search) ||
+                $0.normalizedApp.localizedCaseInsensitiveContains(search)
             }
         }
 
@@ -47,6 +52,12 @@ struct ContentView: View {
             list = list.filter { store.isRunning($0) }
         case .custom:
             list = list.filter { !$0.isSystem }
+        case .cursor:
+            list = list.filter { $0.normalizedApp == CursorProfile.appCursor }
+        case .code:
+            list = list.filter { $0.normalizedApp == CursorProfile.appClaudeCode }
+        case .desktop:
+            list = list.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }
         case .all:
             break
         }
@@ -287,9 +298,16 @@ struct ContentView: View {
                     Button {
                         filter = f
                     } label: {
-                        let count = f == .all ? store.profiles.count :
-                                    f == .active ? runningCount :
-                                    store.profiles.filter { !$0.isSystem }.count
+                        let count: Int = {
+                            switch f {
+                            case .all: return store.profiles.count
+                            case .active: return runningCount
+                            case .custom: return store.profiles.filter { !$0.isSystem }.count
+                            case .cursor: return store.profiles.filter { $0.normalizedApp == CursorProfile.appCursor }.count
+                            case .code: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeCode }.count
+                            case .desktop: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }.count
+                            }
+                        }()
                         Text("\(f.rawValue) (\(count))")
                             .font(.system(size: 11, weight: filter == f ? .semibold : .regular))
                             .foregroundStyle(filter == f ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textTertiary)
@@ -391,7 +409,7 @@ struct ContentView: View {
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(PrismTheme.Colors.textMuted)
             }
-            .help("Live resident memory of running Cursor processes / total physical RAM")
+            .help("Live resident memory of running profiles / total physical RAM")
 
             Spacer()
 
@@ -428,7 +446,7 @@ struct ContentView: View {
             Text("No profiles yet")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
-            Text("Each profile is a fully isolated Cursor instance —\nits own settings, extensions, login and chat history.")
+            Text("Each profile is a fully isolated instance —\nits own settings, login and history, per app.")
                 .font(.system(size: 12))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(PrismTheme.Colors.textTertiary)

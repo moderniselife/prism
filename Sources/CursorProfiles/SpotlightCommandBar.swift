@@ -16,7 +16,9 @@ struct SpotlightCommandBar: View {
         guard !searchText.isEmpty else { return profiles }
         return profiles.filter {
             $0.displayName.localizedCaseInsensitiveContains(searchText) ||
-            $0.folderName.localizedCaseInsensitiveContains(searchText)
+            $0.folderName.localizedCaseInsensitiveContains(searchText) ||
+            $0.appLabel.localizedCaseInsensitiveContains(searchText) ||
+            $0.normalizedApp.localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -334,7 +336,7 @@ struct SpotlightCommandBar: View {
                     Text(firstRunning.displayName)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    if let pids = store.runningPIDs[firstRunning.folderName], let pid = pids.first {
+                    if let pids = store.runningPIDs[firstRunning.folderName], let pid = pids.first(where: { $0 > 0 }) {
                         Text("PID \(pid)")
                             .font(.system(size: 9, weight: .medium, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.textMuted)
@@ -464,7 +466,19 @@ struct SpotlightItem: View {
                             .overlay(Capsule().stroke(PrismTheme.Colors.cyan.opacity(0.3), lineWidth: 0.5))
                     }
 
-                    if isRunning, let pids = store.runningPIDs[profile.folderName], let pid = pids.first {
+                    if profile.showAppBadge {
+                        Text(profile.appBadge)
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(profile.accentColor)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(profile.accentColor.opacity(0.15))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(profile.accentColor.opacity(0.3), lineWidth: 0.5))
+                            .help(profile.appLabel)
+                    }
+
+                    if isRunning, let pids = store.runningPIDs[profile.folderName], let pid = pids.first(where: { $0 > 0 }) {
                         Text("PID \(pid)")
                             .font(.system(size: 9, weight: .medium, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
@@ -488,8 +502,12 @@ struct SpotlightItem: View {
                         Text("\(Format.bytes(Int64(live))) live")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(profile.accentColor)
-                    } else {
+                    } else if profile.hasMemoryCap {
                         Text("\(formatMB(profile.defaultMemoryMB)) limit")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    } else {
+                        Text(profile.appLabel)
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                     }

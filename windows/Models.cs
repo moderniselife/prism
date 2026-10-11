@@ -10,9 +10,21 @@ public class CursorProfile
     /// Reserved marker for the user's original Cursor profile (%APPDATA%\Cursor).
     /// Never a real folder in ~/.cursor_profiles, never deletable from the app.
     public const string SystemFolderName = "__cursor-default__";
+    /// Reserved marker for the built-in Claude Code profile (the real
+    /// %USERPROFILE%\.claude). Never a real folder, never deletable.
+    public const string SystemCodeFolderName = "__claude-code-default__";
+    /// Reserved marker for the built-in Claude Desktop profile (the real
+    /// Electron userData dir). Never a real folder, never deletable.
+    public const string SystemDesktopFolderName = "__claude-desktop-default__";
+
+    /// App identifiers. Absent in files predating multi-app support (= cursor).
+    public const string AppCursor = "cursor";
+    public const string AppClaudeCode = "claude-code";
+    public const string AppClaudeDesktop = "claude-desktop";
 
     [JsonPropertyName("folderName")] public string FolderName { get; set; } = "";
     [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
+    [JsonPropertyName("app")] public string App { get; set; } = AppCursor;
     // NOTE: older .profiles.json files may contain an "emoji" key. It has no
     // corresponding property, and System.Text.Json skips unknown keys, so old
     // files still load and new files simply omit it.
@@ -32,6 +44,48 @@ public class CursorProfile
     [JsonPropertyName("isSystem")] public bool IsSystem { get; set; }
 
     public CursorProfile Copy() => (CursorProfile)MemberwiseClone();
+
+    /// <summary>Normalize legacy/unknown app values to cursor.</summary>
+    [JsonIgnore]
+    public string NormalizedApp => App switch
+    {
+        AppClaudeCode => AppClaudeCode,
+        AppClaudeDesktop => AppClaudeDesktop,
+        _ => AppCursor,
+    };
+
+    [JsonIgnore]
+    public string AppLabel => NormalizedApp switch
+    {
+        AppClaudeCode => "Claude Code",
+        AppClaudeDesktop => "Claude Desktop",
+        _ => "Cursor",
+    };
+
+    [JsonIgnore]
+    public string AppBadge => NormalizedApp switch
+    {
+        AppClaudeCode => "CODE",
+        AppClaudeDesktop => "DESKTOP",
+        _ => "",
+    };
+
+    [JsonIgnore]
+    public bool ShowAppBadge => NormalizedApp != AppCursor;
+
+    public static string SystemMarkerFor(string app) => app switch
+    {
+        AppClaudeCode => SystemCodeFolderName,
+        AppClaudeDesktop => SystemDesktopFolderName,
+        _ => SystemFolderName,
+    };
+
+    public static string SystemDisplayNameFor(string app) => app switch
+    {
+        AppClaudeCode => "Main Claude Code",
+        AppClaudeDesktop => "Main Claude Desktop",
+        _ => "Main Cursor",
+    };
 }
 
 /// <summary>
@@ -123,7 +177,11 @@ public static class ProfileNaming
 public class LauncherSettings
 {
     [JsonPropertyName("customCursorPath")] public string CustomCursorPath { get; set; } = "";
+    [JsonPropertyName("customCodePath")] public string CustomCodePath { get; set; } = "";
+    [JsonPropertyName("customDesktopPath")] public string CustomDesktopPath { get; set; } = "";
     [JsonPropertyName("defaultMemoryMB")] public int DefaultMemoryMB { get; set; } = 16384;
+    /// <summary>App theme: "system" (follow Windows), "light" or "dark".</summary>
+    [JsonPropertyName("theme")] public string Theme { get; set; } = "system";
 
     public static string PathFor(string profilesDir) => Path.Combine(profilesDir, ".launcher-settings.json");
 

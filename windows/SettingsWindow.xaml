@@ -3,13 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings" Width="520" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource WindowBrush}" FontFamily="Segoe UI">
+        Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI">
     <StackPanel Margin="20,16">
 
         <TextBlock Text="Cursor" FontSize="15" FontWeight="Bold"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
-            <TextBlock x:Name="DetectedPath" Foreground="{StaticResource SubTextBrush}"
+            <TextBlock x:Name="DetectedPath" Foreground="{DynamicResource SubTextBrush}"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
         </DockPanel>
         <DockPanel Margin="0,8,0,0">
@@ -19,11 +19,47 @@
             <TextBox x:Name="CustomPathBox" Style="{StaticResource DarkField}"/>
         </DockPanel>
 
+        <TextBlock Text="Claude Code (CLI)" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,10,0,0">
+            <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
+            <TextBlock x:Name="DetectedCodePath" Foreground="{DynamicResource SubTextBrush}"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </DockPanel>
+        <DockPanel Margin="0,8,0,0">
+            <TextBlock Text="Custom path" VerticalAlignment="Center" Width="110"/>
+            <Button Content="Browse…" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                    Margin="6,0,0,0" Click="BrowseCode_Click"/>
+            <TextBox x:Name="CustomCodePathBox" Style="{StaticResource DarkField}"/>
+        </DockPanel>
+
+        <TextBlock Text="Claude Desktop (app)" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,10,0,0">
+            <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
+            <TextBlock x:Name="DetectedDesktopPath" Foreground="{DynamicResource SubTextBrush}"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </DockPanel>
+        <DockPanel Margin="0,8,0,0">
+            <TextBlock Text="Custom path" VerticalAlignment="Center" Width="110"/>
+            <Button Content="Browse…" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                    Margin="6,0,0,0" Click="BrowseDesktop_Click"/>
+            <TextBox x:Name="CustomDesktopPathBox" Style="{StaticResource DarkField}"/>
+        </DockPanel>
+
+        <TextBlock Text="Appearance" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,10,0,0">
+            <TextBlock Text="Theme" VerticalAlignment="Center" Width="110"/>
+            <ComboBox x:Name="ThemeBox" Style="{StaticResource ThemeComboBox}">
+                <ComboBoxItem Content="Follow Windows" Tag="system"/>
+                <ComboBoxItem Content="Light" Tag="light"/>
+                <ComboBoxItem Content="Dark" Tag="dark"/>
+            </ComboBox>
+        </DockPanel>
+
         <TextBlock Text="New profile defaults" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Memory limit" VerticalAlignment="Center" Width="110"/>
             <TextBlock Text="MB" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
-                       Foreground="{StaticResource SubTextBrush}"/>
+                       Foreground="{DynamicResource SubTextBrush}"/>
             <TextBox x:Name="MemoryBox" Style="{StaticResource DarkField}" Width="110"
                      HorizontalAlignment="Left"/>
         </DockPanel>
@@ -33,7 +69,7 @@
             <TextBlock Text="Profiles folder" VerticalAlignment="Center" Width="110"/>
             <Button Content="Open" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
                     Margin="6,0,0,0" Click="OpenProfiles_Click"/>
-            <TextBlock x:Name="ProfilesDirText" Foreground="{StaticResource SubTextBrush}"
+            <TextBlock x:Name="ProfilesDirText" Foreground="{DynamicResource SubTextBrush}"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
         </DockPanel>
         <Button Content="Rescan Profiles" Style="{StaticResource GhostButton}"

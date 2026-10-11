@@ -23,6 +23,40 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Claude Code (CLI)") {
+                LabeledContent("Detected path") {
+                    Text(store.resolvedCodePath ?? "Not found")
+                        .foregroundStyle(store.resolvedCodePath == nil ? PrismTheme.Colors.red : PrismTheme.Colors.textSecondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                LabeledContent("Custom path") {
+                    HStack(spacing: 6) {
+                        TextField("Leave empty for auto-detect", text: store.binding(\.customCodePath))
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse...") { pickExecutable(kind: .code) }
+                    }
+                }
+            }
+
+            Section("Claude Desktop (app)") {
+                LabeledContent("Detected path") {
+                    Text(store.resolvedDesktopPath ?? "Not found")
+                        .foregroundStyle(store.resolvedDesktopPath == nil ? PrismTheme.Colors.red : PrismTheme.Colors.textSecondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                LabeledContent("Custom path") {
+                    HStack(spacing: 6) {
+                        TextField("Leave empty for auto-detect", text: store.binding(\.customDesktopPath))
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse...") { pickExecutable(kind: .desktop) }
+                    }
+                }
+            }
+
             Section("New profile defaults") {
                 LabeledContent("Memory limit") {
                     HStack(spacing: 6) {
@@ -53,7 +87,15 @@ struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    private enum ExeKind {
+        case cursor, code, desktop
+    }
+
     private func pickExecutable() {
+        pickExecutable(kind: .cursor)
+    }
+
+    private func pickExecutable(kind: ExeKind) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -64,9 +106,20 @@ struct SettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             var path = url.path
             if path.hasSuffix(".app") {
-                path += "/Contents/MacOS/Cursor"
+                let exeName: String = {
+                    switch kind {
+                    case .cursor: return "Cursor"
+                    case .code: return "claude"
+                    case .desktop: return "Claude"
+                    }
+                }()
+                path += "/Contents/MacOS/\(exeName)"
             }
-            store.customCursorPath = path
+            switch kind {
+            case .cursor: store.customCursorPath = path
+            case .code: store.customCodePath = path
+            case .desktop: store.customDesktopPath = path
+            }
         }
     }
 }

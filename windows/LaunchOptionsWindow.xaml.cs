@@ -10,12 +10,19 @@ public partial class LaunchOptionsWindow : Window
     public LaunchOptionsWindow(ProfileStore store, ProfileVM vm)
     {
         InitializeComponent();
-        DarkTitleBar.Apply(this);
+        ThemeManager.ApplyChrome(this);
         _store = store;
         _vm = vm;
         TitleText.Text = $"Launch “{vm.Model.DisplayName}”";
         MemoryBox.Text = vm.Model.DefaultMemoryMB.ToString();
         ProjectBox.Text = vm.Model.DefaultProjectPath ?? "";
+        // Memory cap is Cursor-only; project folder is unused by Desktop.
+        var isCursor = vm.Model.NormalizedApp == CursorProfile.AppCursor;
+        var isDesktop = vm.Model.NormalizedApp == CursorProfile.AppClaudeDesktop;
+        MemoryBox.IsEnabled = isCursor;
+        MemoryBox.Opacity = isCursor ? 1.0 : 0.45;
+        ProjectBox.IsEnabled = !isDesktop;
+        ProjectBox.Opacity = isDesktop ? 0.45 : 1.0;
     }
 
     private void ChooseFolder_Click(object sender, RoutedEventArgs e)

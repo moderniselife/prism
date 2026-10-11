@@ -13,9 +13,16 @@ struct ProfileCard: View {
     @State private var showingLaunchOptions = false
 
     private var isRunning: Bool { store.isRunning(profile) }
-    private var limitBytes: UInt64 { UInt64(profile.defaultMemoryMB) * 1024 * 1024 }
+    private var hasMemoryCap: Bool { profile.hasMemoryCap }
+    private var limitBytes: UInt64 {
+        hasMemoryCap ? UInt64(profile.defaultMemoryMB) * 1024 * 1024 : 0
+    }
     private var liveBytes: UInt64 { store.liveMemory[profile.folderName] ?? 0 }
     private var windowCount: Int { store.windows(for: profile) }
+    /// First real PID for display; sentinels (Store builds) show none.
+    private var displayPID: Int32? {
+        store.runningPIDs[profile.folderName]?.first(where: { $0 > 0 })
+    }
     /// Honest fill: live RSS against the configured --max-memory limit.
     private var usedMemoryFraction: CGFloat {
         guard limitBytes > 0, isRunning else { return 0 }
@@ -124,6 +131,18 @@ struct ProfileCard: View {
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(PrismTheme.Colors.cyan.opacity(0.3), lineWidth: 0.5))
                     }
+
+                    if profile.showAppBadge {
+                        Text(profile.appBadge)
+                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                            .foregroundStyle(profile.accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(profile.accentColor.opacity(0.15))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(profile.accentColor.opacity(0.3), lineWidth: 0.5))
+                            .help(profile.appLabel)
+                    }
                 }
 
                 HStack(spacing: 4) {
@@ -134,8 +153,8 @@ struct ProfileCard: View {
                         Text("Running")
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .foregroundStyle(PrismTheme.Colors.emerald)
-                        if let pids = store.runningPIDs[profile.folderName], !pids.isEmpty {
-                            Text("PID \(pids[0])")
+                        if let pid = displayPID {
+                            Text("PID \(pid)")
                                 .font(.system(size: 9, weight: .medium, design: .rounded))
                                 .foregroundStyle(PrismTheme.Colors.textTertiary)
                         }
@@ -190,20 +209,32 @@ struct ProfileCard: View {
                 }
             }
 
-            // Live memory (measured RSS) vs configured limit
+            // Live memory (measured RSS) vs configured limit.
+            // Claude apps have no --max-memory cap.
             HStack(spacing: 6) {
                 Text("Memory")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(PrismTheme.Colors.textMuted)
-                if isRunning {
+                if isRunning, hasMemoryCap {
                     Text(Format.bytes(Int64(liveBytes)))
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(profile.accentColor)
                     Text("/ \(formatMB(profile.defaultMemoryMB)) limit")
                         .font(.system(size: 9, design: .rounded))
                         .foregroundStyle(PrismTheme.Colors.textMuted)
-                } else {
+                } else if isRunning {
+                    Text(Format.bytes(Int64(liveBytes)))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(profile.accentColor)
+                    Text("live")
+                        .font(.system(size: 9, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textMuted)
+                } else if hasMemoryCap {
                     Text("\(formatMB(profile.defaultMemoryMB)) limit")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                } else {
+                    Text("no memory cap")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
@@ -212,7 +243,7 @@ struct ProfileCard: View {
                     .font(.system(size: 9, design: .rounded))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
             }
-            .help(isRunning ? "Live resident memory of this profile's Cursor processes" : "Configured --max-memory limit applied at launch")
+            .help(isRunning ? "Live resident memory of this profile's processes" : "Configured --max-memory limit applied at launch (Cursor only)")
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -245,9 +276,9 @@ struct ProfileCard: View {
                 store.launch(profile, newWindow: isRunning)
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: isRunning ? "plus" : "play.fill")
+                    Image(systemName: isRunning ? "plus" : (profile.normalizedApp == CursorProfile.appClaudeCode ? "terminal" : "play.fill"))
                         .font(.system(size: 10, weight: .bold))
-                    Text(isRunning ? "New Window" : "Launch")
+                    Text(isRunning ? "New Window" : (profile.normalizedApp == CursorProfile.appClaudeCode ? "Open Terminal" : "Launch"))
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
@@ -377,6 +408,9 @@ struct LaunchOptionsView: View {
     @State private var projectPath: String = ""
     @State private var newWindow = false
 
+    private var isCursorProfile: Bool { profile.normalizedApp == CursorProfile.appCursor }
+    private var isDesktopProfile: Bool { profile.normalizedApp == CursorProfile.appClaudeDesktop }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             // Header
@@ -394,7 +428,7 @@ struct LaunchOptionsView: View {
 
             Divider().overlay(PrismTheme.Colors.border)
 
-            // Memory
+            // Memory (Cursor only)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Memory limit")
                     .font(.system(size: 10, weight: .medium))
@@ -410,13 +444,15 @@ struct LaunchOptionsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
                         .frame(width: 80)
+                        .disabled(!isCursorProfile)
                     Text("MB")
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
             }
+            .opacity(isCursorProfile ? 1.0 : 0.45)
 
-            // Project
+            // Project (unused by Desktop)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Project folder")
                     .font(.system(size: 10, weight: .medium))
@@ -431,6 +467,7 @@ struct LaunchOptionsView: View {
                         .background(PrismTheme.Colors.bg)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                        .disabled(isDesktopProfile)
                     Button("…") { pickFolder() }
                         .font(.system(size: 11, weight: .bold))
                         .frame(width: 28, height: 28)
@@ -438,8 +475,10 @@ struct LaunchOptionsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
                         .buttonStyle(.plain)
+                        .disabled(isDesktopProfile)
                 }
             }
+            .opacity(isDesktopProfile ? 0.45 : 1.0)
 
             Toggle(isOn: $newWindow) {
                 Text("Force a new window")

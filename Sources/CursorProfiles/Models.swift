@@ -7,9 +7,19 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     /// (~/Library/Application Support/Cursor). It is not a real folder in
     /// ~/.cursor_profiles and can never be deleted from this app.
     static let systemFolderName = "__cursor-default__"
+    /// Built-in Claude Code profile (the real ~/.claude).
+    static let systemCodeFolderName = "__claude-code-default__"
+    /// Built-in Claude Desktop profile (the real Electron userData dir).
+    static let systemDesktopFolderName = "__claude-desktop-default__"
 
-    var folderName: String          // directory name inside ~/.cursor_profiles
+    /// App identifiers. Absent in files predating multi-app support (= cursor).
+    static let appCursor = "cursor"
+    static let appClaudeCode = "claude-code"
+    static let appClaudeDesktop = "claude-desktop"
+
+    var folderName: String          // directory name inside its app's profiles dir
     var displayName: String
+    var app: String = appCursor
     var colorHex: String
     var defaultMemoryMB: Int
     var defaultProjectPath: String?
@@ -24,7 +34,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     // intentionally absent from CodingKeys — JSONDecoder skips unknown keys,
     // so old files still load and new files simply omit it.
     enum CodingKeys: String, CodingKey {
-        case folderName, displayName, colorHex, defaultMemoryMB,
+        case folderName, displayName, app, colorHex, defaultMemoryMB,
              defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem
     }
 
@@ -32,6 +42,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         folderName = try c.decode(String.self, forKey: .folderName)
         displayName = try c.decode(String.self, forKey: .displayName)
+        app = Self.normalizeApp(try c.decodeIfPresent(String.self, forKey: .app))
         colorHex = try c.decode(String.self, forKey: .colorHex)
         defaultMemoryMB = try c.decode(Int.self, forKey: .defaultMemoryMB)
         defaultProjectPath = try c.decodeIfPresent(String.self, forKey: .defaultProjectPath)
@@ -43,6 +54,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
 
     init(folderName: String,
          displayName: String,
+         app: String = appCursor,
          colorHex: String = AccentPalette.random().hex,
          defaultMemoryMB: Int = 16384,
          defaultProjectPath: String? = nil,
@@ -52,6 +64,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
          isSystem: Bool = false) {
         self.folderName = folderName
         self.displayName = displayName
+        self.app = Self.normalizeApp(app)
         self.colorHex = colorHex
         self.defaultMemoryMB = defaultMemoryMB
         self.defaultProjectPath = defaultProjectPath
@@ -59,6 +72,52 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         self.lastLaunchedAt = lastLaunchedAt
         self.isPinned = isPinned
         self.isSystem = isSystem
+    }
+
+    /// Legacy/unknown app values are Cursor profiles.
+    static func normalizeApp(_ raw: String?) -> String {
+        guard let raw else { return appCursor }
+        return raw == appClaudeCode || raw == appClaudeDesktop ? raw : appCursor
+    }
+
+    var normalizedApp: String { Self.normalizeApp(app) }
+
+    var appLabel: String {
+        switch normalizedApp {
+        case Self.appClaudeCode: return "Claude Code"
+        case Self.appClaudeDesktop: return "Claude Desktop"
+        default: return "Cursor"
+        }
+    }
+
+    /// Short badge for cards; empty for Cursor (the default).
+    var appBadge: String {
+        switch normalizedApp {
+        case Self.appClaudeCode: return "CODE"
+        case Self.appClaudeDesktop: return "DESKTOP"
+        default: return ""
+        }
+    }
+
+    var showAppBadge: Bool { normalizedApp != Self.appCursor }
+
+    /// Only Cursor launches with --max-memory; Claude apps have no cap.
+    var hasMemoryCap: Bool { normalizedApp == Self.appCursor }
+
+    static func systemMarker(for app: String) -> String {
+        switch normalizeApp(app) {
+        case appClaudeCode: return systemCodeFolderName
+        case appClaudeDesktop: return systemDesktopFolderName
+        default: return systemFolderName
+        }
+    }
+
+    static func systemDisplayName(for app: String) -> String {
+        switch normalizeApp(app) {
+        case appClaudeCode: return "Main Claude Code"
+        case appClaudeDesktop: return "Main Claude Desktop"
+        default: return "Main Cursor"
+        }
     }
 
     var accentColor: Color { Color(hex: colorHex) ?? .accentColor }

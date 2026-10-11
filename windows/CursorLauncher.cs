@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace CursorProfiles;
 
-public record ProcessEntry(int Pid, long WorkingSetBytes, string CommandLine);
+public record ProcessEntry(int Pid, long WorkingSetBytes, string CommandLine, string ExePath = "");
 
 public static class CursorLauncher
 {
@@ -138,11 +138,12 @@ public static class CursorLauncher
                      && !p.CommandLine.Contains("--user-data-dir"))
             .Select(p => p.Pid).ToList();
 
-    /// <summary>Graceful quit: ask each main window to close.</summary>
+    /// <summary>Graceful quit: ask each main window to close. Skips sentinel PIDs.</summary>
     public static void Quit(IEnumerable<int> pids)
     {
         foreach (var pid in pids)
         {
+            if (pid <= 0) continue;
             try { Process.GetProcessById(pid).CloseMainWindow(); }
             catch { /* already gone */ }
         }

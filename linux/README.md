@@ -1,9 +1,11 @@
 # Prism — Linux (GTK4 + libadwaita)
 
 Native GNOME-styled app, feature-identical to the macOS and Windows versions.
-Profiles live in `~/.cursor_profiles`, metadata in `~/.cursor_profiles/.profiles.json`
-(same format on all three platforms). Your original Cursor profile (`~/.config/Cursor`)
-appears as a protected **Main Cursor** card — launchable and clonable, never deletable.
+Cursor profiles live in `~/.cursor_profiles`, Claude Code profiles in
+`~/.claude_code_profiles`, Claude Desktop profiles in
+`~/.claude_desktop_profiles` (same `.profiles.json` format plus an `"app"`
+field on all three platforms). Each app's original data appears as a protected
+built-in card — launchable and clonable, never deletable.
 
 ## Requirements
 
@@ -41,6 +43,16 @@ cp com.mojolayers.Prism.desktop ~/.local/share/applications/
 Checks `cursor` on PATH, `/usr/bin`, `/usr/local/bin`, `/opt/cursor`,
 `~/.local/bin`, plus `Cursor*.AppImage` in `~/Applications`, `~/Downloads` and
 `~/.local/bin`. A custom path can be set in Preferences.
+
+Claude Code is found as `claude` on PATH / `/usr/bin` / `/usr/local/bin` /
+`~/.local/bin`; Claude Desktop as `claude-desktop` in the same places plus
+`/opt/Claude`. Custom paths for both live in Preferences too.
+
+Claude Code profiles launch in a real terminal with `CLAUDE_CONFIG_DIR` set
+(the official multi-account mechanism — first launch walks through login for
+that account). Claude Desktop profiles launch with `--user-data-dir=<profile>`,
+so each gets its own login and several can run at once. (Verified on Windows
+with the standalone build; on Linux this is untested.)
 
 ## Pinning a profile to the dash/dock
 

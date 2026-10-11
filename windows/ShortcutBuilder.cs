@@ -24,11 +24,22 @@ public static class ShortcutBuilder
         Path.Combine(IconsDir, $"{profile.FolderName}.ico");
 
     public static string ShortcutPath(CursorProfile profile) =>
-        Path.Combine(ShortcutsDir, $"{SafeFileName(profile.DisplayName)}.lnk");
+        Path.Combine(ShortcutsDir, $"{SafeFileName(ShortcutName(profile))}.lnk");
+
+    private static string ShortcutName(CursorProfile profile) => profile.NormalizedApp switch
+    {
+        // Display names are only unique per app: suffix non-Cursor shortcuts
+        // so "Work" (Cursor) and "Work" (Desktop) don't overwrite each other.
+        CursorProfile.AppClaudeCode => $"{profile.DisplayName} (Claude Code)",
+        CursorProfile.AppClaudeDesktop => $"{profile.DisplayName} (Claude Desktop)",
+        _ => profile.DisplayName,
+    };
 
     public static bool Exists(CursorProfile profile) => File.Exists(ShortcutPath(profile));
 
-    public static void CreateOrUpdate(CursorProfile profile, string profileDir, string? cursorPath)
+    public static void CreateOrUpdate(CursorProfile profile, string profileDir,
+                                      string? cursorPath, string? codePath = null,
+                                      string? desktopPath = null)
     {
         Directory.CreateDirectory(ShortcutsDir);
         Directory.CreateDirectory(IconsDir);
@@ -38,12 +49,42 @@ public static class ShortcutBuilder
         var initial = name.Length == 0 ? "?" : name.Substring(0, 1).ToUpperInvariant();
         IconBuilder.WriteIco(initial, Palette.ColorFromHexGdi(profile.ColorHex), iconPath);
 
-        var exe = CursorLauncher.FindCursor(cursorPath) ?? "Cursor.exe";
-        var args = profile.IsSystem
-            ? $"--max-memory={profile.DefaultMemoryMB}"
-            : $"--user-data-dir \"{profileDir}\" --max-memory={profile.DefaultMemoryMB}";
-        if (!string.IsNullOrWhiteSpace(profile.DefaultProjectPath))
-            args += $" \"{profile.DefaultProjectPath}\"";
+        string exe, args, workingDirectory, description;
+        switch (profile.NormalizedApp)
+        {
+            case CursorProfile.AppClaudeCode:
+            {
+                var codeExe = ClaudeLauncher.FindClaudeCode(codePath) ?? "claude.exe";
+                exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+                args = $"/k set \"CLAUDE_CONFIG_DIR={profileDir}\" && \"{codeExe}\"";
+                workingDirectory = !string.IsNullOrWhiteSpace(profile.DefaultProjectPath)
+                    && Directory.Exists(profile.DefaultProjectPath)
+                    ? profile.DefaultProjectPath
+                    : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                description = $"Open Claude Code with the \"{profile.DisplayName}\" profile";
+                break;
+            }
+            case CursorProfile.AppClaudeDesktop:
+            {
+                exe = ClaudeLauncher.FindClaudeDesktop(desktopPath) ?? "claude-desktop.exe";
+                args = profile.IsSystem ? "" : $"--user-data-dir \"{profileDir}\"";
+                workingDirectory = Path.GetDirectoryName(exe) ?? "";
+                description = $"Open Claude Desktop with the \"{profile.DisplayName}\" profile";
+                break;
+            }
+            default:
+            {
+                exe = CursorLauncher.FindCursor(cursorPath) ?? "Cursor.exe";
+                args = profile.IsSystem
+                    ? $"--max-memory={profile.DefaultMemoryMB}"
+                    : $"--user-data-dir \"{profileDir}\" --max-memory={profile.DefaultMemoryMB}";
+                if (!string.IsNullOrWhiteSpace(profile.DefaultProjectPath))
+                    args += $" \"{profile.DefaultProjectPath}\"";
+                workingDirectory = Path.GetDirectoryName(exe) ?? "";
+                description = $"Open Cursor with the \"{profile.DisplayName}\" profile";
+                break;
+            }
+        }
 
         var shortcutPath = ShortcutPath(profile);
         // A rename means the old .lnk/.ico would be orphaned; clean it up first.
@@ -52,9 +93,9 @@ public static class ShortcutBuilder
         ShellLink.Create(shortcutPath,
             targetPath: exe,
             arguments: args,
-            workingDirectory: Path.GetDirectoryName(exe) ?? "",
+            workingDirectory: workingDirectory,
             iconPath: iconPath,
-            description: $"Open Cursor with the \"{profile.DisplayName}\" profile");
+            description: description);
     }
 
     public static void Remove(CursorProfile profile)
