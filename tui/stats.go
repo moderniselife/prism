@@ -37,6 +37,9 @@ func listProcesses() []procInfo {
 func rssOfPids(pids []int32) uint64 {
 	var total uint64
 	for _, pid := range pids {
+		if pid <= 0 {
+			continue // sentinel marker, not a process
+		}
 		p, err := process.NewProcess(pid)
 		if err != nil {
 			continue

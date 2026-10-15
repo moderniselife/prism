@@ -21,6 +21,7 @@ struct ProfileEditorSheet: View {
     var onClose: (() -> Void)? = nil
 
     @State private var name = ""
+    @State private var app: String = CursorProfile.appCursor
     @State private var colorHex = AccentPalette.all[0].hex
     @State private var memoryMB = 16384
     @State private var projectPath = ""
@@ -69,7 +70,7 @@ struct ProfileEditorSheet: View {
                 Text(isEditing ? "Edit Profile" : "New Profile")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(PrismTheme.Colors.textPrimary)
-                Text("Each profile is an isolated Cursor instance.")
+                Text("Each profile is an isolated instance — own settings, login and history.")
                     .font(.system(size: 11))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
             }
@@ -99,6 +100,15 @@ struct ProfileEditorSheet: View {
         return String(first).uppercased()
     }
 
+    private var previewSubtitle: String {
+        let project = projectPath.isEmpty ? "" : " · \((projectPath as NSString).abbreviatingWithTildeInPath)"
+        switch app {
+        case CursorProfile.appClaudeCode: return "Claude Code\(project)"
+        case CursorProfile.appClaudeDesktop: return "Claude Desktop"
+        default: return "\(formatGB(memoryMB)) limit\(project)"
+        }
+    }
+
     private var previewStrip: some View {
         HStack(spacing: 12) {
             Text(previewInitial)
@@ -114,7 +124,7 @@ struct ProfileEditorSheet: View {
                                       ? PrismTheme.Colors.textMuted
                                       : PrismTheme.Colors.textPrimary)
                     .lineLimit(1)
-                Text("\(formatGB(memoryMB)) limit\(projectPath.isEmpty ? "" : " · \((projectPath as NSString).abbreviatingWithTildeInPath)")")
+                Text(previewSubtitle)
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
                     .lineLimit(1)
@@ -151,6 +161,20 @@ struct ProfileEditorSheet: View {
                         .font(.system(size: 12))
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("App")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    Picker("", selection: $app) {
+                        Text("Cursor (editor)").tag(CursorProfile.appCursor)
+                        Text("Claude Code (CLI)").tag(CursorProfile.appClaudeCode)
+                        Text("Claude Desktop").tag(CursorProfile.appClaudeDesktop)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(isEditing)
+                    .help(isEditing ? "The app is fixed after creation." : "Which app this profile belongs to.")
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Accent color")
                         .font(.system(size: 11, weight: .medium))
@@ -182,7 +206,9 @@ struct ProfileEditorSheet: View {
     private var resourcesSection: some View {
         section(title: "Resources") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Memory limit — passed to Cursor as --max-memory.")
+                Text(app == CursorProfile.appCursor
+                     ? "Memory limit — passed to Cursor as --max-memory."
+                     : "Memory limit applies to Cursor only — ignored for this app.")
                     .font(.system(size: 11))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
 
@@ -196,12 +222,14 @@ struct ProfileEditorSheet: View {
                         .font(.system(size: 11, design: .rounded))
                         .frame(width: 90)
                         .multilineTextAlignment(.trailing)
+                        .disabled(app != CursorProfile.appCursor)
                     Text("MB")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
             }
         }
+        .opacity(app == CursorProfile.appCursor ? 1.0 : 0.55)
     }
 
     private var projectSection: some View {
@@ -256,7 +284,7 @@ struct ProfileEditorSheet: View {
         HStack {
             if case .edit(let profile) = mode {
                 Text(profile.isSystem
-                     ? "Built-in profile — ~/Library/Application Support/Cursor"
+                     ? "Built-in profile — \(profile.appLabel) data"
                      : "Folder: \(profile.folderName)")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(PrismTheme.Colors.textMuted)
@@ -287,8 +315,10 @@ struct ProfileEditorSheet: View {
         case .create:
             memoryMB = store.defaultMemoryMB
             colorHex = AccentPalette.random().hex
+            app = CursorProfile.appCursor
         case .edit(let profile):
             name = profile.displayName
+            app = profile.normalizedApp
             colorHex = profile.colorHex
             memoryMB = profile.defaultMemoryMB
             projectPath = profile.defaultProjectPath ?? ""
@@ -301,6 +331,7 @@ struct ProfileEditorSheet: View {
         case .create:
             let created = store.createProfile(
                 displayName: trimmedName,
+                app: app,
                 colorHex: colorHex,
                 memoryMB: max(512, memoryMB),
                 defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject

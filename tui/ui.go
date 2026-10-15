@@ -65,8 +65,8 @@ type model struct {
 	filtering bool
 
 	formActive bool
-	formFocus  int // 0 name, 1 memory, 2 project
-	formVals   [3]string
+	formFocus  int // 0 name, 1 app, 2 memory, 3 project
+	formVals   [4]string
 
 	confirmDelete string
 
@@ -166,7 +166,9 @@ func (m *model) visible() []Profile {
 	out := m.profiles[:0:0]
 	for _, p := range m.profiles {
 		if f != "" && !strings.Contains(strings.ToLower(p.DisplayName), f) &&
-			!strings.Contains(strings.ToLower(p.FolderName), f) {
+			!strings.Contains(strings.ToLower(p.FolderName), f) &&
+			!strings.Contains(strings.ToLower(p.AppLabel()), f) &&
+			!strings.Contains(strings.ToLower(p.App), f) {
 			continue
 		}
 		out = append(out, p)
@@ -287,7 +289,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		m.formActive = true
 		m.formFocus = 0
-		m.formVals = [3]string{"", "16384", ""}
+		m.formVals = [4]string{"", AppCursor, "16384", ""}
 		m.confirmDelete = ""
 	case "d":
 		m.doDelete()
@@ -325,6 +327,25 @@ func (m model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The app field is a picker, not text: space/left/right cycle it.
+	if m.formFocus == 1 {
+		switch msg.String() {
+		case "esc":
+			m.formActive = false
+			return m, nil
+		case "tab", "enter":
+			m.formFocus++
+			return m, nil
+		case "shift+tab":
+			m.formFocus = (m.formFocus + 3) % 4
+			return m, nil
+		case " ", "left", "right":
+			m.formVals[1] = nextApp(m.formVals[1])
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
 	switch msg.String() {
 	case "esc":
 		m.formActive = false
@@ -333,14 +354,18 @@ func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.doSaveForm()
 		return m, m.refreshCmd(true)
 	case "tab", "enter":
-		if m.formFocus == 2 {
+		if m.formFocus == 3 {
 			m.doSaveForm()
 			return m, m.refreshCmd(true)
 		}
 		m.formFocus++
+		// Skip the memory field for Claude apps — it only applies to Cursor.
+		if m.formFocus == 2 && m.formVals[1] != AppCursor {
+			m.formFocus++
+		}
 		return m, nil
 	case "shift+tab":
-		m.formFocus = (m.formFocus + 2) % 3
+		m.formFocus = (m.formFocus + 3) % 4
 		return m, nil
 	case "backspace":
 		v := m.formVals[m.formFocus]
@@ -357,6 +382,31 @@ func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.formVals[m.formFocus] += string(msg.Runes)
 		}
 		return m, nil
+	}
+}
+
+// appChoices is the new-profile app picker order. Managed Desktop profiles
+// launch via --user-data-dir (Windows needs the standalone installer build;
+// see errDesktopInstallRequired).
+var appChoices = []string{AppCursor, AppClaudeCode, AppClaudeDesktop}
+
+func nextApp(cur string) string {
+	for i, a := range appChoices {
+		if a == cur {
+			return appChoices[(i+1)%len(appChoices)]
+		}
+	}
+	return appChoices[0]
+}
+
+func appChoiceLabel(app string) string {
+	switch app {
+	case AppClaudeCode:
+		return "Claude Code (CLI)"
+	case AppClaudeDesktop:
+		return "Claude Desktop (app)"
+	default:
+		return "Cursor (editor)"
 	}
 }
 
@@ -377,6 +427,17 @@ func (m *model) doLaunch() {
 		return
 	}
 	cp := *p
+	if cp.App == AppClaudeCode {
+		// The CLI needs the user's own terminal: prepare the profile dir,
+		// then hand over the exact command instead of starting headless.
+		if err := m.store.Launch(cp, false); err != nil {
+			m.setStatus("Launch failed: " + err.Error())
+			return
+		}
+		m.setStatus("Run in a terminal: " + m.store.CodeCommand(cp))
+		m.profiles = append([]Profile(nil), m.store.Profiles...)
+		return
+	}
 	if err := m.store.Launch(cp, len(m.running[cp.FolderName]) > 0); err != nil {
 		m.setStatus("Launch failed: " + err.Error())
 		return
@@ -433,12 +494,20 @@ func (m *model) doSaveForm() {
 		m.setStatus("Give the profile a name")
 		return
 	}
-	mem, err := strconv.Atoi(strings.TrimSpace(m.formVals[1]))
-	if err != nil || mem < 512 {
-		m.setStatus("Memory must be a number >= 512")
-		return
+	app := m.formVals[1]
+	if app != AppClaudeCode && app != AppClaudeDesktop {
+		app = AppCursor
 	}
-	if _, err := m.store.Create(name, accentFor(name), mem, strings.TrimSpace(m.formVals[2])); err != nil {
+	mem := 16384
+	if app == AppCursor {
+		var err error
+		mem, err = strconv.Atoi(strings.TrimSpace(m.formVals[2]))
+		if err != nil || mem < 512 {
+			m.setStatus("Memory must be a number >= 512")
+			return
+		}
+	}
+	if _, err := m.store.CreateApp(name, app, accentFor(name), mem, strings.TrimSpace(m.formVals[3])); err != nil {
 		m.setStatus("Create failed: " + err.Error())
 		return
 	}
@@ -566,6 +635,9 @@ func profileRow(m model, p Profile, selected bool) string {
 	name := nameStyle.Render(truncate(p.DisplayName, 28))
 
 	tags := ""
+	if p.App == AppClaudeCode || p.App == AppClaudeDesktop {
+		tags += fg(colDim, false).Render(" [" + p.AppLabel() + "]")
+	}
 	if p.IsSystem {
 		tags += fg(colDim, false).Render(" [BUILT-IN]")
 	}
@@ -588,7 +660,13 @@ func profileRow(m model, p Profile, selected bool) string {
 
 	var meminfo string
 	var frac float64
-	if running {
+	switch {
+	case p.App != AppCursor && running:
+		// Claude apps have no --max-memory cap: show live use only.
+		meminfo = fg(lipgloss.Color(p.ColorHex), true).Render(formatBytes(live))
+	case p.App != AppCursor:
+		meminfo = fg(colDim, false).Render("no memory cap")
+	case running:
 		meminfo = fg(lipgloss.Color(p.ColorHex), true).Render(formatBytes(live)) + " " +
 			fg(colDim, false).Render("/ "+formatBytes(limit)+" limit")
 		if limit > 0 {
@@ -597,7 +675,7 @@ func profileRow(m model, p Profile, selected bool) string {
 				frac = 1
 			}
 		}
-	} else {
+	default:
 		meminfo = fg(colDim, false).Render(formatBytes(limit) + " limit")
 	}
 
@@ -638,7 +716,7 @@ func (m model) listView() string {
 }
 
 func (m model) formView() string {
-	titles := []string{"Profile name", "Memory limit (MB)", "Project folder (optional)"}
+	titles := []string{"Profile name", "App (space switches)", "Memory limit, MB (Cursor only)", "Project folder (optional)"}
 	hints := "tab next · enter next/save · esc cancel"
 	var b strings.Builder
 	b.WriteString("\n  " + fg(colText, true).Render("New profile") + "\n\n")
@@ -648,6 +726,9 @@ func (m model) formView() string {
 			head = fg(colCyan, true).Render("▸ " + t)
 		}
 		val := m.formVals[i]
+		if i == 1 {
+			val = appChoiceLabel(val)
+		}
 		if i == m.formFocus {
 			val += fg(colCyan, true).Render("█")
 		}

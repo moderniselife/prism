@@ -10,19 +10,27 @@ public partial class MainWindow : Window
     private readonly ProfileStore _store = new();
     private string _search = "";
     private int _sortMode; // 0 recent, 1 name, 2 size
-    private int _filter; // 0 all, 1 active, 2 custom (non-built-in)
+    private int _filter; // 0 all, 1 active, 2 custom, 3 cursor, 4 claude-code, 5 claude-desktop
     private static readonly string[] SortLabels = { "Sort: Recent", "Sort: Name", "Sort: Size" };
 
     public MainWindow()
     {
+        // Theme first so the first measure already uses the right palette.
+        ThemeManager.ApplyTheme(_store.Settings.Theme);
         InitializeComponent();
-        DarkTitleBar.Apply(this);
+        ThemeManager.ApplyChrome(this);
         var asm = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         VersionPill.Text = asm is null ? "v1.0" : $"v{asm.Major}.{asm.Minor}.{asm.Build}";
         _store.Changed += Refilter;
         _store.StatsChanged += () => Dispatcher.Invoke(UpdateStats);
         _store.Error += msg => Dispatcher.Invoke(() =>
             MessageBox.Show(this, msg, "Prism", MessageBoxButton.OK, MessageBoxImage.Warning));
+        _store.DesktopInstallRequired += msg => Dispatcher.Invoke(() =>
+        {
+            var r = MessageBox.Show(this, msg + "\n\nOpen the download page now?",
+                "Standalone Claude Desktop needed", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (r == MessageBoxResult.Yes) OpenDownloadPage();
+        });
         _store.Info += msg => Dispatcher.Invoke(() =>
             MessageBox.Show(this, msg, "Shortcut Created", MessageBoxButton.OK, MessageBoxImage.Information));
         Refilter();
@@ -33,11 +41,16 @@ public partial class MainWindow : Window
         var list = _store.Profiles
             .Where(p => _search.Length == 0
                 || p.Model.DisplayName.Contains(_search, StringComparison.OrdinalIgnoreCase)
-                || p.Model.FolderName.Contains(_search, StringComparison.OrdinalIgnoreCase))
+                || p.Model.FolderName.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || p.Model.AppLabel.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || p.Model.NormalizedApp.Contains(_search, StringComparison.OrdinalIgnoreCase))
             .Where(p => _filter switch
             {
                 1 => p.IsRunning,
                 2 => !p.Model.IsSystem,
+                3 => p.Model.NormalizedApp == CursorProfile.AppCursor,
+                4 => p.Model.NormalizedApp == CursorProfile.AppClaudeCode,
+                5 => p.Model.NormalizedApp == CursorProfile.AppClaudeDesktop,
                 _ => true,
             })
             .ToList();
@@ -57,15 +70,22 @@ public partial class MainWindow : Window
         Cards.ItemsSource = list;
         EmptyState.Visibility = _store.Profiles.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         CursorMissingBanner.Visibility = _store.ResolvedCursorPath is null ? Visibility.Visible : Visibility.Collapsed;
+        DesktopStoreBanner.Visibility = _store.NeedsStandaloneDesktop ? Visibility.Visible : Visibility.Collapsed;
 
         var active = _store.Profiles.Count(p => p.IsRunning);
         var custom = _store.Profiles.Count(p => !p.Model.IsSystem);
         FilterAllButton.Content = $"All ({_store.Profiles.Count})";
         FilterActiveButton.Content = $"Active ({active})";
         FilterCustomButton.Content = $"Custom ({custom})";
+        FilterCursorButton.Content = $"Cursor ({_store.Profiles.Count(p => p.Model.NormalizedApp == CursorProfile.AppCursor)})";
+        FilterCodeButton.Content = $"Code ({_store.Profiles.Count(p => p.Model.NormalizedApp == CursorProfile.AppClaudeCode)})";
+        FilterDesktopButton.Content = $"Desktop ({_store.Profiles.Count(p => p.Model.NormalizedApp == CursorProfile.AppClaudeDesktop)})";
         StyleFilterTab(FilterAllButton, _filter == 0);
         StyleFilterTab(FilterActiveButton, _filter == 1);
         StyleFilterTab(FilterCustomButton, _filter == 2);
+        StyleFilterTab(FilterCursorButton, _filter == 3);
+        StyleFilterTab(FilterCodeButton, _filter == 4);
+        StyleFilterTab(FilterDesktopButton, _filter == 5);
         DiskCountText.Text = $"{_store.Profiles.Count} profiles on disk";
 
         UpdateStatsTexts();
@@ -74,12 +94,14 @@ public partial class MainWindow : Window
     private void StyleFilterTab(Button button, bool selected)
     {
         button.FontWeight = selected ? FontWeights.SemiBold : FontWeights.Normal;
-        button.Foreground = selected
-            ? (System.Windows.Media.Brush)FindResource("TextBrush")
-            : (System.Windows.Media.Brush)FindResource("SubTextBrush");
-        button.Background = selected
-            ? (System.Windows.Media.Brush)FindResource("FieldBrush")
-            : System.Windows.Media.Brushes.Transparent;
+        // Resource references (not frozen brushes) so live theme switches
+        // re-tint the tabs without a rebuild.
+        button.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty,
+            selected ? "TextBrush" : "SubTextBrush");
+        if (selected)
+            button.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "FieldBrush");
+        else
+            button.Background = System.Windows.Media.Brushes.Transparent;
     }
 
     /// <summary>Header badge + status bar. Real measured numbers only —
@@ -140,6 +162,14 @@ public partial class MainWindow : Window
         var dialog = new ProfileEditorWindow(_store, null) { Owner = this };
         dialog.ShowDialog();
     }
+
+    private static void OpenDownloadPage()
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ClaudeLauncher.DownloadUrl) { UseShellExecute = true }); }
+        catch { /* no default browser */ }
+    }
+
+    private void InstallDesktop_Click(object sender, RoutedEventArgs e) => OpenDownloadPage();
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {

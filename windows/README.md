@@ -1,10 +1,27 @@
 # Prism — Windows (WPF, .NET 8)
 
 Native dark-themed Windows app, feature-identical to the macOS and Linux versions.
-Profiles live in `%USERPROFILE%\.cursor_profiles`, metadata in `.profiles.json`
-(same format on all three platforms). Your original Cursor profile (`%APPDATA%\Cursor`)
-appears as a protected **Main Cursor** card — launchable and clonable, never deletable.
+Cursor profiles live in `%USERPROFILE%\.cursor_profiles`, Claude Code profiles in
+`%USERPROFILE%\.claude_code_profiles`, Claude Desktop profiles in
+`%USERPROFILE%\.claude_desktop_profiles` (same `.profiles.json` format plus an
+`"app"` field on all platforms). Each app's original data appears as a protected
+built-in card — launchable and clonable, never deletable.
 Deleting a managed profile sends it to the Recycle Bin, never `rmdir /s`.
+
+Claude Code profiles open a terminal with `CLAUDE_CONFIG_DIR` set (the official
+multi-account mechanism — first launch walks through login for that account).
+
+> **Claude Desktop profiles need the standalone installer version.** The
+> Microsoft Store build drops launch flags (Windows re-activates the existing
+> instance), and the `CLAUDE_USER_DATA_DIR` env var is ignored by signed
+> builds. But the standalone installer build
+> (`%LOCALAPPDATA%\AnthropicClaude\app-*\claude.exe`) honors
+> `--user-data-dir` — verified live: it starts a fully separate instance
+> with its own login alongside the Store build, so any number of profiles
+> can run at once. Prism launches managed Desktop profiles through that exe;
+> if it isn't installed, Prism shows a banner / prompt that opens
+> [claude.com/download](https://claude.com/download). You can keep the Store
+> version too — Main Claude Desktop still launches with whichever is found.
 
 **Pin the right instance to the taskbar:** the Pin button on a card (or "Create Taskbar
 Shortcut…" in its menu) generates a Start Menu shortcut with its own icon — your
@@ -46,6 +63,37 @@ Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 dotnet run
 ```
 
+## Themes (light + dark)
+
+Neutral gray palettes in `Themes/Dark.xaml` and `Themes/Light.xaml`
+(identical brush keys). Everything — styles, cards, dialogs — references
+them with `DynamicResource`, so switching is instant and nothing freezes
+the old palette. Settings → Appearance picks **Follow Windows** (default,
+re-resolved every few seconds), **Light**, or **Dark**; the choice is stored
+in `.launcher-settings.json`, and each window's title bar is re-tinted via
+DWM on switch.
+
+Rules for new UI, enforced by tests (`windows.Tests`):
+- Theme brushes: `DynamicResource` only. `StaticResource` is for
+  theme-independent keys (`BoolToVis`, style names like `GhostButton`).
+- `Run.Text` binds TwoWay by default: always `Mode=OneWay`.
+- Code-behind must use `SetResourceReference`, never a frozen
+  `FindResource` brush, for anything theme-colored.
+
+## Tests
+
+```powershell
+dotnet test ../windows.Tests/Prism.Tests.csproj -c Release
+```
+
+Headless regression tests (run on CI too): the real card `DataTemplate`
+from `MainWindow.xaml` is realized for every app kind and layout is forced —
+this is the exact path of the startup crash where TwoWay `Run.Text`
+bindings targeted read-only view-model properties, so it fails the build
+instead of the app. A static scan also rejects any `Run.Text` binding
+without `Mode=OneWay`, and the New-Profile editor / Settings / launch-options
+dialogs are constructed to catch `InitializeComponent` ordering crashes.
+
 Or publish the shippable exe — self-contained single-file, runtime and
 dependencies bundled, no .NET install needed on the target machine:
 
@@ -83,10 +131,16 @@ Silent exits leave evidence — check in this order:
 Checks `%LOCALAPPDATA%\Programs\cursor\Cursor.exe`, `%PROGRAMFILES%\Cursor\Cursor.exe`
 and `PATH`. A custom path can be set in Settings.
 
+Claude Code is found as `claude.exe`/`claude.cmd` on `PATH`; Claude Desktop via
+its Store alias (`%LOCALAPPDATA%\Microsoft\WindowsApps\claude-desktop.exe`) and the
+classic install locations. Custom paths for both live in Settings too.
+
 ## Notes
 
 - Running-profile detection uses WMI (`Win32_Process` command lines) to find the
-  main Cursor process per `--user-data-dir`.
+  main Cursor process per `--user-data-dir`. Claude Desktop is matched the same
+  way; Store builds hide most command lines, so those fall back to matching by
+  package exe path (plus the Electron `lockfile` heuristic).
 - The project cross-compiles from macOS/Linux too (`EnableWindowsTargeting`),
   which is how it's CI-verified from this repo. Icon generation (`ShortcutBuilder.cs`)
   uses `System.Drawing` + `IShellLinkW` COM interop, both Windows-only at runtime —

@@ -157,7 +157,8 @@ enum CursorLauncher {
     }
 
     /// Politely ask a running profile's processes to quit (SIGTERM).
+    /// Skips sentinel PIDs — signaling -1 would hit the whole process group.
     static func quit(pids: [Int32]) {
-        for pid in pids { kill(pid, SIGTERM) }
+        for pid in pids where pid > 0 { kill(pid, SIGTERM) }
     }
 }

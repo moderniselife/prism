@@ -15,7 +15,7 @@ public partial class ProfileEditorWindow : Window
     public ProfileEditorWindow(ProfileStore store, ProfileVM? editing)
     {
         InitializeComponent();
-        DarkTitleBar.Apply(this);
+        ThemeManager.ApplyChrome(this);
         _store = store;
         _editing = editing;
 
@@ -27,8 +27,10 @@ public partial class ProfileEditorWindow : Window
             _colorHex = vm.Model.ColorHex;
             MemoryBox.Text = vm.Model.DefaultMemoryMB.ToString();
             ProjectBox.Text = vm.Model.DefaultProjectPath ?? "";
+            SelectApp(vm.Model.NormalizedApp);
+            AppBox.IsEnabled = false; // app is fixed after creation
             FooterNote.Text = vm.Model.IsSystem
-                ? @"Built-in profile — %APPDATA%\Cursor"
+                ? $"Built-in profile — {vm.Model.AppLabel} data"
                 : $"Folder: {vm.Model.FolderName}";
         }
         else
@@ -39,6 +41,33 @@ public partial class ProfileEditorWindow : Window
 
         BuildColorGrid();
         UpdatePreview();
+    }
+
+    private void SelectApp(string app)
+    {
+        foreach (ComboBoxItem item in AppBox.Items)
+        {
+            if ((string)item.Tag == app)
+            {
+                AppBox.SelectedItem = item;
+                return;
+            }
+        }
+        AppBox.SelectedIndex = 0;
+    }
+
+    private string SelectedApp =>
+        (AppBox.SelectedItem as ComboBoxItem)?.Tag as string ?? CursorProfile.AppCursor;
+
+    private void AppBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Fires during InitializeComponent (SelectedIndex=0 applies before
+        // sibling fields exist) — ignore those early events.
+        if (AppBox is null || MemoryBox is null) return;
+        // Memory cap only applies to Cursor; dim the field for Claude apps.
+        var isCursor = SelectedApp == CursorProfile.AppCursor;
+        MemoryBox.IsEnabled = isCursor;
+        MemoryBox.Opacity = isCursor ? 1.0 : 0.45;
     }
 
     private void BuildColorGrid()
@@ -108,7 +137,7 @@ public partial class ProfileEditorWindow : Window
         }
         else
         {
-            var created = _store.CreateProfile(name, _colorHex, memory,
+            var created = _store.CreateProfile(name, SelectedApp, _colorHex, memory,
                 project.Length == 0 ? null : project);
             if (created is not null) DialogResult = true;
         }

@@ -14,9 +14,10 @@ enum TitleBarColorizer {
 
     /// Merge this profile's title-bar colors into its `User/settings.json`,
     /// preserving every other setting already there. No-op for the built-in
-    /// profile — we never touch the user's real Cursor settings.
+    /// profile — we never touch the user's real Cursor settings — and for
+    /// non-Cursor apps, whose settings live elsewhere.
     static func apply(profile: CursorProfile, profileDir: URL) {
-        guard !profile.isSystem else { return }
+        guard !profile.isSystem, profile.normalizedApp == CursorProfile.appCursor else { return }
 
         let settingsURL = profileDir.appendingPathComponent("User/settings.json")
         do {

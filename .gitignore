@@ -12,3 +12,6 @@ pypi/prism-tui/dist/
 pypi/prism-tui/*.egg-info
 tui/prism-tui
 tui/prism-tui.exe
+publish/
+windows.Tests/bin/
+windows.Tests/obj/

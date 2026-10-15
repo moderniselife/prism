@@ -3,14 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Launch Options" Width="420" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource WindowBrush}" FontFamily="Segoe UI">
+        Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI">
     <StackPanel Margin="20,16">
         <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" Margin="0,0,0,14"/>
 
         <DockPanel>
             <TextBlock Text="Memory limit" VerticalAlignment="Center" Width="110"/>
             <TextBlock Text="MB" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
-                       Foreground="{StaticResource SubTextBrush}"/>
+                       Foreground="{DynamicResource SubTextBrush}"/>
             <TextBox x:Name="MemoryBox" Style="{StaticResource DarkField}" Width="110"
                      HorizontalAlignment="Left"/>
         </DockPanel>
@@ -23,7 +23,7 @@
         </DockPanel>
 
         <CheckBox x:Name="NewWindowBox" Content="Force a new window" Margin="0,14,0,0"
-                  Foreground="{StaticResource TextBrush}"/>
+                  Foreground="{DynamicResource TextBrush}"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0" IsCancel="True"/>

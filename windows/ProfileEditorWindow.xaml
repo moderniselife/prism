@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Profile" Width="480" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource WindowBrush}" FontFamily="Segoe UI">
+        Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI">
     <StackPanel>
 
         <!-- Live preview -->
@@ -23,15 +23,24 @@
             <TextBox x:Name="NameBox" Style="{StaticResource DarkField}"
                      TextChanged="NameBox_TextChanged"/>
 
+            <TextBlock Text="App" FontWeight="SemiBold" Margin="0,14,0,6"/>
+            <ComboBox x:Name="AppBox" SelectedIndex="0" SelectionChanged="AppBox_SelectionChanged"
+                      Style="{StaticResource ThemeComboBox}"
+                      ToolTip="Extra Claude Desktop profiles need the standalone installer version of Claude Desktop.">
+                <ComboBoxItem Content="Cursor (editor)" Tag="cursor"/>
+                <ComboBoxItem Content="Claude Code (CLI)" Tag="claude-code"/>
+                <ComboBoxItem Content="Claude Desktop" Tag="claude-desktop"/>
+            </ComboBox>
+
             <TextBlock Text="Color" FontWeight="SemiBold" Margin="0,14,0,6"/>
             <WrapPanel x:Name="ColorPanel"/>
 
             <TextBlock Text="Launch defaults" FontWeight="SemiBold" Margin="0,18,0,6"
-                       Foreground="{StaticResource SubTextBrush}"/>
+                       Foreground="{DynamicResource SubTextBrush}"/>
             <DockPanel>
                 <TextBlock Text="Memory limit" VerticalAlignment="Center" Width="110"/>
                 <TextBlock Text="MB" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
-                           Foreground="{StaticResource SubTextBrush}"/>
+                           Foreground="{DynamicResource SubTextBrush}"/>
                 <TextBox x:Name="MemoryBox" Style="{StaticResource DarkField}" Width="110"
                          HorizontalAlignment="Left"/>
             </DockPanel>
@@ -43,7 +52,7 @@
             </DockPanel>
 
             <DockPanel Margin="0,20,0,0">
-                <TextBlock x:Name="FooterNote" FontSize="11" Foreground="{StaticResource SubTextBrush}"
+                <TextBlock x:Name="FooterNote" FontSize="11" Foreground="{DynamicResource SubTextBrush}"
                            VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="Cancel" Style="{StaticResource GhostButton}" Margin="0,0,8,0"
