@@ -124,7 +124,8 @@ enum ClaudeLauncher {
     /// (must use "=": Chromium doesn't take a space-separated value). Verified
     /// on Windows with the standalone build; not yet verified on macOS.
     static func launchDesktop(userDataDir: URL?, desktopPath: String?,
-                              options: CursorLauncher.LaunchOptions) throws {
+                              options: CursorLauncher.LaunchOptions,
+                              onFailure: @escaping @Sendable (String) -> Void) throws {
         guard let exe = findClaudeDesktop(customPath: desktopPath) else {
             throw LaunchError.desktopNotFound
         }
@@ -135,13 +136,10 @@ enum ClaudeLauncher {
         }
         if options.newWindow { args.append("--new-window") }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: exe)
-        process.arguments = args
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
         do {
-            try process.run()
+            try CursorLauncher.launchDetached(executable: exe, arguments: args) { message in
+                onFailure("Failed to launch Claude Desktop: \(message)")
+            }
         } catch {
             throw LaunchError.failed("Failed to launch Claude Desktop: \(error.localizedDescription)")
         }

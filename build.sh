@@ -18,7 +18,7 @@ swiftc \
     -swift-version 5 \
     -target arm64-apple-macosx14.0 \
     Sources/CursorProfiles/*.swift \
-    -o "$BUILD_DIR/CursorProfiles"
+    -o "$BUILD_DIR/Prism"
 
 echo "▸ Building app icon from assets/logo.png…"
 ICONSET="$BUILD_DIR/Prism.iconset"
@@ -33,7 +33,10 @@ done
 echo "▸ Assembling app bundle…"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-cp "$BUILD_DIR/CursorProfiles" "$APP_DIR/Contents/MacOS/CursorProfiles"
+# The executable must not contain "Cursor": updaters and process scanners
+# that match by name (ps -c, pgrep, Activity Monitor) would count Prism as
+# a running Cursor instance.
+cp "$BUILD_DIR/Prism" "$APP_DIR/Contents/MacOS/Prism"
 iconutil -c icns "$ICONSET" -o "$APP_DIR/Contents/Resources/Prism.icns"
 cp "assets/logo.png" "$APP_DIR/Contents/Resources/logo.png"
 
@@ -42,7 +45,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key><string>CursorProfiles</string>
+    <key>CFBundleExecutable</key><string>Prism</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>

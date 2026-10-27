@@ -20,6 +20,11 @@ final class ProfileStore: ObservableObject {
     @Published var systemCPU: Double?
     @Published var duplicating: Set<String> = []
     @Published var lastError: String?
+    /// Apps (CursorProfile.app* keys) whose updater has an update staged and
+    /// is blocked until every instance quits.
+    @Published var pendingUpdates: Set<String> = []
+    /// Human-readable progress while restartToUpdate runs; nil when idle.
+    @Published var updateProgress: String?
 
     private let cpuMonitor = SystemCPUMonitor()
 
@@ -389,7 +394,8 @@ final class ProfileStore: ObservableObject {
                         memoryMB: profile.defaultMemoryMB,
                         projectPath: nil,
                         newWindow: newWindow
-                    )
+                    ),
+                    onFailure: reportLaunchFailure
                 )
             default:
                 let options = CursorLauncher.LaunchOptions(
@@ -402,7 +408,8 @@ final class ProfileStore: ObservableObject {
                 try CursorLauncher.launch(
                     userDataDir: profile.isSystem ? nil : directory(for: profile),
                     cursorPath: customCursorPath.isEmpty ? nil : customCursorPath,
-                    options: options
+                    options: options,
+                    onFailure: reportLaunchFailure
                 )
             }
             var p = profile
@@ -414,6 +421,13 @@ final class ProfileStore: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    /// Launch Services reports failures asynchronously, off the main thread.
+    private var reportLaunchFailure: @Sendable (String) -> Void {
+        { [weak self] message in
+            Task { @MainActor in self?.lastError = message }
         }
     }
 
@@ -443,6 +457,82 @@ final class ProfileStore: ObservableObject {
             try? await Task.sleep(for: .seconds(1.5))
             self?.refreshRunning()
         }
+    }
+
+    // MARK: App updates
+
+    /// Bundle IDs of the apps whose updates we watch, keyed by app.
+    private var updatableBundleIDs: [String: String] {
+        var ids: [String: String] = [:]
+        if let exe = resolvedCursorPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
+            ids[CursorProfile.appCursor] = id
+        }
+        if let exe = resolvedDesktopPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
+            ids[CursorProfile.appClaudeDesktop] = id
+        }
+        return ids
+    }
+
+    /// Squirrel.Mac (Cursor, Claude Desktop) only installs once *every*
+    /// instance of the app has quit, so a staged update sits forever while
+    /// any profile is open. Quit them all, wait for the installer to swap
+    /// the bundle, then bring back exactly the profiles that were running.
+    func restartToUpdate(_ app: String) {
+        guard updateProgress == nil, let bundleID = updatableBundleIDs[app] else { return }
+        let targets = profiles.filter { $0.normalizedApp == app && isRunning($0) }
+        let label = targets.first?.appLabel ?? (app == CursorProfile.appCursor ? "Cursor" : "Claude Desktop")
+        let pids = targets.flatMap { runningPIDs[$0.folderName] ?? [] }.filter { $0 > 0 }
+
+        updateProgress = "Quitting \(targets.count) \(label) profile\(targets.count == 1 ? "" : "s")…"
+        if app == CursorProfile.appClaudeDesktop {
+            ClaudeLauncher.quit(pids: pids)
+        } else {
+            CursorLauncher.quit(pids: pids)
+        }
+
+        Task { [weak self] in
+            let quit = await Self.waitUntil(timeout: 30) {
+                let alive = Set(CursorLauncher.processList().map(\.pid))
+                return pids.allSatisfy { !alive.contains($0) }
+            }
+            guard let self else { return }
+            guard quit else {
+                self.updateProgress = nil
+                self.lastError = "Some \(label) windows didn't quit (unsaved changes?). Close them, then try Restart & Update again."
+                self.refreshRunning()
+                return
+            }
+
+            self.updateProgress = "Installing \(label) update…"
+            let installed = await Self.waitUntil(timeout: 180) {
+                !CursorLauncher.updatePending(bundleID: bundleID, in: CursorLauncher.processList())
+            }
+            guard installed else {
+                self.updateProgress = nil
+                self.lastError = "\(label) is still waiting to update — another \(label) window outside Prism is probably open. Quit it and the update will install."
+                self.refreshRunning()
+                return
+            }
+
+            self.updateProgress = "Reopening profiles…"
+            for profile in targets {
+                // Empty project path: the app restores its own windows.
+                self.launch(profile, projectPath: "")
+            }
+            self.pendingUpdates.remove(app)
+            self.updateProgress = nil
+            self.refreshRunning()
+        }
+    }
+
+    /// Polls `condition` off the main actor once a second until it holds.
+    private static func waitUntil(timeout seconds: Int,
+                                  _ condition: @escaping @Sendable () -> Bool) async -> Bool {
+        for _ in 0..<seconds {
+            if await Task.detached(priority: .utility, operation: condition).value { return true }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        return await Task.detached(priority: .utility, operation: condition).value
     }
 
     /// Windows actually on screen for a profile (counted, not guessed).
@@ -475,6 +565,7 @@ final class ProfileStore: ObservableObject {
         var memory: [String: UInt64] = [:]
         var cpu: [String: Double] = [:]
         var windows: [String: Int] = [:]
+        var pendingUpdates: Set<String> = []
     }
 
     func refreshRunning() {
@@ -482,9 +573,10 @@ final class ProfileStore: ObservableObject {
             (folderName: $0.folderName, dir: directory(for: $0),
              isSystem: $0.isSystem, app: $0.normalizedApp)
         }
+        let bundleIDs = updatableBundleIDs
         Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
-                Self.computeRunningSnapshot(items: items)
+                Self.computeRunningSnapshot(items: items, bundleIDs: bundleIDs)
             }.value
             self?.applyRunningSnapshot(snapshot)
         }
@@ -492,7 +584,8 @@ final class ProfileStore: ObservableObject {
 
     /// Pure computation: Sendable in, Sendable out, never touches the store.
     private static nonisolated func computeRunningSnapshot(
-        items: [(folderName: String, dir: URL, isSystem: Bool, app: String)]
+        items: [(folderName: String, dir: URL, isSystem: Bool, app: String)],
+        bundleIDs: [String: String]
     ) -> RunningSnapshot {
         let processes = CursorLauncher.processList()
         let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
@@ -546,6 +639,10 @@ final class ProfileStore: ObservableObject {
             snapshot.cpu[item.folderName] = cpu
             allPIDs.append(contentsOf: matched.filter { $0 > 0 })
         }
+        for (app, bundleID) in bundleIDs
+        where CursorLauncher.updatePending(bundleID: bundleID, in: processes) {
+            snapshot.pendingUpdates.insert(app)
+        }
         let winsByPid = SystemStats.windowCounts(for: allPIDs)
         for (name, pids) in snapshot.pids {
             snapshot.windows[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
@@ -559,6 +656,7 @@ final class ProfileStore: ObservableObject {
         liveMemory = snapshot.memory
         liveCPU = snapshot.cpu
         windowCounts = snapshot.windows
+        pendingUpdates = snapshot.pendingUpdates
         // host_statistics is microseconds-cheap; sample on main to
         // respect @MainActor isolation.
         if let sysCPU = cpuMonitor.usage() { systemCPU = sysCPU }

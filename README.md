@@ -54,6 +54,8 @@ All three read and write the same `~/.cursor_profiles` directory and `.profiles.
 - **Drag & drop** — drop any folder onto a card to open it with that profile
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
+- **Restart & Update** — Cursor and Claude Desktop only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
+- **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
 
 ### Honest live telemetry
 - **Live resident memory** per running profile (summed RSS) against its configured `--max-memory` limit, plus real total RAM for your Mac

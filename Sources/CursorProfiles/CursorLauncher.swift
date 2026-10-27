@@ -54,7 +54,8 @@ enum CursorLauncher {
 
     /// Launch Cursor. Pass `userDataDir: nil` to launch the built-in default
     /// profile (no --user-data-dir), exactly like opening Cursor normally.
-    static func launch(userDataDir: URL?, cursorPath: String?, options: LaunchOptions) throws {
+    static func launch(userDataDir: URL?, cursorPath: String?, options: LaunchOptions,
+                       onFailure: @escaping @Sendable (String) -> Void) throws {
         guard let exe = findCursor(customPath: cursorPath) else {
             throw LaunchError.cursorNotFound
         }
@@ -69,6 +70,38 @@ enum CursorLauncher {
             args.append(project)
         }
 
+        try launchDetached(executable: exe, arguments: args, onFailure: onFailure)
+    }
+
+    /// The `.app` bundle an executable lives in (…/Foo.app/Contents/MacOS/Foo).
+    static func appBundle(forExecutable exe: String) -> URL? {
+        guard let range = exe.range(of: ".app/Contents/MacOS/") else { return nil }
+        return URL(fileURLWithPath: String(exe[..<range.lowerBound]) + ".app")
+    }
+
+    /// Bundle identifier of the app an executable belongs to.
+    static func bundleIdentifier(forExecutable exe: String) -> String? {
+        appBundle(forExecutable: exe).flatMap { Bundle(url: $0)?.bundleIdentifier }
+    }
+
+    /// Start an app as its own independent instance via Launch Services, the
+    /// same way Finder/Dock would. Spawning the executable as our child
+    /// instead ties its lifecycle to Prism: it inherits our coalition and
+    /// "responsible process", so the OS and the app's updater treat Prism and
+    /// the instance as one unit (quitting one could take down the other).
+    /// CLI shims outside an .app bundle fall back to a plain spawn.
+    static func launchDetached(executable exe: String, arguments args: [String],
+                               onFailure: @escaping @Sendable (String) -> Void) throws {
+        if let bundle = appBundle(forExecutable: exe) {
+            let config = NSWorkspace.OpenConfiguration()
+            config.createsNewApplicationInstance = true
+            config.arguments = args
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: bundle, configuration: config) { _, error in
+                if let error { onFailure(error.localizedDescription) }
+            }
+            return
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
         process.arguments = args
@@ -114,8 +147,8 @@ enum CursorLauncher {
         }
     }
 
-    /// Our own PID — must never be mistaken for a Cursor instance
-    /// (our binary is …/Prism.app/…/CursorProfiles, which contains the
+    /// Our own PID — must never be mistaken for a Cursor instance (older
+    /// builds' binary was …/Prism.app/…/CursorProfiles, which contains the
     /// string "Cursor"). Matching ourselves once meant Stop SIGTERM'd
     /// Prism itself, i.e. an instant "crash".
     private static var ownPID: Int32 { ProcessInfo.processInfo.processIdentifier }
@@ -154,6 +187,16 @@ enum CursorLauncher {
             !$0.command.contains("--user-data-dir") &&
             !$0.command.contains("Cursor Helper")
         }.map(\.pid)
+    }
+
+    /// True while an app's Squirrel.Mac updater has a downloaded update
+    /// staged and is waiting to install it. ShipIt runs as
+    /// "…/ShipIt <bundleID>.ShipIt <state plist>" from the moment the update
+    /// is requested until *every* instance of the bundle has quit — any
+    /// running profile holds it off indefinitely.
+    static func updatePending(bundleID: String, in list: [ProcessEntry]) -> Bool {
+        let needle = "/Squirrel.framework/Resources/ShipIt \(bundleID).ShipIt"
+        return list.contains { $0.command.contains(needle) }
     }
 
     /// Politely ask a running profile's processes to quit (SIGTERM).

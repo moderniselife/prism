@@ -87,6 +87,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             titleBar
             filterBar
+            UpdateBanner()
             mainContent
             statusBar
         }
@@ -528,5 +529,68 @@ struct Triangle: Shape {
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - Pending app update banner
+
+/// Shown while Cursor / Claude Desktop has an update staged that can't
+/// install because profiles are still open. One click quits them, lets the
+/// installer run, and reopens them.
+@MainActor
+struct UpdateBanner: View {
+    @EnvironmentObject var store: ProfileStore
+    var compact = false
+
+    private var apps: [String] {
+        [CursorProfile.appCursor, CursorProfile.appClaudeDesktop].filter { store.pendingUpdates.contains($0) }
+    }
+
+    private func label(_ app: String) -> String {
+        app == CursorProfile.appCursor ? "Cursor" : "Claude Desktop"
+    }
+
+    private func runningCount(_ app: String) -> Int {
+        store.profiles.filter { $0.normalizedApp == app && store.isRunning($0) }.count
+    }
+
+    var body: some View {
+        if let progress = store.updateProgress {
+            row(icon: "arrow.triangle.2.circlepath", text: progress) {
+                ProgressView().controlSize(.small)
+            }
+        } else {
+            ForEach(apps, id: \.self) { app in
+                let count = runningCount(app)
+                row(icon: "arrow.down.circle.fill",
+                    text: count > 0
+                        ? "\(label(app)) update ready — \(count) open profile\(count == 1 ? " is" : "s are") holding it"
+                        : "\(label(app)) update ready — waiting for its windows to close") {
+                    Button("Restart & Update") { store.restartToUpdate(app) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .help("Quit every \(label(app)) profile, install the update, then reopen them")
+                }
+            }
+        }
+    }
+
+    private func row<Trailing: View>(icon: String, text: String,
+                                     @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: compact ? 11 : 12))
+                .foregroundStyle(PrismTheme.Colors.cyan)
+            Text(text)
+                .font(.system(size: compact ? 10 : 11, weight: .medium, design: .rounded))
+                .foregroundStyle(PrismTheme.Colors.textPrimary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, compact ? 6 : 8)
+        .background(PrismTheme.Colors.cyan.opacity(0.10))
     }
 }

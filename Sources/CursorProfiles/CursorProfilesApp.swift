@@ -97,6 +97,8 @@ struct MenuBarDropdown: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            UpdateBanner(compact: true)
+                .frame(width: MenuMetrics.width)
             Divider().overlay(PrismTheme.Colors.border)
             searchBar
             Divider().overlay(PrismTheme.Colors.borderSubtle)
