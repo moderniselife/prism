@@ -3,11 +3,11 @@ cask "prism-tui" do
 
   on_arm do
     sha256 "__SHA_ARM__"
-    url "https://github.com/moderniselife/prism/releases/download/tui-v#{version}/prism-tui-darwin-arm64.tar.gz"
+    url "https://github.com/moderniselife/prism/releases/download/v#{version}/prism-tui-darwin-arm64.tar.gz"
   end
   on_intel do
     sha256 "__SHA_INTEL__"
-    url "https://github.com/moderniselife/prism/releases/download/tui-v#{version}/prism-tui-darwin-amd64.tar.gz"
+    url "https://github.com/moderniselife/prism/releases/download/v#{version}/prism-tui-darwin-amd64.tar.gz"
   end
 
   name "Prism TUI"

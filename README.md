@@ -119,7 +119,7 @@ brew install --cask moderniselife/prism/prism-tui
 winget install ModerniseLife.PrismTUI
 ```
 
-> **Package registries go live with the first `tui-v*` release** — until
+> **Package registries go live with the first `v*` release** — until
 > then, run it from source (below). Binaries are already on the way.
 
 Or grab a static binary from
@@ -176,7 +176,7 @@ packaging/homebrew-cask/    # Prism.app cask template for the tap
 
 ## Releasing
 
-Push a tag like `tui-v1.2.3` and [`.github/workflows/release.yml`](.github/workflows/release.yml)
+Push a tag like `v1.2.3` and [`.github/workflows/release.yml`](.github/workflows/release.yml)
 ships everything: GoReleaser binaries + checksums + the Homebrew TUI cask,
 the signed `Prism.app.zip`, five platform wheels on PyPI, the npm package,
 a Winget submission PR, and the tap's `Prism.app` cask update.
