@@ -10,6 +10,7 @@ enum ProfileFilter: String, CaseIterable, Identifiable {
     case cursor = "Cursor"
     case code = "Code"
     case desktop = "Desktop"
+    case grok = "Grok"
 
     var id: String { rawValue }
 }
@@ -58,6 +59,8 @@ struct ContentView: View {
             list = list.filter { $0.normalizedApp == CursorProfile.appClaudeCode }
         case .desktop:
             list = list.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }
+        case .grok:
+            list = list.filter { $0.normalizedApp == CursorProfile.appGrokBot }
         case .all:
             break
         }
@@ -307,6 +310,7 @@ struct ContentView: View {
                             case .cursor: return store.profiles.filter { $0.normalizedApp == CursorProfile.appCursor }.count
                             case .code: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeCode }.count
                             case .desktop: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }.count
+                            case .grok: return store.profiles.filter { $0.normalizedApp == CursorProfile.appGrokBot }.count
                             }
                         }()
                         Text("\(f.rawValue) (\(count))")
@@ -534,7 +538,7 @@ struct Triangle: Shape {
 
 // MARK: - Pending app update banner
 
-/// Shown while Cursor / Claude Desktop has an update staged that can't
+/// Shown while Cursor / Claude Desktop / Grok Bot has an update staged that can't
 /// install because profiles are still open. One click quits them, lets the
 /// installer run, and reopens them.
 @MainActor
@@ -543,11 +547,12 @@ struct UpdateBanner: View {
     var compact = false
 
     private var apps: [String] {
-        [CursorProfile.appCursor, CursorProfile.appClaudeDesktop].filter { store.pendingUpdates.contains($0) }
+        [CursorProfile.appCursor, CursorProfile.appClaudeDesktop, CursorProfile.appGrokBot]
+            .filter { store.pendingUpdates.contains($0) }
     }
 
     private func label(_ app: String) -> String {
-        app == CursorProfile.appCursor ? "Cursor" : "Claude Desktop"
+        CursorProfile.label(for: app)
     }
 
     private func runningCount(_ app: String) -> Int {

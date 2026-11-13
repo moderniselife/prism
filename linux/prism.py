@@ -2,8 +2,9 @@
 """Prism — a native GTK4/libadwaita launcher for isolated profiles.
 
 Cursor profiles live in ~/.cursor_profiles, Claude Code profiles in
-~/.claude_code_profiles and Claude Desktop profiles in
-~/.claude_desktop_profiles (shared with the macOS/Windows/TUI apps).
+~/.claude_code_profiles, Claude Desktop profiles in
+~/.claude_desktop_profiles and Grok Bot profiles in ~/.grokbot_profiles
+(shared with the macOS/Windows/TUI apps).
 Each app's original data is surfaced as a protected built-in card —
 launchable and clonable, never deletable.
 """
@@ -36,22 +37,26 @@ APP_ID = "com.mojolayers.Prism"
 PROFILES_DIR = Path.home() / ".cursor_profiles"
 CODE_PROFILES_DIR = Path.home() / ".claude_code_profiles"
 DESKTOP_PROFILES_DIR = Path.home() / ".claude_desktop_profiles"
+GROK_PROFILES_DIR = Path.home() / ".grokbot_profiles"
 METADATA_PATH = PROFILES_DIR / ".profiles.json"
 SETTINGS_PATH = PROFILES_DIR / ".launcher-settings.json"
 SYSTEM_DATA_DIR = Path(GLib.get_user_config_dir()) / "Cursor"
 SYSTEM_FOLDER_NAME = "__cursor-default__"
 SYSTEM_CODE_FOLDER_NAME = "__claude-code-default__"
 SYSTEM_DESKTOP_FOLDER_NAME = "__claude-desktop-default__"
+SYSTEM_GROK_FOLDER_NAME = "__grok-bot-default__"
 
 # App identifiers. Absent in files predating multi-app support (= cursor).
 APP_CURSOR = "cursor"
 APP_CODE = "claude-code"
 APP_DESKTOP = "claude-desktop"
+APP_GROK = "grok-bot"
 
 CODE_SYSTEM_DATA_DIR = Path.home() / ".claude"
 DESKTOP_SYSTEM_DATA_DIR = Path(GLib.get_user_config_dir()) / "Claude"
+GROK_SYSTEM_DATA_DIR = Path(GLib.get_user_config_dir()) / "Grok Bot"
 
-APPS = (APP_CURSOR, APP_CODE, APP_DESKTOP)
+APPS = (APP_CURSOR, APP_CODE, APP_DESKTOP, APP_GROK)
 
 
 def normalize_app(app):
@@ -59,22 +64,26 @@ def normalize_app(app):
 
 
 def app_label(app):
-    return {APP_CODE: "Claude Code", APP_DESKTOP: "Claude Desktop"}.get(app, "Cursor")
+    return {APP_CODE: "Claude Code", APP_DESKTOP: "Claude Desktop",
+            APP_GROK: "Grok Bot"}.get(app, "Cursor")
 
 
 def system_marker_for(app):
     return {APP_CODE: SYSTEM_CODE_FOLDER_NAME,
-            APP_DESKTOP: SYSTEM_DESKTOP_FOLDER_NAME}.get(app, SYSTEM_FOLDER_NAME)
+            APP_DESKTOP: SYSTEM_DESKTOP_FOLDER_NAME,
+            APP_GROK: SYSTEM_GROK_FOLDER_NAME}.get(app, SYSTEM_FOLDER_NAME)
 
 
 def system_display_name_for(app):
     return {APP_CODE: "Main Claude Code",
-            APP_DESKTOP: "Main Claude Desktop"}.get(app, "Main Cursor")
+            APP_DESKTOP: "Main Claude Desktop",
+            APP_GROK: "Main Grok Bot"}.get(app, "Main Cursor")
 
 
 def profiles_dir_for(app):
     return {APP_CODE: CODE_PROFILES_DIR,
-            APP_DESKTOP: DESKTOP_PROFILES_DIR}.get(app, PROFILES_DIR)
+            APP_DESKTOP: DESKTOP_PROFILES_DIR,
+            APP_GROK: GROK_PROFILES_DIR}.get(app, PROFILES_DIR)
 
 
 def system_data_dir_for(app):
@@ -85,7 +94,91 @@ def system_data_dir_for(app):
         return CODE_SYSTEM_DATA_DIR
     if app == APP_DESKTOP:
         return DESKTOP_SYSTEM_DATA_DIR
+    if app == APP_GROK:
+        return GROK_SYSTEM_DATA_DIR
     return SYSTEM_DATA_DIR
+
+
+# -- Grok Bot ----------------------------------------------------------------
+#
+# Grok Bot (Electron) honours SAND_USER_DATA_DIR in release builds: it becomes
+# the app's userData *and* moves the agent data root from ~/.grokbot to
+# <dir>/sand-data, and the single-instance lock is per directory — so each
+# profile is its own instance with its own login. Prism also passes a
+# matching --user-data-dir=<dir> (kept by the app across relaunches) purely
+# to find the profile in the process list; environment variables are
+# invisible there.
+#
+# An *overflow* profile carries over another profile's agents and config —
+# only the agent data root, minus anything that identifies an account, a
+# machine or a running instance. Electron userData is never copied: it holds
+# the encrypted tokens and machine id (sand-secrets.json), user-secrets.json,
+# cookies and account-scoped caches. Keep in sync with tui/grokbot.go.
+
+GROK_USER_DATA_ENV = "SAND_USER_DATA_DIR"
+GROK_DATA_SUBDIR = "sand-data"
+GROK_SKIP_TOP = (
+    ".grokbot-data-root-v1", "host.lock", "host-token.json", "host-secrets.json",
+    "gateway.json", "gateway-descriptor.json", "mcp-auth.json",
+    "onepassword-oauth-states.json", "local-tool-spent-sends.json",
+    "local-tool-retirements.json", "local-cua-helper.json", "recreate-intent.json",
+    "recreate-resume.json", "desktop-status.json", "kept-update.json",
+    "dev-box", "computer-use", "logs", "v8-code-cache",
+)
+GROK_SKIP_TOP_PREFIXES = ("local-exec-",)
+
+
+def grok_carry_over_skips(rel: str) -> bool:
+    """Whether a data-root entry (slash-separated, relative) stays behind."""
+    parts = rel.split("/")
+    leaf = parts[-1].lower()
+    if (leaf in ("lockfile", "singletonlock", "singletonsocket", "singletoncookie")
+            or leaf.endswith((".lock", ".sock", ".pid"))):
+        return True
+    top = parts[0]
+    if any(top == n or top.startswith(n + ".") for n in GROK_SKIP_TOP):
+        return True
+    return top.startswith(GROK_SKIP_TOP_PREFIXES)
+
+
+def grok_system_data_root() -> Path:
+    """~/.grokbot, or the pre-rename ~/.cursor/sand on unmigrated installs."""
+    canonical = Path.home() / ".grokbot"
+    legacy = Path.home() / ".cursor" / "sand"
+    if canonical.is_dir():
+        return canonical
+    return legacy if legacy.is_dir() else canonical
+
+
+def grok_data_root(profile_dir: Path, is_system: bool) -> Path:
+    return grok_system_data_root() if is_system else Path(profile_dir) / GROK_DATA_SUBDIR
+
+
+def carry_over_grok_data(src_root: Path, dst_root: Path) -> int:
+    """Copy agents & config between data roots; returns files copied.
+    Symlinks and special files are skipped, never followed."""
+    src_root, dst_root = Path(src_root), Path(dst_root)
+    if not src_root.is_dir():
+        raise OSError(f"nothing to carry over: {src_root} does not exist — "
+                      "launch the source profile once first")
+    copied = 0
+
+    def walk(src: Path, dst: Path, rel: str):
+        nonlocal copied
+        dst.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for entry in os.scandir(src):
+            child_rel = f"{rel}/{entry.name}" if rel else entry.name
+            if grok_carry_over_skips(child_rel) or entry.is_symlink():
+                continue
+            target = dst / entry.name
+            if entry.is_dir(follow_symlinks=False):
+                walk(Path(entry.path), target, child_rel)
+            elif entry.is_file(follow_symlinks=False):
+                shutil.copy2(entry.path, target, follow_symlinks=False)
+                copied += 1
+
+    walk(src_root, dst_root, "")
+    return copied
 
 LAUNCHERS_DIR = Path(GLib.get_user_data_dir()) / "applications"
 LAUNCHER_ICONS_DIR = Path(GLib.get_user_data_dir()) / "icons" / "hicolor" / "256x256" / "apps"
@@ -316,8 +409,8 @@ class LauncherBuilder:
     def slug(profile: "Profile") -> str:
         # Folder names are globally unique across apps, so one slug works
         # everywhere; the app prefix keeps launchers distinguishable.
-        prefix = {APP_CODE: "claude-code", APP_DESKTOP: "claude-desktop"}.get(
-            normalize_app(profile.app), "cursor")
+        prefix = {APP_CODE: "claude-code", APP_DESKTOP: "claude-desktop",
+                  APP_GROK: "grok-bot"}.get(normalize_app(profile.app), "cursor")
         return f"{prefix}-profile-{profile.folderName}"
 
     @staticmethod
@@ -335,7 +428,7 @@ class LauncherBuilder:
     @classmethod
     def create_or_update(cls, profile: "Profile", profile_dir: Path,
                          cursor_path: str | None, code_path: str | None = None,
-                         desktop_path: str | None = None):
+                         desktop_path: str | None = None, grok_path: str | None = None):
         LAUNCHERS_DIR.mkdir(parents=True, exist_ok=True)
         LAUNCHER_ICONS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -383,6 +476,26 @@ class LauncherBuilder:
                 "Terminal=false\n"
                 "Categories=Development;\n"
                 "StartupWMClass=Claude\n"
+                "StartupNotify=true\n"
+            )
+        elif app == APP_GROK:
+            # .desktop files can't set env vars directly: `env` does it.
+            exe = grok_path or "grok-bot"
+            exec_parts = [_desktop_quote(exe)]
+            if not profile.isSystem:
+                exec_parts = ["env", _desktop_quote(f"{GROK_USER_DATA_ENV}={profile_dir}"),
+                              _desktop_quote(exe),
+                              _desktop_quote(f"--user-data-dir={profile_dir}")]
+            exec_line = " ".join(exec_parts)
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={profile.displayName} (Grok Bot)\n"
+                f"Comment=Open Grok Bot with the \"{profile.displayName}\" profile\n"
+                f"Exec={exec_line}\n"
+                f"Icon={icon_value}\n"
+                "Terminal=false\n"
+                "Categories=Development;\n"
                 "StartupNotify=true\n"
             )
         else:
@@ -549,6 +662,26 @@ class CursorFinder:
                 return path
         return None
 
+    @staticmethod
+    def grok_candidates():
+        home = Path.home()
+        return [
+            shutil.which("grok-bot"),
+            "/usr/bin/grok-bot",
+            "/usr/local/bin/grok-bot",
+            "/opt/Grok Bot/grok-bot",
+            str(home / ".local/bin/grok-bot"),
+        ]
+
+    @classmethod
+    def find_grok(cls, custom_path):
+        if custom_path and os.access(custom_path, os.X_OK):
+            return custom_path
+        for path in cls.grok_candidates():
+            if path and os.access(path, os.X_OK):
+                return path
+        return None
+
 
 def rss_of_pid(pid: int) -> int:
     """Live resident bytes for one PID via /proc. 0 if it just exited."""
@@ -602,7 +735,8 @@ class Store:
             return json.loads(SETTINGS_PATH.read_text())
         except (OSError, ValueError):
             return {"customCursorPath": "", "customCodePath": "",
-                    "customDesktopPath": "", "defaultMemoryMB": 16384}
+                    "customDesktopPath": "", "customGrokPath": "",
+                    "defaultMemoryMB": 16384}
 
     def save_settings(self):
         PROFILES_DIR.mkdir(parents=True, exist_ok=True)
@@ -619,6 +753,10 @@ class Store:
     @property
     def desktop_path(self):
         return CursorFinder.find_desktop(self.settings.get("customDesktopPath") or None)
+
+    @property
+    def grok_path(self):
+        return CursorFinder.find_grok(self.settings.get("customGrokPath") or None)
 
     # -- persistence
 
@@ -692,12 +830,14 @@ class Store:
 
     # -- CRUD
 
-    def unique_folder_name(self, base: str) -> str:
+    def unique_folder_name(self, base: str, app: str | None = None) -> str:
         folder, counter = base, 2
         existing = {p.folderName.lower() for p in self.profiles}
         reserved = {SYSTEM_FOLDER_NAME, SYSTEM_CODE_FOLDER_NAME,
-                    SYSTEM_DESKTOP_FOLDER_NAME}
-        while folder.lower() in existing or folder in reserved:
+                    SYSTEM_DESKTOP_FOLDER_NAME, SYSTEM_GROK_FOLDER_NAME}
+        # A carry-over still copying has claimed its folder on disk already.
+        while (folder.lower() in existing or folder in reserved
+               or (app and (profiles_dir_for(app) / folder).exists())):
             folder = f"{base}-{counter}"
             counter += 1
         return folder
@@ -760,7 +900,7 @@ class Store:
         try:
             LauncherBuilder.create_or_update(profile, self.directory_for(profile),
                                              self.cursor_path, self.code_path,
-                                             self.desktop_path)
+                                             self.desktop_path, self.grok_path)
             if announce:
                 if cairo is None:
                     self.on_error(LauncherBuilder.ICON_UNAVAILABLE_MESSAGE)
@@ -773,11 +913,61 @@ class Store:
     def remove_launcher(self, profile: Profile):
         LauncherBuilder.remove(profile)
 
+    def create_grok_overflow(self, name: str, color_hex: str, source: Profile):
+        """New Grok Bot profile as an overflow account: the source profile's
+        agents and config, never its sign-in. The card appears when the copy
+        finishes; the source card shows a spinner meanwhile."""
+        base = sanitize_folder_name(name.replace(" ", "_"))
+        if not base:
+            self.on_error("Profile name must contain at least one letter, number, hyphen or underscore.")
+            return
+        profile = Profile(folderName=self.unique_folder_name(base, APP_GROK),
+                          displayName=name.strip(), app=APP_GROK, colorHex=color_hex)
+        self._start_grok_carry_over(source, profile)
+
+    def _start_grok_carry_over(self, source: Profile, new_profile: Profile):
+        src_root = grok_data_root(self.directory_for(source), source.isSystem)
+        dest = profiles_dir_for(APP_GROK) / new_profile.folderName
+        self.duplicating.add(source.folderName)
+        self.on_status()
+
+        def work():
+            error = None
+            try:
+                carry_over_grok_data(src_root, dest / GROK_DATA_SUBDIR)
+            except (OSError, shutil.Error) as e:
+                error = str(e)
+                shutil.rmtree(dest, ignore_errors=True)
+
+            def finish():
+                self.duplicating.discard(source.folderName)
+                if error:
+                    self.on_error(f"Could not carry over from '{source.displayName}': {error}")
+                    self.on_status()
+                else:
+                    self.profiles.append(new_profile)
+                    self.save_metadata()
+                    self.on_changed()
+                    self.refresh_sizes()
+                return False
+
+            GLib.idle_add(finish)
+
+        threading.Thread(target=work, daemon=True).start()
+
     def duplicate(self, profile: Profile):
         """Clone a profile. For the built-in profile the original is only read.
         Desktop duplicates are config-only (full Electron dirs are gigabytes
-        of cache); Code/Cursor duplicates copy the whole folder."""
+        of cache); Grok Bot duplicates are overflow accounts (agents and
+        config, never the sign-in); Code/Cursor duplicates copy the whole
+        folder."""
         app = normalize_app(profile.app)
+        if app == APP_GROK:
+            name = "Grok Bot Overflow" if profile.isSystem else profile.displayName + " Overflow"
+            self._start_grok_carry_over(profile, Profile(
+                folderName=self.unique_folder_name(sanitize_folder_name(name.replace(" ", "-")), app),
+                displayName=name, app=app, colorHex=profile.colorHex))
+            return
         if profile.isSystem:
             base = {APP_CODE: "Main-Claude-Code-Clone",
                     APP_DESKTOP: "Main-Claude-Desktop-Clone"}.get(app, "Main-Cursor-Clone")
@@ -856,6 +1046,9 @@ class Store:
             self.launch_code(profile, project_path)
         elif app == APP_DESKTOP:
             self.launch_desktop(profile, new_window)
+        elif app == APP_GROK:
+            # No --new-window switch: a second launch focuses the instance.
+            self.launch_grok(profile)
         else:
             self.launch_cursor(profile, project_path, memory_mb, new_window)
         GLib.timeout_add_seconds(2, lambda: (self.refresh_running(), False)[1])
@@ -908,6 +1101,30 @@ class Store:
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             self.on_error(f"Failed to launch Claude Desktop: {e}")
+            return
+        profile.lastLaunchedAt = datetime.now(timezone.utc)
+        self.save_metadata()
+        self.on_status()
+
+    def launch_grok(self, profile: Profile):
+        exe = self.grok_path
+        if not exe:
+            self.on_error("Grok Bot could not be found. Install it or set a custom path in Preferences.")
+            return
+        args = [exe]
+        # Never leak a stray isolation switch from our own environment.
+        env = {k: v for k, v in os.environ.items()
+               if k not in (GROK_USER_DATA_ENV, "SAND_DATA_ROOT")}
+        if not profile.isSystem:
+            profile_dir = self.directory_for(profile)
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            env[GROK_USER_DATA_ENV] = str(profile_dir)
+            args.append(f"--user-data-dir={profile_dir}")
+        try:
+            subprocess.Popen(args, env=env, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.on_error(f"Failed to launch Grok Bot: {e}")
             return
         profile.lastLaunchedAt = datetime.now(timezone.utc)
         self.save_metadata()
@@ -1021,6 +1238,15 @@ class Store:
                 looks = exe == "claude-desktop"
                 return looks and not any(a.startswith("--type=") for a in argv)
 
+            def is_grok_main(argv):
+                exe = os.path.basename(argv[0]).lower()
+                if "prism" in exe or exe not in ("grok-bot", "grok bot"):
+                    return False
+                # The local-exec daemon and agent coordinator run through the
+                # same executable with a .cjs entry script; helpers carry --type=.
+                return not any(a.startswith("--type=") or a.endswith(".cjs")
+                               or "app.asar" in a for a in argv[1:])
+
             def user_data_dir(argv):
                 for a in argv:
                     if a.startswith("--user-data-dir="):
@@ -1050,6 +1276,10 @@ class Store:
                         # Electron holds a lockfile in a live user-data-dir.
                         # -1 is a sentinel, never signaled (see quit_profile).
                         result[name] = [-1]
+                elif app == APP_GROK:
+                    want = None if is_system else directory
+                    result[name] = [pid for pid, argv in processes
+                                    if is_grok_main(argv) and user_data_dir(argv) == want]
                 elif is_system:
                     result[name] = [pid for pid, argv in processes
                                     if is_cursor_main(argv) and "--user-data-dir" not in argv]
@@ -1126,7 +1356,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.store = store
         self.search_text = ""
         self.sort_mode = 0
-        self.filter_mode = 0  # 0 all, 1 active, 2 custom, 3 cursor, 4 code, 5 desktop
+        self.filter_mode = 0  # 0 all, 1 active, 2 custom, 3 cursor, 4 code, 5 desktop, 6 grok
         self._last_visible = set()
         self.status_updaters = []
         self._css = Gtk.CssProvider()
@@ -1177,7 +1407,7 @@ class MainWindow(Adw.ApplicationWindow):
         filter_lbl.add_css_class("heading")
         filter_row.append(filter_lbl)
         self.filter_btns = []
-        for i, name in enumerate(["All", "Active", "Custom", "Cursor", "Code", "Desktop"]):
+        for i, name in enumerate(["All", "Active", "Custom", "Cursor", "Code", "Desktop", "Grok"]):
             btn = Gtk.ToggleButton(label=name)
             btn.add_css_class("flat")
             filter_row.append(btn)
@@ -1288,6 +1518,8 @@ description="Each profile is a fully isolated instance — its own settings, log
             profiles = [p for p in profiles if normalize_app(p.app) == APP_CODE]
         elif self.filter_mode == 5:
             profiles = [p for p in profiles if normalize_app(p.app) == APP_DESKTOP]
+        elif self.filter_mode == 6:
+            profiles = [p for p in profiles if normalize_app(p.app) == APP_GROK]
         return [p for p in profiles
                 if not self.search_text
                 or self.search_text in p.displayName.lower()
@@ -1370,6 +1602,7 @@ description="Each profile is a fully isolated instance — its own settings, log
             3: sum(1 for p in profiles if normalize_app(p.app) == APP_CURSOR),
             4: sum(1 for p in profiles if normalize_app(p.app) == APP_CODE),
             5: sum(1 for p in profiles if normalize_app(p.app) == APP_DESKTOP),
+            6: sum(1 for p in profiles if normalize_app(p.app) == APP_GROK),
         }
         self.filter_btns[0].set_label(f"All ({len(profiles)})")
         self.filter_btns[1].set_label(f"Active ({active})")
@@ -1377,6 +1610,7 @@ description="Each profile is a fully isolated instance — its own settings, log
         self.filter_btns[3].set_label(f"Cursor ({counts[3]})")
         self.filter_btns[4].set_label(f"Code ({counts[4]})")
         self.filter_btns[5].set_label(f"Desktop ({counts[5]})")
+        self.filter_btns[6].set_label(f"Grok ({counts[6]})")
 
     def build_card(self, profile: Profile):
         tag = profile.colorHex.lstrip("#")
@@ -1417,7 +1651,7 @@ description="Each profile is a fully isolated instance — its own settings, log
             name_row.append(badge)
         if app != APP_CURSOR:
             app_badge = Gtk.Label(
-                label={APP_CODE: "CODE", APP_DESKTOP: "DESKTOP"}[app],
+                label={APP_CODE: "CODE", APP_DESKTOP: "DESKTOP", APP_GROK: "GROK"}[app],
                 valign=Gtk.Align.CENTER, tooltip_text=app_label(app))
             app_badge.add_css_class("badge")
             name_row.append(app_badge)
@@ -1531,7 +1765,8 @@ description="Each profile is a fully isolated instance — its own settings, log
                     "Memory <span foreground=\"#a8b0c4\">no memory cap</span>")
                 mem_bar.set_fraction(0.0)
             if running:
-                launch.set_label("New Window")
+                # Grok Bot has no new-window switch: relaunching focuses it.
+                launch.set_label("Show" if app == APP_GROK else "New Window")
                 launch.remove_css_class(f"btn-{tag}")
                 launch.add_css_class("launch-running")
             elif app == APP_CODE:
@@ -1590,7 +1825,8 @@ description="Each profile is a fully isolated instance — its own settings, log
         item("Launch with Options…", lambda: LaunchOptionsDialog(self, self.store, profile).present())
         item("Unpin" if profile.isPinned else "Pin to Top", lambda: self.toggle_pin(profile))
         item("Edit…", lambda: EditorDialog(self, self.store, profile).present())
-        item("Clone into New Profile" if profile.isSystem else "Duplicate",
+        item("New Overflow Account from This" if normalize_app(profile.app) == APP_GROK
+             else "Clone into New Profile" if profile.isSystem else "Duplicate",
              lambda: self.store.duplicate(profile),
              enabled=profile.folderName not in self.store.duplicating)
         item("Open in Files", lambda: Gio.AppInfo.launch_default_for_uri(
@@ -1688,11 +1924,11 @@ class EditorDialog(Adw.Window):
         form.append(self._labeled("Name", self.name_entry))
 
         self.app_model = Gtk.StringList.new(
-            ["Cursor (editor)", "Claude Code (CLI)", "Claude Desktop"])
+            ["Cursor (editor)", "Claude Code (CLI)", "Claude Desktop", "Grok Bot"])
         self.app_drop = Gtk.DropDown(model=self.app_model)
         current_app = normalize_app(profile.app) if profile else APP_CURSOR
         self.app_drop.set_selected(
-            {APP_CURSOR: 0, APP_CODE: 1, APP_DESKTOP: 2}.get(current_app, 0))
+            {APP_CURSOR: 0, APP_CODE: 1, APP_DESKTOP: 2, APP_GROK: 3}.get(current_app, 0))
         self.app_drop.set_sensitive(profile is None)  # app is fixed after creation
         self.app_drop.connect("notify::selected", lambda *_: self.on_app_changed())
         form.append(self._labeled("App", self.app_drop))
@@ -1714,7 +1950,26 @@ class EditorDialog(Adw.Window):
         self.memory.set_value(default_mb)
         self.memory_row = self._labeled("Memory limit (MB, Cursor only)", self.memory)
         form.append(self.memory_row)
-        self.on_app_changed()
+
+        # Grok Bot only: fresh account, or an overflow account carrying
+        # another profile's agents & config (never its sign-in).
+        self.grok_sources = [p for p in store.profiles if normalize_app(p.app) == APP_GROK]
+        self.grok_drop = Gtk.DropDown(model=Gtk.StringList.new(
+            ["Fresh account — starts empty"]
+            + [f"Overflow of {p.displayName} — its agents & config, your other sign-in"
+               for p in self.grok_sources]))
+        main_grok = next((i for i, p in enumerate(self.grok_sources) if p.isSystem), None)
+        if main_grok is not None:
+            self.grok_drop.set_selected(main_grok + 1)
+        grok_hint = Gtk.Label(xalign=0, wrap=True, label=(
+            "Overflow copies agents, settings, skills, plugins, MCP setup and tool "
+            "approvals. The sign-in, machine identity, cookies and MCP logins stay "
+            "behind — sign in with your other account on first launch."))
+        grok_hint.add_css_class("caption")
+        grok_hint.add_css_class("dim-label")
+        self.grok_row = self._labeled("Account", self.grok_drop)
+        self.grok_row.append(grok_hint)
+        form.append(self.grok_row)
 
         project_row = Gtk.Box(spacing=6)
         self.project = Gtk.Entry(hexpand=True, placeholder_text="Optional",
@@ -1723,7 +1978,9 @@ class EditorDialog(Adw.Window):
         browse.connect("clicked", self.pick_folder)
         project_row.append(self.project)
         project_row.append(browse)
-        form.append(self._labeled("Default project folder", project_row))
+        self.project_row = self._labeled("Default project folder", project_row)
+        form.append(self.project_row)
+        self.on_app_changed()
 
         if profile:
             note = Gtk.Label(xalign=0, label=(
@@ -1746,14 +2003,18 @@ class EditorDialog(Adw.Window):
         return box
 
     def selected_app(self):
-        return {0: APP_CURSOR, 1: APP_CODE, 2: APP_DESKTOP}.get(
+        return {0: APP_CURSOR, 1: APP_CODE, 2: APP_DESKTOP, 3: APP_GROK}.get(
             self.app_drop.get_selected(), APP_CURSOR)
 
     def on_app_changed(self):
-        # Memory cap only applies to Cursor; dim the field for Claude apps.
-        is_cursor = self.selected_app() == APP_CURSOR
+        # Memory cap only applies to Cursor; dim the field for other apps.
+        app = self.selected_app()
+        is_cursor = app == APP_CURSOR
         self.memory.set_sensitive(is_cursor)
         self.memory_row.set_opacity(1.0 if is_cursor else 0.45)
+        # Grok Bot: account choice on create; it never opens project folders.
+        self.grok_row.set_visible(app == APP_GROK and self.profile is None)
+        self.project_row.set_visible(app != APP_GROK)
 
     def set_color(self, hex_color):
         self.color_hex = hex_color
@@ -1797,6 +2058,10 @@ class EditorDialog(Adw.Window):
             p.defaultMemoryMB, p.defaultProjectPath = memory, project
             self.store.update(p)
             self.close()
+        elif self.selected_app() == APP_GROK and self.grok_drop.get_selected() > 0:
+            source = self.grok_sources[self.grok_drop.get_selected() - 1]
+            self.store.create_grok_overflow(name, self.color_hex, source)
+            self.close()
         else:
             if self.store.create(name, self.color_hex, memory, project,
                                  app=self.selected_app()):
@@ -1839,7 +2104,8 @@ class LaunchOptionsDialog(Adw.Window):
         project_row = Gtk.Box(spacing=6)
         self.project = Gtk.Entry(hexpand=True, placeholder_text="Optional",
                                  text=profile.defaultProjectPath or "")
-        is_desktop = normalize_app(profile.app) == APP_DESKTOP
+        # Apps that never open a project folder.
+        is_desktop = normalize_app(profile.app) in (APP_DESKTOP, APP_GROK)
         self.project.set_sensitive(not is_desktop)
         browse = Gtk.Button(label="Choose…")
         browse.set_sensitive(not is_desktop)
@@ -1911,6 +2177,16 @@ class PreferencesDialog(Adw.PreferencesWindow):
         desktop_custom.connect("changed", lambda row: self._set("customDesktopPath",
                                                                 row.get_text().strip()))
         desktop_group.add(desktop_custom)
+
+        grok_group = Adw.PreferencesGroup(title="Grok Bot (app)")
+        page.add(grok_group)
+        grok_group.add(Adw.ActionRow(title="Detected path",
+                                    subtitle=store.grok_path or "Not found"))
+        grok_custom = Adw.EntryRow(title="Custom path (empty = auto-detect)")
+        grok_custom.set_text(store.settings.get("customGrokPath", ""))
+        grok_custom.connect("changed", lambda row: self._set("customGrokPath",
+                                                            row.get_text().strip()))
+        grok_group.add(grok_custom)
 
         defaults_group = Adw.PreferencesGroup(title="New profile defaults")
         page.add(defaults_group)

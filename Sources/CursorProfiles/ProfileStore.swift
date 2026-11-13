@@ -37,11 +37,13 @@ final class ProfileStore: ObservableObject {
     @AppStorage("customCursorPath") var customCursorPath: String = ""
     @AppStorage("customCodePath") var customCodePath: String = ""
     @AppStorage("customDesktopPath") var customDesktopPath: String = ""
+    @AppStorage("customGrokPath") var customGrokPath: String = ""
     @AppStorage("defaultMemoryMB") var defaultMemoryMB: Int = 16384
 
     let profilesDir: URL
     let codeProfilesDir: URL
     let desktopProfilesDir: URL
+    let grokProfilesDir: URL
     private let metadataName = ".profiles.json"
     private var pollTask: Task<Void, Never>?
 
@@ -57,13 +59,19 @@ final class ProfileStore: ObservableObject {
         ClaudeLauncher.findClaudeDesktop(customPath: customDesktopPath.isEmpty ? nil : customDesktopPath)
     }
 
+    var resolvedGrokPath: String? {
+        GrokLauncher.findGrokBot(customPath: customGrokPath.isEmpty ? nil : customGrokPath)
+    }
+
     init(profilesDir: URL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".cursor_profiles"),
          codeProfilesDir: URL? = nil,
-         desktopProfilesDir: URL? = nil) {
+         desktopProfilesDir: URL? = nil,
+         grokProfilesDir: URL? = nil) {
         self.profilesDir = profilesDir
         let home = URL(fileURLWithPath: NSHomeDirectory())
         self.codeProfilesDir = codeProfilesDir ?? home.appendingPathComponent(".claude_code_profiles")
         self.desktopProfilesDir = desktopProfilesDir ?? home.appendingPathComponent(".claude_desktop_profiles")
+        self.grokProfilesDir = grokProfilesDir ?? home.appendingPathComponent(".grokbot_profiles")
         reload()
         startPolling()
     }
@@ -72,6 +80,7 @@ final class ProfileStore: ObservableObject {
         switch CursorProfile.normalizeApp(app) {
         case CursorProfile.appClaudeCode: return codeProfilesDir
         case CursorProfile.appClaudeDesktop: return desktopProfilesDir
+        case CursorProfile.appGrokBot: return grokProfilesDir
         default: return profilesDir
         }
     }
@@ -94,6 +103,8 @@ final class ProfileStore: ObservableObject {
         case CursorProfile.appClaudeDesktop:
             return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Claude")
+        case CursorProfile.appGrokBot:
+            return GrokLauncher.systemUserDataDir
         default:
             return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Cursor")
@@ -113,7 +124,7 @@ final class ProfileStore: ObservableObject {
 
     func reload() {
         var all: [CursorProfile] = []
-        for app in [CursorProfile.appCursor, CursorProfile.appClaudeCode, CursorProfile.appClaudeDesktop] {
+        for app in CursorProfile.allApps {
             all.append(contentsOf: reloadApp(app))
         }
         profiles = all
@@ -173,7 +184,7 @@ final class ProfileStore: ObservableObject {
     }
 
     private func saveMetadata() {
-        for app in [CursorProfile.appCursor, CursorProfile.appClaudeCode, CursorProfile.appClaudeDesktop] {
+        for app in CursorProfile.allApps {
             let url = dirForApp(app).appendingPathComponent(metadataName)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -197,18 +208,8 @@ final class ProfileStore: ObservableObject {
             lastError = "Profile name must contain at least one letter, number, hyphen or underscore."
             return nil
         }
-        var folder = base
-        var counter = 2
-        let reserved = [CursorProfile.systemFolderName, CursorProfile.systemCodeFolderName,
-                        CursorProfile.systemDesktopFolderName]
-        while profiles.contains(where: { $0.folderName.caseInsensitiveCompare(folder) == .orderedSame })
-            || reserved.contains(folder) {
-            folder = "\(base)-\(counter)"
-            counter += 1
-        }
-
         let profile = CursorProfile(
-            folderName: folder,
+            folderName: uniqueFolderName(base: base, app: normalized),
             displayName: displayName.trimmingCharacters(in: .whitespaces),
             app: normalized,
             colorHex: colorHex,
@@ -230,6 +231,70 @@ final class ProfileStore: ObservableObject {
         refreshSizes()
         TitleBarColorizer.apply(profile: profile, profileDir: dir)
         return profile
+    }
+
+    /// A folder name that is free everywhere: live-stats maps are keyed by
+    /// folder name across apps, built-in markers are reserved, and a
+    /// carry-over still copying has claimed its folder on disk already.
+    private func uniqueFolderName(base: String, app: String) -> String {
+        var folder = base
+        var counter = 2
+        func taken(_ name: String) -> Bool {
+            profiles.contains(where: { $0.folderName.caseInsensitiveCompare(name) == .orderedSame })
+                || CursorProfile.systemFolderNames.contains(name)
+                || FileManager.default.fileExists(atPath: dirForApp(app).appendingPathComponent(name).path)
+        }
+        while taken(folder) {
+            folder = "\(base)-\(counter)"
+            counter += 1
+        }
+        return folder
+    }
+
+    /// New Grok Bot profile as an *overflow account*: it carries over
+    /// another Grok Bot profile's agents and config (agents, settings,
+    /// skills, plugins, MCP setup, tool approvals) but never its identity —
+    /// tokens, machine id, cookies and MCP sign-ins stay behind (see
+    /// GrokLauncher). First launch signs in with the other account. The
+    /// card appears once the copy finishes; the source card shows progress.
+    func createGrokOverflow(displayName: String, colorHex: String, source: CursorProfile) {
+        guard source.normalizedApp == CursorProfile.appGrokBot else { return }
+        let name = displayName.trimmingCharacters(in: .whitespaces)
+        let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "_"))
+        guard !base.isEmpty else {
+            lastError = "Profile name must contain at least one letter, number, hyphen or underscore."
+            return
+        }
+        let profile = CursorProfile(
+            folderName: uniqueFolderName(base: base, app: CursorProfile.appGrokBot),
+            displayName: name,
+            app: CursorProfile.appGrokBot,
+            colorHex: colorHex
+        )
+        startGrokCarryOver(from: source, into: profile)
+    }
+
+    private func startGrokCarryOver(from source: CursorProfile, into profile: CursorProfile) {
+        let sourceRoot = GrokLauncher.dataRoot(profileDir: directory(for: source), isSystem: source.isSystem)
+        let destDir = directory(for: profile)
+        let destRoot = GrokLauncher.dataRoot(profileDir: destDir, isSystem: false)
+        let sourceFolder = source.folderName
+        let sourceName = source.displayName
+        let newProfile = profile
+        duplicating.insert(sourceFolder)
+        Task { [weak self] in
+            let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+                do {
+                    _ = try GrokLauncher.carryOver(from: sourceRoot, to: destRoot)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+            self?.finishDuplicate(folderName: sourceFolder, copy: newProfile, dest: destDir,
+                                  errorMessage: errorMessage,
+                                  errorPrefix: "Could not carry over from '\(sourceName)'")
+        }
     }
 
     /// Copy just claude_desktop_config.json (MCP/connectors) into a fresh
@@ -255,10 +320,24 @@ final class ProfileStore: ObservableObject {
     /// Duplicate a profile. For the built-in profile this *clones* the original
     /// app data into a new managed profile — the original is only read,
     /// never touched. Desktop duplicates are config-only (full Electron dirs
-    /// are gigabytes of cache). Runs in the background since data dirs can
-    /// be large.
+    /// are gigabytes of cache). Grok Bot duplicates are overflow accounts:
+    /// agents and config, never the sign-in (two profiles sharing one
+    /// refresh token and machine id would sign each other out). Runs in the
+    /// background since data dirs can be large.
     func duplicate(_ profile: CursorProfile) {
         let app = profile.normalizedApp
+        if app == CursorProfile.appGrokBot {
+            let name = profile.isSystem ? "Grok Bot Overflow" : profile.displayName + " Overflow"
+            let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "-"))
+            let copy = CursorProfile(
+                folderName: uniqueFolderName(base: base, app: app),
+                displayName: name,
+                app: app,
+                colorHex: profile.colorHex
+            )
+            startGrokCarryOver(from: profile, into: copy)
+            return
+        }
         let base = profile.isSystem
             ? CursorProfile.systemDisplayName(for: app).replacingOccurrences(of: " ", with: "-")
             : profile.folderName + "-copy"
@@ -330,10 +409,11 @@ final class ProfileStore: ObservableObject {
 
     @MainActor
     private func finishDuplicate(folderName: String, copy: CursorProfile,
-                                 dest: URL, errorMessage: String?) {
+                                 dest: URL, errorMessage: String?,
+                                 errorPrefix: String = "Could not duplicate profile") {
         duplicating.remove(folderName)
         if let errorMessage {
-            lastError = "Could not duplicate profile: \(errorMessage)"
+            lastError = "\(errorPrefix): \(errorMessage)"
             try? FileManager.default.removeItem(at: dest)
         } else {
             profiles.append(copy)
@@ -395,6 +475,12 @@ final class ProfileStore: ObservableObject {
                         projectPath: nil,
                         newWindow: newWindow
                     ),
+                    onFailure: reportLaunchFailure
+                )
+            case CursorProfile.appGrokBot:
+                try GrokLauncher.launch(
+                    userDataDir: profile.isSystem ? nil : directory(for: profile),
+                    grokPath: customGrokPath.isEmpty ? nil : customGrokPath,
                     onFailure: reportLaunchFailure
                 )
             default:
@@ -470,17 +556,20 @@ final class ProfileStore: ObservableObject {
         if let exe = resolvedDesktopPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
             ids[CursorProfile.appClaudeDesktop] = id
         }
+        if let exe = resolvedGrokPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
+            ids[CursorProfile.appGrokBot] = id
+        }
         return ids
     }
 
-    /// Squirrel.Mac (Cursor, Claude Desktop) only installs once *every*
+    /// Squirrel.Mac (Cursor, Claude Desktop, Grok Bot) only installs once *every*
     /// instance of the app has quit, so a staged update sits forever while
     /// any profile is open. Quit them all, wait for the installer to swap
     /// the bundle, then bring back exactly the profiles that were running.
     func restartToUpdate(_ app: String) {
         guard updateProgress == nil, let bundleID = updatableBundleIDs[app] else { return }
         let targets = profiles.filter { $0.normalizedApp == app && isRunning($0) }
-        let label = targets.first?.appLabel ?? (app == CursorProfile.appCursor ? "Cursor" : "Claude Desktop")
+        let label = CursorProfile.label(for: app)
         let pids = targets.flatMap { runningPIDs[$0.folderName] ?? [] }.filter { $0 > 0 }
 
         updateProgress = "Quitting \(targets.count) \(label) profile\(targets.count == 1 ? "" : "s")…"
@@ -623,6 +712,10 @@ final class ProfileStore: ObservableObject {
                     // -1 is a sentinel, never signaled (see quit).
                     matched = [-1]
                 }
+            case CursorProfile.appGrokBot:
+                matched = item.isSystem
+                    ? GrokLauncher.systemPIDs(in: processes)
+                    : GrokLauncher.pids(in: processes, profileDir: item.dir)
             default:
                 matched = item.isSystem
                     ? CursorLauncher.systemProfilePIDs(in: processes)

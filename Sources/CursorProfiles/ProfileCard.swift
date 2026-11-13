@@ -276,9 +276,9 @@ struct ProfileCard: View {
                 store.launch(profile, newWindow: isRunning)
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: isRunning ? "plus" : (profile.normalizedApp == CursorProfile.appClaudeCode ? "terminal" : "play.fill"))
+                    Image(systemName: primaryActionIcon)
                         .font(.system(size: 10, weight: .bold))
-                    Text(isRunning ? "New Window" : (profile.normalizedApp == CursorProfile.appClaudeCode ? "Open Terminal" : "Launch"))
+                    Text(primaryActionTitle)
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
@@ -366,7 +366,7 @@ struct ProfileCard: View {
         Divider()
         Button(profile.isPinned ? "Unpin" : "Pin to Top") { store.togglePin(profile) }
         Button("Edit…") { onEdit() }
-        Button(profile.isSystem ? "Clone into New Profile" : "Duplicate") {
+        Button(duplicateTitle) {
             store.duplicate(profile)
         }
         .disabled(store.duplicating.contains(profile.folderName))
@@ -375,6 +375,30 @@ struct ProfileCard: View {
             Divider()
             Button("Move to Trash", role: .destructive) { onDelete() }
         }
+    }
+
+    /// Grok Bot has no new-window switch: launching a running profile
+    /// again hands off to that instance, which brings its window forward.
+    private var primaryActionTitle: String {
+        if isRunning {
+            return profile.normalizedApp == CursorProfile.appGrokBot ? "Show" : "New Window"
+        }
+        return profile.normalizedApp == CursorProfile.appClaudeCode ? "Open Terminal" : "Launch"
+    }
+
+    private var primaryActionIcon: String {
+        if isRunning {
+            return profile.normalizedApp == CursorProfile.appGrokBot ? "macwindow" : "plus"
+        }
+        return profile.normalizedApp == CursorProfile.appClaudeCode ? "terminal" : "play.fill"
+    }
+
+    /// Grok Bot copies are overflow accounts (agents & config, own sign-in).
+    private var duplicateTitle: String {
+        if profile.normalizedApp == CursorProfile.appGrokBot {
+            return "New Overflow Account from This"
+        }
+        return profile.isSystem ? "Clone into New Profile" : "Duplicate"
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -409,7 +433,8 @@ struct LaunchOptionsView: View {
     @State private var newWindow = false
 
     private var isCursorProfile: Bool { profile.normalizedApp == CursorProfile.appCursor }
-    private var isDesktopProfile: Bool { profile.normalizedApp == CursorProfile.appClaudeDesktop }
+    /// Apps that never open a project folder (Claude Desktop, Grok Bot).
+    private var isDesktopProfile: Bool { !profile.opensProjectFolder }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

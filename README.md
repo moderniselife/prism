@@ -5,7 +5,7 @@
 <h1 align="center">Prism</h1>
 
 <p align="center">
-  <strong>One launcher for every Cursor you run — plus Claude Code and Claude Desktop.</strong><br />
+  <strong>One launcher for every Cursor you run — plus Claude Code, Claude Desktop and Grok Bot.</strong><br />
   Isolated profiles — own settings, extensions, login, chat history — with live stats,<br />
   instant switching, and per-profile title bar colors so you never mix up Work and Personal again.
 </p>
@@ -49,12 +49,17 @@ All three read and write the same `~/.cursor_profiles` directory and `.profiles.
 - **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit, default project folder)
 - Each profile is a separate `--user-data-dir`: own settings, extensions, login, chat history. Existing profiles are picked up automatically
 
+### Grok Bot: fresh or overflow accounts
+- **Main Grok Bot** appears as a built-in card, and new Grok Bot profiles run side by side, each with its own sign-in
+- **Fresh account** starts empty
+- **Overflow account** carries another Grok Bot profile's **agents and config** over — agents, settings, skills, plugins, MCP setup, tool approvals — but **none of its identity**: sign-in tokens, machine id, cookies, MCP logins and local daemon/gateway credentials stay behind. Sign in with your other account on first launch and carry on where the first one left off. Pick it in the New Profile sheet, or right-click any Grok Bot card → **New Overflow Account from This**
+
 ### Launching & switching
 - **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a card to open it with that profile
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
-- **Restart & Update** — Cursor and Claude Desktop only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
+- **Restart & Update** — Cursor, Claude Desktop and Grok Bot only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
 - **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
 
 ### Honest live telemetry
@@ -134,9 +139,12 @@ runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
   Personal/             # another one — fully independent
 ~/.claude_code_profiles/     # Claude Code profiles (each dir = a CLAUDE_CONFIG_DIR)
 ~/.claude_desktop_profiles/  # Claude Desktop profiles (--user-data-dir)
+~/.grokbot_profiles/         # Grok Bot profiles (SAND_USER_DATA_DIR; agents in <profile>/sand-data)
 ```
 
 Launching a Cursor profile runs Cursor with `--user-data-dir <profile> --max-memory <limit>`, so isolation is enforced by Cursor itself rather than by anything Prism fakes. The built-in profile launches with no `--user-data-dir` at all — byte-for-byte identical to opening Cursor normally. Claude Code profiles set `CLAUDE_CONFIG_DIR` (the documented multi-account switch — separate login, settings, history per profile). Claude Desktop profiles launch with `--user-data-dir=<profile>` too, so each has its own login and several run side by side. On Windows this needs the standalone installer build of Claude Desktop (the Microsoft Store build drops launch flags) — Prism prompts you with the download link. Verified on Windows; macOS and Linux are untested.
+
+Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` — the app's own isolation switch, which moves both its Electron data and its agent data root (`~/.grokbot` → `<profile>/sand-data`) and gives each profile its own single-instance lock. Prism adds a matching `--user-data-dir=<profile>` only so it can recognise the profile in the process list (environment variables aren't visible there). The built-in profile launches with neither. Overflow carry-over copies the agent data root only, skipping identity and runtime files; Electron's userData is never copied because it holds the Keychain-encrypted tokens and machine id. The Mac app, Linux app and terminal client support Grok Bot; the Windows app doesn't yet.
 
 ## Layout
 

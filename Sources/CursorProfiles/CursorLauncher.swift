@@ -90,12 +90,16 @@ enum CursorLauncher {
     /// "responsible process", so the OS and the app's updater treat Prism and
     /// the instance as one unit (quitting one could take down the other).
     /// CLI shims outside an .app bundle fall back to a plain spawn.
+    /// `environment` is added on top of the normal login environment (used
+    /// by apps isolated with an env var rather than a flag, e.g. Grok Bot).
     static func launchDetached(executable exe: String, arguments args: [String],
+                               environment: [String: String] = [:],
                                onFailure: @escaping @Sendable (String) -> Void) throws {
         if let bundle = appBundle(forExecutable: exe) {
             let config = NSWorkspace.OpenConfiguration()
             config.createsNewApplicationInstance = true
             config.arguments = args
+            if !environment.isEmpty { config.environment = environment }
             config.activates = true
             NSWorkspace.shared.openApplication(at: bundle, configuration: config) { _, error in
                 if let error { onFailure(error.localizedDescription) }
@@ -105,6 +109,10 @@ enum CursorLauncher {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: exe)
         process.arguments = args
+        if !environment.isEmpty {
+            process.environment = ProcessInfo.processInfo.environment
+                .merging(environment) { _, new in new }
+        }
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {

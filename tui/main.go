@@ -1,8 +1,8 @@
 // Command prism-tui is Prism for the terminal: list, launch, stop, create
-// and delete isolated Cursor and Claude Code profiles (plus the built-in
-// Main Claude Desktop) without opening the app. It shares the three profile
-// dirs (~/.cursor_profiles, ~/.claude_code_profiles,
-// ~/.claude_desktop_profiles) with the macOS, Windows and Linux apps.
+// and delete isolated Cursor, Claude Code, Claude Desktop and Grok Bot
+// profiles without opening the app. It shares the profile dirs
+// (~/.cursor_profiles, ~/.claude_code_profiles, ~/.claude_desktop_profiles,
+// ~/.grokbot_profiles) with the macOS, Windows and Linux apps.
 //
 // Version is stamped at release time:
 //

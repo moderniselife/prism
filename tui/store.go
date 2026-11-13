@@ -114,10 +114,8 @@ func profileFromJSON(j profileJSON) Profile {
 		IsPinned:           j.IsPinned,
 		IsSystem:           j.IsSystem,
 	}
-	if p.App != AppClaudeCode && p.App != AppClaudeDesktop {
-		// Absent or unknown: files predating multi-app support are Cursor.
-		p.App = AppCursor
-	}
+	// Absent or unknown: files predating multi-app support are Cursor.
+	p.App = normalizeApp(p.App)
 	if j.CreatedAt != nil {
 		p.CreatedAt = appleToTime(*j.CreatedAt)
 	} else {
@@ -147,7 +145,7 @@ func (p Profile) Initial() string {
 
 func (p Profile) LimitBytes() uint64 {
 	if p.App != AppCursor {
-		// Only Cursor launches with --max-memory; Claude apps have no
+		// Only Cursor launches with --max-memory; the other apps have no
 		// per-profile memory cap, so there is no limit to report.
 		return 0
 	}
@@ -164,8 +162,23 @@ func (p Profile) AppLabel() string {
 		return "Code"
 	case AppClaudeDesktop:
 		return "Desktop"
+	case AppGrokBot:
+		return "Grok"
 	default:
 		return "Cursor"
+	}
+}
+
+// allApps is every app Prism manages, in display order.
+var allApps = []string{AppCursor, AppClaudeCode, AppClaudeDesktop, AppGrokBot}
+
+// normalizeApp maps absent/unknown values to Cursor.
+func normalizeApp(app string) string {
+	switch app {
+	case AppClaudeCode, AppClaudeDesktop, AppGrokBot:
+		return app
+	default:
+		return AppCursor
 	}
 }
 
@@ -177,20 +190,24 @@ func systemMarkerFor(app string) string {
 		return systemCodeFolderName
 	case AppClaudeDesktop:
 		return systemDesktopFolderName
+	case AppGrokBot:
+		return systemGrokFolderName
 	default:
 		return systemFolderName
 	}
 }
 
 type Store struct {
-	Dir              string // Cursor profiles (historical default)
-	CodeDir          string // Claude Code profiles (CLAUDE_CONFIG_DIR values)
-	DesktopDir       string // Claude Desktop profiles (Electron user-data-dirs)
-	Profiles         []Profile
-	defaultMemoryMB  int
-	customCursorPath string
-	customCodePath   string
+	Dir               string // Cursor profiles (historical default)
+	CodeDir           string // Claude Code profiles (CLAUDE_CONFIG_DIR values)
+	DesktopDir        string // Claude Desktop profiles (Electron user-data-dirs)
+	GrokDir           string // Grok Bot profiles (SAND_USER_DATA_DIR values)
+	Profiles          []Profile
+	defaultMemoryMB   int
+	customCursorPath  string
+	customCodePath    string
 	customDesktopPath string
+	customGrokPath    string
 }
 
 func defaultDir() string {
@@ -224,6 +241,8 @@ func (s *Store) dirForApp(app string) string {
 		return s.CodeDir
 	case AppClaudeDesktop:
 		return s.DesktopDir
+	case AppGrokBot:
+		return s.GrokDir
 	default:
 		return s.Dir
 	}
@@ -269,6 +288,8 @@ func systemDataDirFor(app string) string {
 			}
 			return filepath.Join(home, ".config", "Claude")
 		}
+	case AppGrokBot:
+		return grokSystemUserData()
 	default:
 		// Cursor
 		switch runtime.GOOS {
@@ -302,15 +323,12 @@ func sanitizeFolderName(raw string) string {
 }
 
 func LoadStore() (*Store, error) {
-	s := &Store{Dir: defaultDir(), CodeDir: defaultCodeDir(), DesktopDir: defaultDesktopDir(), defaultMemoryMB: 16384}
-	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(s.CodeDir, 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(s.DesktopDir, 0o755); err != nil {
-		return nil, err
+	s := &Store{Dir: defaultDir(), CodeDir: defaultCodeDir(), DesktopDir: defaultDesktopDir(),
+		GrokDir: defaultGrokDir(), defaultMemoryMB: 16384}
+	for _, dir := range []string{s.Dir, s.CodeDir, s.DesktopDir, s.GrokDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
 	}
 	s.loadSettings()
 	if err := s.reload(); err != nil {
@@ -338,6 +356,9 @@ func (s *Store) loadSettings() {
 	if v, ok := raw["customDesktopPath"].(string); ok {
 		s.customDesktopPath = v
 	}
+	if v, ok := raw["customGrokPath"].(string); ok {
+		s.customGrokPath = v
+	}
 	if v, ok := raw["defaultMemoryMB"].(float64); ok && v >= 512 {
 		s.defaultMemoryMB = int(v)
 	}
@@ -360,7 +381,7 @@ func (s *Store) dirFor(p Profile) string {
 
 func (s *Store) reload() error {
 	var all []Profile
-	for _, app := range []string{AppCursor, AppClaudeCode, AppClaudeDesktop} {
+	for _, app := range allApps {
 		profiles, err := s.reloadApp(app)
 		if err != nil {
 			return err
@@ -467,22 +488,20 @@ func systemDisplayName(app string) string {
 		return "Main Claude Code"
 	case AppClaudeDesktop:
 		return "Main Claude Desktop"
+	case AppGrokBot:
+		return "Main Grok Bot"
 	default:
 		return "Main Cursor"
 	}
 }
 
 func (s *Store) save() error {
-	byApp := map[string][]Profile{
-		AppCursor:        {},
-		AppClaudeCode:    {},
-		AppClaudeDesktop: {},
+	byApp := map[string][]Profile{}
+	for _, app := range allApps {
+		byApp[app] = []Profile{}
 	}
 	for _, p := range s.Profiles {
-		app := p.App
-		if app != AppClaudeCode && app != AppClaudeDesktop {
-			app = AppCursor
-		}
+		app := normalizeApp(p.App)
 		byApp[app] = append(byApp[app], p)
 	}
 	for app, profiles := range byApp {
@@ -531,7 +550,7 @@ func (s *Store) uniqueFolderName(base string) string {
 	folder, counter := base, 2
 	lower := strings.ToLower(folder)
 	for lower == systemFolderName || lower == systemCodeFolderName ||
-		lower == systemDesktopFolderName || existing[lower] {
+		lower == systemDesktopFolderName || lower == systemGrokFolderName || existing[lower] {
 		folder = fmt.Sprintf("%s-%d", base, counter)
 		counter++
 		lower = strings.ToLower(folder)
@@ -544,9 +563,7 @@ func (s *Store) Create(displayName, colorHex string, memoryMB int, projectPath s
 }
 
 func (s *Store) CreateApp(displayName, app, colorHex string, memoryMB int, projectPath string) (*Profile, error) {
-	if app != AppClaudeCode && app != AppClaudeDesktop {
-		app = AppCursor
-	}
+	app = normalizeApp(app)
 	base := sanitizeFolderName(strings.ReplaceAll(displayName, " ", "_"))
 	if base == "" {
 		return nil, errors.New("profile name must contain at least one letter, number, hyphen or underscore")
@@ -639,6 +656,10 @@ func (s *Store) Launch(p Profile, newWindow bool) error {
 		err = s.launchCode(p)
 	case AppClaudeDesktop:
 		err = s.launchDesktop(p, newWindow)
+	case AppGrokBot:
+		// Grok Bot has no --new-window switch; a second launch of a
+		// running profile just focuses it.
+		err = s.launchGrok(p)
 	default:
 		err = s.launchCursor(p, newWindow)
 	}
@@ -903,7 +924,10 @@ func findClaudeDesktop(custom string) (string, error) {
 // tested) because it documents a real quirk: the alias also drops CLI flags
 // at activation, so it can only ever open the main app.
 func isStoreAlias(exe string) bool {
-	return strings.EqualFold(filepath.Base(exe), "claude-desktop.exe") &&
+	// Split on both separators: filepath.Base only knows the host OS's,
+	// and this must classify Windows paths on every platform (tests, CI).
+	base := exe[strings.LastIndexAny(exe, `\/`)+1:]
+	return strings.EqualFold(base, "claude-desktop.exe") &&
 		strings.Contains(strings.ToLower(exe), "windowsapps")
 }
 
@@ -1070,6 +1094,8 @@ func matchProfiles(items []snapshotItem, processes []procInfo, selfPID int) map[
 		switch it.app {
 		case AppClaudeDesktop:
 			pids = matchDesktop(it, processes, selfPID)
+		case AppGrokBot:
+			pids = matchGrok(it, processes, selfPID)
 		case AppClaudeCode:
 			// The CLI is a short-lived terminal process, not a persistent
 			// GUI app: there is no reliable per-profile process to track
