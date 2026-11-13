@@ -56,7 +56,7 @@ jobs:
 
   mac-app:
     needs: [create-release]
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: ./build.sh
@@ -99,8 +99,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, asset: prism-tui-darwin-arm64.tar.gz, plat: macosx_11_0_arm64 }
-          - { os: macos-14, asset: prism-tui-darwin-amd64.tar.gz, plat: macosx_11_0_x86_64 }
+          - { os: macos-15, asset: prism-tui-darwin-arm64.tar.gz, plat: macosx_11_0_arm64 }
+          - { os: macos-15, asset: prism-tui-darwin-amd64.tar.gz, plat: macosx_11_0_x86_64 }
           - { os: ubuntu-latest, asset: prism-tui-linux-amd64.tar.gz, plat: manylinux_2_17_x86_64 }
           - { os: ubuntu-latest, asset: prism-tui-linux-arm64.tar.gz, plat: manylinux_2_17_aarch64 }
           - { os: windows-latest, asset: prism-tui-windows-amd64.zip, plat: win_amd64 }
@@ -230,7 +230,7 @@ jobs:
   cask-update:
     # Prism.app cask in the tap.
     needs: [tui, mac-app]
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - id: gate
         run: '[ -n "${{ secrets.TAP_GITHUB_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'

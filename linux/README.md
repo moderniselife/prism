@@ -3,8 +3,8 @@
 Native GNOME-styled app, feature-identical to the macOS and Windows versions.
 Cursor profiles live in `~/.cursor_profiles`, Claude Code profiles in
 `~/.claude_code_profiles`, Claude Desktop profiles in
-`~/.claude_desktop_profiles` (same `.profiles.json` format plus an `"app"`
-field on all three platforms). Each app's original data appears as a protected
+`~/.claude_desktop_profiles`, Grok Bot profiles in `~/.grokbot_profiles`
+(same `.profiles.json` format plus an `"app"` field on all platforms). Each app's original data appears as a protected
 built-in card — launchable and clonable, never deletable.
 
 ## Requirements
@@ -53,6 +53,13 @@ Claude Code profiles launch in a real terminal with `CLAUDE_CONFIG_DIR` set
 that account). Claude Desktop profiles launch with `--user-data-dir=<profile>`,
 so each gets its own login and several can run at once. (Verified on Windows
 with the standalone build; on Linux this is untested.)
+
+Grok Bot is found as `grok-bot` on PATH / `/usr/bin` / `/usr/local/bin` /
+`/opt/Grok Bot` / `~/.local/bin`. Its profiles launch with
+`SAND_USER_DATA_DIR=<profile>` (the app's own isolation switch: separate login,
+agents in `<profile>/sand-data`, several at once). New Grok Bot profiles can be
+a **fresh account** or an **overflow account** that carries another profile's
+agents and config over without its sign-in. (Untested on Linux.)
 
 ## Pinning a profile to the dash/dock
 

@@ -57,6 +57,23 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Grok Bot (app)") {
+                LabeledContent("Detected path") {
+                    Text(store.resolvedGrokPath ?? "Not found")
+                        .foregroundStyle(store.resolvedGrokPath == nil ? PrismTheme.Colors.red : PrismTheme.Colors.textSecondary)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                LabeledContent("Custom path") {
+                    HStack(spacing: 6) {
+                        TextField("Leave empty for auto-detect", text: store.binding(\.customGrokPath))
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse...") { pickExecutable(kind: .grok) }
+                    }
+                }
+            }
+
             Section("New profile defaults") {
                 LabeledContent("Memory limit") {
                     HStack(spacing: 6) {
@@ -88,7 +105,7 @@ struct SettingsView: View {
     }
 
     private enum ExeKind {
-        case cursor, code, desktop
+        case cursor, code, desktop, grok
     }
 
     private func pickExecutable() {
@@ -111,6 +128,7 @@ struct SettingsView: View {
                     case .cursor: return "Cursor"
                     case .code: return "claude"
                     case .desktop: return "Claude"
+                    case .grok: return GrokLauncher.executableName
                     }
                 }()
                 path += "/Contents/MacOS/\(exeName)"
@@ -119,6 +137,7 @@ struct SettingsView: View {
             case .cursor: store.customCursorPath = path
             case .code: store.customCodePath = path
             case .desktop: store.customDesktopPath = path
+            case .grok: store.customGrokPath = path
             }
         }
     }

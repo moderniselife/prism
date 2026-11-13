@@ -1,12 +1,13 @@
 # prism-tui — Prism for the terminal
 
-A cross-platform terminal UI for managing isolated [Cursor](https://cursor.sh)
-and Claude Code profiles (plus the built-in Main Claude Desktop). Same profile
-dirs as the macOS, Windows and Linux apps — no app required:
+A cross-platform terminal UI for managing isolated [Cursor](https://cursor.sh),
+Claude Code, Claude Desktop and Grok Bot profiles. Same profile dirs as the
+macOS, Windows and Linux apps — no app required:
 
 - Cursor: `~/.cursor_profiles/.profiles.json`
 - Claude Code: `~/.claude_code_profiles/.profiles.json`
 - Claude Desktop: `~/.claude_desktop_profiles/.profiles.json`
+- Grok Bot: `~/.grokbot_profiles/.profiles.json`
 
 ```
 ▲ Prism v1.2.3                              ● 1 running · 372.6 MB live
@@ -42,7 +43,7 @@ runtime needed anywhere.
 | `/` then type | Filter profiles (`esc` clears) |
 | `enter` | Launch (opens a new window when already running) |
 | `x` | Stop the selected profile |
-| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels) |
+| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). For Grok Bot, `space` on the last field picks **fresh account** or **overflow of** an existing Grok Bot profile |
 | `d d` | Delete (press twice; moves the folder to `.trash/`) |
 | `R` | Rescan profiles from disk |
 | `q` / `ctrl+c` | Quit |
@@ -59,6 +60,14 @@ runtime needed anywhere.
   login, several at once. On Windows this needs the standalone installer build
   (the Store build drops launch flags) — Prism tells you and points to
   claude.com/download. Verified on Windows; macOS/Linux untested.
+- Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` (the app's own
+  isolation switch: separate login, agents in `<profile>/sand-data`, several
+  at once) plus a matching `--user-data-dir=` so Prism can spot them running.
+  An **overflow** profile copies the source profile's agents and config
+  (agents, settings, skills, plugins, MCP setup, tool approvals) but none of
+  its identity — tokens, machine id, cookies, MCP sign-ins and daemon/gateway
+  credentials stay behind — so you sign in with your other account on first
+  launch and pick up where the first one left off.
 - Window counts are intentionally absent: there is no honest cross-platform
   way to count another app's windows from a terminal (notably on Wayland).
 - Deleting never `rm -rf`s: folders move to a `.trash/` inside their own app

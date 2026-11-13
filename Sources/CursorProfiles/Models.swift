@@ -11,11 +11,21 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     static let systemCodeFolderName = "__claude-code-default__"
     /// Built-in Claude Desktop profile (the real Electron userData dir).
     static let systemDesktopFolderName = "__claude-desktop-default__"
+    /// Built-in Grok Bot profile (its default userData + ~/.grokbot).
+    static let systemGrokFolderName = "__grok-bot-default__"
 
     /// App identifiers. Absent in files predating multi-app support (= cursor).
     static let appCursor = "cursor"
     static let appClaudeCode = "claude-code"
     static let appClaudeDesktop = "claude-desktop"
+    static let appGrokBot = "grok-bot"
+
+    /// Every app Prism manages, in display order.
+    static let allApps = [appCursor, appClaudeCode, appClaudeDesktop, appGrokBot]
+
+    /// Reserved built-in folder names (never real profile folders).
+    static let systemFolderNames = [systemFolderName, systemCodeFolderName,
+                                    systemDesktopFolderName, systemGrokFolderName]
 
     var folderName: String          // directory name inside its app's profiles dir
     var displayName: String
@@ -77,7 +87,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     /// Legacy/unknown app values are Cursor profiles.
     static func normalizeApp(_ raw: String?) -> String {
         guard let raw else { return appCursor }
-        return raw == appClaudeCode || raw == appClaudeDesktop ? raw : appCursor
+        return [appClaudeCode, appClaudeDesktop, appGrokBot].contains(raw) ? raw : appCursor
     }
 
     var normalizedApp: String { Self.normalizeApp(app) }
@@ -86,8 +96,14 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         switch normalizedApp {
         case Self.appClaudeCode: return "Claude Code"
         case Self.appClaudeDesktop: return "Claude Desktop"
+        case Self.appGrokBot: return "Grok Bot"
         default: return "Cursor"
         }
+    }
+
+    /// Display name of an app identifier (for UI that has no profile yet).
+    static func label(for app: String) -> String {
+        CursorProfile(folderName: "", displayName: "", app: app, colorHex: "#000000").appLabel
     }
 
     /// Short badge for cards; empty for Cursor (the default).
@@ -95,19 +111,26 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         switch normalizedApp {
         case Self.appClaudeCode: return "CODE"
         case Self.appClaudeDesktop: return "DESKTOP"
+        case Self.appGrokBot: return "GROK"
         default: return ""
         }
     }
 
     var showAppBadge: Bool { normalizedApp != Self.appCursor }
 
-    /// Only Cursor launches with --max-memory; Claude apps have no cap.
+    /// Only Cursor launches with --max-memory; other apps have no cap.
     var hasMemoryCap: Bool { normalizedApp == Self.appCursor }
+
+    /// Whether launching can open a project folder (Cursor, Claude Code).
+    var opensProjectFolder: Bool {
+        normalizedApp == Self.appCursor || normalizedApp == Self.appClaudeCode
+    }
 
     static func systemMarker(for app: String) -> String {
         switch normalizeApp(app) {
         case appClaudeCode: return systemCodeFolderName
         case appClaudeDesktop: return systemDesktopFolderName
+        case appGrokBot: return systemGrokFolderName
         default: return systemFolderName
         }
     }
@@ -116,6 +139,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         switch normalizeApp(app) {
         case appClaudeCode: return "Main Claude Code"
         case appClaudeDesktop: return "Main Claude Desktop"
+        case appGrokBot: return "Main Grok Bot"
         default: return "Main Cursor"
         }
     }

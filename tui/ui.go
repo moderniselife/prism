@@ -341,10 +341,31 @@ func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case " ", "left", "right":
 			m.formVals[1] = nextApp(m.formVals[1])
+			// Field 3 means something else per app (project folder vs.
+			// Grok Bot carry-over source): never reinterpret a value.
+			m.formVals[3] = ""
 			return m, nil
 		default:
 			return m, nil
 		}
+	}
+	// Grok Bot's last field is a picker too: fresh account, or carry
+	// agents & config over from an existing Grok Bot profile.
+	if m.formFocus == 3 && m.formVals[1] == AppGrokBot {
+		switch msg.String() {
+		case "esc":
+			m.formActive = false
+		case "ctrl+s", "tab", "enter":
+			m.doSaveForm()
+			return m, m.refreshCmd(true)
+		case "shift+tab":
+			m.formFocus = 0
+		case " ", "right":
+			m.formVals[3] = m.nextGrokSource(m.formVals[3], 1)
+		case "left":
+			m.formVals[3] = m.nextGrokSource(m.formVals[3], -1)
+		}
+		return m, nil
 	}
 	switch msg.String() {
 	case "esc":
@@ -359,7 +380,7 @@ func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.refreshCmd(true)
 		}
 		m.formFocus++
-		// Skip the memory field for Claude apps — it only applies to Cursor.
+		// Skip the memory field for other apps — it only applies to Cursor.
 		if m.formFocus == 2 && m.formVals[1] != AppCursor {
 			m.formFocus++
 		}
@@ -388,7 +409,7 @@ func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // appChoices is the new-profile app picker order. Managed Desktop profiles
 // launch via --user-data-dir (Windows needs the standalone installer build;
 // see errDesktopInstallRequired).
-var appChoices = []string{AppCursor, AppClaudeCode, AppClaudeDesktop}
+var appChoices = []string{AppCursor, AppClaudeCode, AppClaudeDesktop, AppGrokBot}
 
 func nextApp(cur string) string {
 	for i, a := range appChoices {
@@ -405,9 +426,48 @@ func appChoiceLabel(app string) string {
 		return "Claude Code (CLI)"
 	case AppClaudeDesktop:
 		return "Claude Desktop (app)"
+	case AppGrokBot:
+		return "Grok Bot (app)"
 	default:
 		return "Cursor (editor)"
 	}
+}
+
+// grokSources are the profiles a new Grok Bot profile can carry over from.
+func (m *model) grokSources() []Profile {
+	var out []Profile
+	for _, p := range m.profiles {
+		if p.App == AppGrokBot {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// nextGrokSource cycles "" (fresh account) -> each Grok Bot profile -> "".
+func (m *model) nextGrokSource(cur string, step int) string {
+	choices := []string{""}
+	for _, p := range m.grokSources() {
+		choices = append(choices, p.FolderName)
+	}
+	idx := 0
+	for i, c := range choices {
+		if c == cur {
+			idx = i
+			break
+		}
+	}
+	return choices[(idx+step+len(choices))%len(choices)]
+}
+
+func (m *model) grokSourceLabel(folder string) string {
+	if folder == "" {
+		return "Fresh account — starts empty"
+	}
+	if p := m.profileByFolder(folder); p != nil {
+		return "Overflow of " + p.DisplayName + " — its agents & config, your other sign-in"
+	}
+	return "Fresh account — starts empty"
 }
 
 // -- actions ---------------------------------------------------------------
@@ -494,9 +554,25 @@ func (m *model) doSaveForm() {
 		m.setStatus("Give the profile a name")
 		return
 	}
-	app := m.formVals[1]
-	if app != AppClaudeCode && app != AppClaudeDesktop {
-		app = AppCursor
+	app := normalizeApp(m.formVals[1])
+	if app == AppGrokBot && m.formVals[3] != "" {
+		src := m.profileByFolder(m.formVals[3])
+		if src == nil {
+			m.setStatus("Carry-over source profile no longer exists")
+			return
+		}
+		created, n, err := m.store.CreateGrokOverflow(name, accentFor(name), *src)
+		if err != nil {
+			m.setStatus("Create failed: " + err.Error())
+			return
+		}
+		m.setStatus(fmt.Sprintf("Created %s with %d files from %s — sign in with your other account on first launch",
+			name, n, src.DisplayName))
+		m.formActive = false
+		m.profiles = append([]Profile(nil), m.store.Profiles...)
+		m.sel = created.FolderName
+		m.ensureSelection()
+		return
 	}
 	mem := 16384
 	if app == AppCursor {
@@ -635,7 +711,7 @@ func profileRow(m model, p Profile, selected bool) string {
 	name := nameStyle.Render(truncate(p.DisplayName, 28))
 
 	tags := ""
-	if p.App == AppClaudeCode || p.App == AppClaudeDesktop {
+	if p.App != AppCursor {
 		tags += fg(colDim, false).Render(" [" + p.AppLabel() + "]")
 	}
 	if p.IsSystem {
@@ -717,6 +793,9 @@ func (m model) listView() string {
 
 func (m model) formView() string {
 	titles := []string{"Profile name", "App (space switches)", "Memory limit, MB (Cursor only)", "Project folder (optional)"}
+	if m.formVals[1] == AppGrokBot {
+		titles[3] = "Account (space switches: fresh, or overflow of a profile)"
+	}
 	hints := "tab next · enter next/save · esc cancel"
 	var b strings.Builder
 	b.WriteString("\n  " + fg(colText, true).Render("New profile") + "\n\n")
@@ -728,6 +807,9 @@ func (m model) formView() string {
 		val := m.formVals[i]
 		if i == 1 {
 			val = appChoiceLabel(val)
+		}
+		if i == 3 && m.formVals[1] == AppGrokBot {
+			val = m.grokSourceLabel(val)
 		}
 		if i == m.formFocus {
 			val += fg(colCyan, true).Render("█")

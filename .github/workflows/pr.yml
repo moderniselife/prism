@@ -14,7 +14,7 @@ concurrency:
 jobs:
   build-macos:
     name: macOS (Swift)
-    runs-on: macos-14 # arm64, matches build.sh's apple-macosx14.0 target
+    runs-on: macos-15 # arm64; build.sh still targets apple-macosx14.0 (macos-14 images are retired)
     steps:
       - uses: actions/checkout@v4
       - name: Build Prism.app
