@@ -1,6 +1,6 @@
 # prism-tui (npm)
 
-> **Coming soon** — publishes with the first `tui-v*` release. Until then,
+> **Coming soon** — publishes with the first `v*` release. Until then,
 > run from source (`go run ./tui`).
 
 Prism for the terminal, via npm. Installs the prebuilt static binary for

@@ -1,4 +1,4 @@
-# Release pipeline. Push a tag like `tui-v1.2.3` and this ships everything
+# Release pipeline. Push a tag like `v1.2.3` and this ships everything
 # it can: TUI binaries + checksums, the GUI apps (mac .app zip, Windows
 # single-file exe, Linux tarball), and — only where their secret exists —
 # PyPI wheels, the npm package, the Homebrew tap casks, and a Winget PR.
@@ -20,7 +20,7 @@ name: Release
 
 on:
   push:
-    tags: ["tui-v*"]
+    tags: ["v*"]
 
 permissions:
   contents: write
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
-            gh release create "${{ github.ref_name }}" --generate-notes
+            gh release create "${{ github.ref_name }}" --title "Prism ${{ github.ref_name }}" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -116,7 +116,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          VER="${TAG#tui-v}"
+          VER="${TAG#v}"
           gh release download "$TAG" -p "${{ matrix.asset }}" -D assets --repo moderniselife/prism
           rm -rf wheelbuild stage && mkdir -p wheelbuild stage
           cp -r pypi/prism-tui/README.md pypi/prism-tui/pyproject.toml \
@@ -185,7 +185,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          node -e 'const fs=require("fs"); const p="npm/prism-tui/package.json"; const j=JSON.parse(fs.readFileSync(p)); const tag=process.env.TAG; const ver=tag.replace(/^tui-v/,""); j.version=ver; j.prism.releaseTag=tag; fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");'
+          node -e 'const fs=require("fs"); const p="npm/prism-tui/package.json"; const j=JSON.parse(fs.readFileSync(p)); const tag=process.env.TAG; const ver=tag.replace(/^v/,""); j.version=ver; j.prism.releaseTag=tag; fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");'
       - name: Publish
         if: steps.gate.outputs.has == 'true'
         run: npm publish --access public
@@ -211,7 +211,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VER="${TAG#tui-v}"
+          VER="${TAG#v}"
           gh release download "$TAG" -p checksums.txt -D /tmp/tap --repo moderniselife/prism
           SHA_ARM=$(grep "prism-tui-darwin-arm64.tar.gz" /tmp/tap/checksums.txt | cut -d' ' -f1)
           SHA_INTEL=$(grep "prism-tui-darwin-amd64.tar.gz" /tmp/tap/checksums.txt | cut -d' ' -f1)
@@ -244,7 +244,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          VER="${TAG#tui-v}"
+          VER="${TAG#v}"
           gh release download "$TAG" -p Prism.app.zip -D /tmp/cask --repo moderniselife/prism
           SHA=$(shasum -a 256 /tmp/cask/Prism.app.zip | cut -d' ' -f1)
           sed -e "s/__VERSION__/$VER/" -e "s/__SHA256__/$SHA/" \
@@ -267,7 +267,7 @@ jobs:
         run: '[ -n "${{ secrets.WINGET_TOKEN }}" ] && echo has=true >> "$GITHUB_OUTPUT" || echo has=false >> "$GITHUB_OUTPUT"'
       - id: ver
         if: steps.gate.outputs.has == 'true'
-        run: echo "version=${GITHUB_REF_NAME#tui-v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - uses: vedantmgoyal9/winget-releaser@main
         if: steps.gate.outputs.has == 'true'
         with:

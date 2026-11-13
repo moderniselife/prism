@@ -52,7 +52,7 @@ async function main() {
   }
   const isWin = osName === "windows";
   const asset = `prism-tui-${osName}-${arch}.${isWin ? "zip" : "tar.gz"}`;
-  // Release tags look like tui-v1.2.3; the tag is stamped into package.json
+  // Release tags look like v1.2.3; the tag is stamped into package.json
   // at publish time (see .github/workflows/release.yml).
   const tag = pkg.prism && pkg.prism.releaseTag ? pkg.prism.releaseTag : `v${version}`;
   const url = `https://github.com/${pkg.prism.repo}/releases/download/${tag}/${asset}`;
