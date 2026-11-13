@@ -65,8 +65,8 @@ type model struct {
 	filtering bool
 
 	formActive bool
-	formFocus  int // 0 name, 1 app, 2 memory, 3 project
-	formVals   [4]string
+	formFocus  int // 0 name, 1 app, 2 memory, 3 project, 4 account
+	formVals   [5]string
 
 	confirmDelete string
 
@@ -289,7 +289,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		m.formActive = true
 		m.formFocus = 0
-		m.formVals = [4]string{"", AppCursor, "16384", ""}
+		m.formVals = [5]string{"", AppCursor, "16384", "", ""}
 		m.confirmDelete = ""
 	case "d":
 		m.doDelete()
@@ -326,84 +326,94 @@ func (m model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// Form fields: 0 name, 1 app, 2 memory, 3 project folder, 4 account.
+const (
+	fieldName    = 0
+	fieldApp     = 1
+	fieldMemory  = 2
+	fieldProject = 3
+	fieldAccount = 4
+)
+
+// formFields lists the fields that apply to an app, in tab order. Memory
+// is Cursor-only; Desktop and Grok Bot never open a project folder.
+func formFields(app string) []int {
+	switch app {
+	case AppCursor:
+		return []int{fieldName, fieldApp, fieldMemory, fieldProject, fieldAccount}
+	case AppClaudeCode:
+		return []int{fieldName, fieldApp, fieldProject, fieldAccount}
+	default:
+		return []int{fieldName, fieldApp, fieldAccount}
+	}
+}
+
+// stepField moves focus to the next/previous applicable field.
+func (m *model) stepField(step int) {
+	fields := formFields(m.formVals[fieldApp])
+	idx := 0
+	for i, f := range fields {
+		if f == m.formFocus {
+			idx = i
+			break
+		}
+	}
+	m.formFocus = fields[(idx+step+len(fields))%len(fields)]
+}
+
 func (m model) formKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The app field is a picker, not text: space/left/right cycle it.
-	if m.formFocus == 1 {
-		switch msg.String() {
-		case "esc":
-			m.formActive = false
-			return m, nil
-		case "tab", "enter":
-			m.formFocus++
-			return m, nil
-		case "shift+tab":
-			m.formFocus = (m.formFocus + 3) % 4
-			return m, nil
-		case " ", "left", "right":
-			m.formVals[1] = nextApp(m.formVals[1])
-			// Field 3 means something else per app (project folder vs.
-			// Grok Bot carry-over source): never reinterpret a value.
-			m.formVals[3] = ""
-			return m, nil
-		default:
-			return m, nil
-		}
-	}
-	// Grok Bot's last field is a picker too: fresh account, or carry
-	// agents & config over from an existing Grok Bot profile.
-	if m.formFocus == 3 && m.formVals[1] == AppGrokBot {
-		switch msg.String() {
-		case "esc":
-			m.formActive = false
-		case "ctrl+s", "tab", "enter":
-			m.doSaveForm()
-			return m, m.refreshCmd(true)
-		case "shift+tab":
-			m.formFocus = 0
-		case " ", "right":
-			m.formVals[3] = m.nextGrokSource(m.formVals[3], 1)
-		case "left":
-			m.formVals[3] = m.nextGrokSource(m.formVals[3], -1)
-		}
-		return m, nil
-	}
-	switch msg.String() {
+	key := msg.String()
+	switch key {
 	case "esc":
 		m.formActive = false
 		return m, nil
 	case "ctrl+s":
 		m.doSaveForm()
 		return m, m.refreshCmd(true)
+	case "shift+tab":
+		m.stepField(-1)
+		return m, nil
 	case "tab", "enter":
-		if m.formFocus == 3 {
+		if m.formFocus == fieldAccount {
 			m.doSaveForm()
 			return m, m.refreshCmd(true)
 		}
-		m.formFocus++
-		// Skip the memory field for other apps — it only applies to Cursor.
-		if m.formFocus == 2 && m.formVals[1] != AppCursor {
-			m.formFocus++
+		m.stepField(1)
+		return m, nil
+	}
+	// The app and account fields are pickers: space/left/right cycle them.
+	switch m.formFocus {
+	case fieldApp:
+		if key == " " || key == "left" || key == "right" {
+			m.formVals[fieldApp] = nextApp(m.formVals[fieldApp])
+			// Sources belong to one app; never carry a choice across.
+			m.formVals[fieldAccount] = ""
 		}
 		return m, nil
-	case "shift+tab":
-		m.formFocus = (m.formFocus + 3) % 4
+	case fieldAccount:
+		switch key {
+		case " ", "right":
+			m.formVals[fieldAccount] = m.nextSource(m.formVals[fieldAccount], 1)
+		case "left":
+			m.formVals[fieldAccount] = m.nextSource(m.formVals[fieldAccount], -1)
+		}
 		return m, nil
+	}
+	switch key {
 	case "backspace":
 		v := m.formVals[m.formFocus]
 		if v != "" {
 			r := []rune(v)
 			m.formVals[m.formFocus] = string(r[:len(r)-1])
 		}
-		return m, nil
 	case "ctrl+u":
 		m.formVals[m.formFocus] = ""
-		return m, nil
 	default:
 		if len(msg.Runes) == 1 {
 			m.formVals[m.formFocus] += string(msg.Runes)
 		}
-		return m, nil
 	}
+	return m, nil
 }
 
 // appChoices is the new-profile app picker order. Managed Desktop profiles
@@ -433,21 +443,23 @@ func appChoiceLabel(app string) string {
 	}
 }
 
-// grokSources are the profiles a new Grok Bot profile can carry over from.
-func (m *model) grokSources() []Profile {
+// overflowSources are the profiles of the form's app a new profile can
+// carry agents and config over from.
+func (m *model) overflowSources() []Profile {
+	app := normalizeApp(m.formVals[fieldApp])
 	var out []Profile
 	for _, p := range m.profiles {
-		if p.App == AppGrokBot {
+		if p.App == app {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-// nextGrokSource cycles "" (fresh account) -> each Grok Bot profile -> "".
-func (m *model) nextGrokSource(cur string, step int) string {
+// nextSource cycles "" (fresh account) -> each same-app profile -> "".
+func (m *model) nextSource(cur string, step int) string {
 	choices := []string{""}
-	for _, p := range m.grokSources() {
+	for _, p := range m.overflowSources() {
 		choices = append(choices, p.FolderName)
 	}
 	idx := 0
@@ -460,11 +472,8 @@ func (m *model) nextGrokSource(cur string, step int) string {
 	return choices[(idx+step+len(choices))%len(choices)]
 }
 
-func (m *model) grokSourceLabel(folder string) string {
-	if folder == "" {
-		return "Fresh account — starts empty"
-	}
-	if p := m.profileByFolder(folder); p != nil {
+func (m *model) sourceLabel(folder string) string {
+	if p := m.profileByFolder(folder); folder != "" && p != nil {
 		return "Overflow of " + p.DisplayName + " — its agents & config, your other sign-in"
 	}
 	return "Fresh account — starts empty"
@@ -549,53 +558,50 @@ func (m *model) doDelete() {
 }
 
 func (m *model) doSaveForm() {
-	name := strings.TrimSpace(m.formVals[0])
+	name := strings.TrimSpace(m.formVals[fieldName])
 	if name == "" {
 		m.setStatus("Give the profile a name")
 		return
 	}
-	app := normalizeApp(m.formVals[1])
-	if app == AppGrokBot && m.formVals[3] != "" {
-		src := m.profileByFolder(m.formVals[3])
-		if src == nil {
-			m.setStatus("Carry-over source profile no longer exists")
-			return
-		}
-		created, n, err := m.store.CreateGrokOverflow(name, accentFor(name), *src)
-		if err != nil {
-			m.setStatus("Create failed: " + err.Error())
-			return
-		}
-		m.setStatus(fmt.Sprintf("Created %s with %d files from %s — sign in with your other account on first launch",
-			name, n, src.DisplayName))
-		m.formActive = false
-		m.profiles = append([]Profile(nil), m.store.Profiles...)
-		m.sel = created.FolderName
-		m.ensureSelection()
-		return
-	}
+	app := normalizeApp(m.formVals[fieldApp])
 	mem := 16384
 	if app == AppCursor {
 		var err error
-		mem, err = strconv.Atoi(strings.TrimSpace(m.formVals[2]))
+		mem, err = strconv.Atoi(strings.TrimSpace(m.formVals[fieldMemory]))
 		if err != nil || mem < 512 {
 			m.setStatus("Memory must be a number >= 512")
 			return
 		}
 	}
-	if _, err := m.store.CreateApp(name, app, accentFor(name), mem, strings.TrimSpace(m.formVals[3])); err != nil {
+	project := ""
+	if app == AppCursor || app == AppClaudeCode {
+		project = strings.TrimSpace(m.formVals[fieldProject])
+	}
+
+	var created *Profile
+	var err error
+	status := "Created " + name
+	if folder := m.formVals[fieldAccount]; folder != "" {
+		src := m.profileByFolder(folder)
+		if src == nil {
+			m.setStatus("Carry-over source profile no longer exists")
+			return
+		}
+		var n int
+		created, n, err = m.store.CreateOverflow(name, accentFor(name), mem, project, *src)
+		status = fmt.Sprintf("Created %s with %d files from %s — sign in with your other account on first launch",
+			name, n, src.DisplayName)
+	} else {
+		created, err = m.store.CreateApp(name, app, accentFor(name), mem, project)
+	}
+	if err != nil {
 		m.setStatus("Create failed: " + err.Error())
 		return
 	}
-	m.setStatus("Created " + name)
+	m.setStatus(status)
 	m.formActive = false
 	m.profiles = append([]Profile(nil), m.store.Profiles...)
-	for _, p := range m.profiles {
-		if p.DisplayName == name {
-			m.sel = p.FolderName
-			break
-		}
-	}
+	m.sel = created.FolderName
 	m.ensureSelection()
 }
 
@@ -792,24 +798,28 @@ func (m model) listView() string {
 }
 
 func (m model) formView() string {
-	titles := []string{"Profile name", "App (space switches)", "Memory limit, MB (Cursor only)", "Project folder (optional)"}
-	if m.formVals[1] == AppGrokBot {
-		titles[3] = "Account (space switches: fresh, or overflow of a profile)"
+	titles := map[int]string{
+		fieldName:    "Profile name",
+		fieldApp:     "App (space switches)",
+		fieldMemory:  "Memory limit, MB",
+		fieldProject: "Project folder (optional)",
+		fieldAccount: "Account (space switches: fresh, or overflow of a profile)",
 	}
 	hints := "tab next · enter next/save · esc cancel"
 	var b strings.Builder
 	b.WriteString("\n  " + fg(colText, true).Render("New profile") + "\n\n")
-	for i, t := range titles {
+	for _, i := range formFields(m.formVals[fieldApp]) {
+		t := titles[i]
 		head := fg(colDim, false).Render("  " + t)
 		if i == m.formFocus {
 			head = fg(colCyan, true).Render("▸ " + t)
 		}
 		val := m.formVals[i]
-		if i == 1 {
+		switch i {
+		case fieldApp:
 			val = appChoiceLabel(val)
-		}
-		if i == 3 && m.formVals[1] == AppGrokBot {
-			val = m.grokSourceLabel(val)
+		case fieldAccount:
+			val = m.sourceLabel(val)
 		}
 		if i == m.formFocus {
 			val += fg(colCyan, true).Render("█")

@@ -223,9 +223,6 @@ final class ProfileStore: ObservableObject {
             lastError = "Could not create profile folder: \(error.localizedDescription)"
             return nil
         }
-        if normalized == CursorProfile.appClaudeDesktop {
-            Self.seedDesktopConfig(systemDir: Self.systemDataDir(for: normalized), profileDir: dir)
-        }
         profiles.append(profile)
         saveMetadata()
         refreshSizes()
@@ -251,14 +248,13 @@ final class ProfileStore: ObservableObject {
         return folder
     }
 
-    /// New Grok Bot profile as an *overflow account*: it carries over
-    /// another Grok Bot profile's agents and config (agents, settings,
-    /// skills, plugins, MCP setup, tool approvals) but never its identity —
-    /// tokens, machine id, cookies and MCP sign-ins stay behind (see
-    /// GrokLauncher). First launch signs in with the other account. The
-    /// card appears once the copy finishes; the source card shows progress.
-    func createGrokOverflow(displayName: String, colorHex: String, source: CursorProfile) {
-        guard source.normalizedApp == CursorProfile.appGrokBot else { return }
+    /// New profile as an *overflow account* of `source` (same app): it
+    /// carries over source's config — never its identity (see CarryOver).
+    /// First launch signs in with the other account. The card appears once
+    /// the copy finishes; the source card shows progress meanwhile.
+    func createOverflow(displayName: String, colorHex: String, memoryMB: Int,
+                        defaultProjectPath: String?, source: CursorProfile) {
+        let app = source.normalizedApp
         let name = displayName.trimmingCharacters(in: .whitespaces)
         let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "_"))
         guard !base.isEmpty else {
@@ -266,18 +262,39 @@ final class ProfileStore: ObservableObject {
             return
         }
         let profile = CursorProfile(
-            folderName: uniqueFolderName(base: base, app: CursorProfile.appGrokBot),
+            folderName: uniqueFolderName(base: base, app: app),
             displayName: name,
-            app: CursorProfile.appGrokBot,
-            colorHex: colorHex
+            app: app,
+            colorHex: colorHex,
+            defaultMemoryMB: memoryMB,
+            defaultProjectPath: defaultProjectPath
         )
-        startGrokCarryOver(from: source, into: profile)
+        startCarryOver(from: source, into: profile)
     }
 
-    private func startGrokCarryOver(from source: CursorProfile, into profile: CursorProfile) {
-        let sourceRoot = GrokLauncher.dataRoot(profileDir: directory(for: source), isSystem: source.isSystem)
+    /// One-click overflow account from a card's context menu.
+    func newOverflow(from source: CursorProfile) {
+        let app = source.normalizedApp
+        let name = source.isSystem
+            ? source.appLabel + " Overflow"
+            : source.displayName + " Overflow"
+        let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "-"))
+        let profile = CursorProfile(
+            folderName: uniqueFolderName(base: base, app: app),
+            displayName: name,
+            app: app,
+            colorHex: source.colorHex,
+            defaultMemoryMB: source.defaultMemoryMB,
+            defaultProjectPath: source.defaultProjectPath
+        )
+        startCarryOver(from: source, into: profile)
+    }
+
+    private func startCarryOver(from source: CursorProfile, into profile: CursorProfile) {
+        let app = source.normalizedApp
+        let sourceDir = directory(for: source)
+        let sourceIsSystem = source.isSystem
         let destDir = directory(for: profile)
-        let destRoot = GrokLauncher.dataRoot(profileDir: destDir, isSystem: false)
         let sourceFolder = source.folderName
         let sourceName = source.displayName
         let newProfile = profile
@@ -285,7 +302,9 @@ final class ProfileStore: ObservableObject {
         Task { [weak self] in
             let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
                 do {
-                    _ = try GrokLauncher.carryOver(from: sourceRoot, to: destRoot)
+                    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+                    _ = try CarryOver.run(app: app, sourceDir: sourceDir, sourceIsSystem: sourceIsSystem,
+                                          destinationDir: destDir)
                     return nil
                 } catch {
                     return error.localizedDescription
@@ -295,16 +314,6 @@ final class ProfileStore: ObservableObject {
                                   errorMessage: errorMessage,
                                   errorPrefix: "Could not carry over from '\(sourceName)'")
         }
-    }
-
-    /// Copy just claude_desktop_config.json (MCP/connectors) into a fresh
-    /// Desktop profile — never gigabytes of Electron cache.
-    static func seedDesktopConfig(systemDir: URL, profileDir: URL) {
-        let src = systemDir.appendingPathComponent("claude_desktop_config.json")
-        let dst = profileDir.appendingPathComponent("claude_desktop_config.json")
-        guard FileManager.default.fileExists(atPath: src.path),
-              !FileManager.default.fileExists(atPath: dst.path) else { return }
-        try? FileManager.default.copyItem(at: src, to: dst)
     }
 
     func update(_ profile: CursorProfile) {
@@ -319,23 +328,15 @@ final class ProfileStore: ObservableObject {
 
     /// Duplicate a profile. For the built-in profile this *clones* the original
     /// app data into a new managed profile — the original is only read,
-    /// never touched. Desktop duplicates are config-only (full Electron dirs
-    /// are gigabytes of cache). Grok Bot duplicates are overflow accounts:
-    /// agents and config, never the sign-in (two profiles sharing one
-    /// refresh token and machine id would sign each other out). Runs in the
-    /// background since data dirs can be large.
+    /// never touched. Claude Desktop and Grok Bot duplicates are overflow
+    /// accounts instead (config, never the sign-in): full Electron dirs are
+    /// gigabytes of cache, and two profiles sharing one refresh token and
+    /// machine id would sign each other out. Runs in the background since
+    /// data dirs can be large.
     func duplicate(_ profile: CursorProfile) {
         let app = profile.normalizedApp
-        if app == CursorProfile.appGrokBot {
-            let name = profile.isSystem ? "Grok Bot Overflow" : profile.displayName + " Overflow"
-            let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "-"))
-            let copy = CursorProfile(
-                folderName: uniqueFolderName(base: base, app: app),
-                displayName: name,
-                app: app,
-                colorHex: profile.colorHex
-            )
-            startGrokCarryOver(from: profile, into: copy)
+        if app == CursorProfile.appGrokBot || app == CursorProfile.appClaudeDesktop {
+            newOverflow(from: profile)
             return
         }
         let base = profile.isSystem
@@ -368,32 +369,12 @@ final class ProfileStore: ObservableObject {
         let sourceURL = source
         let destURL = dest
         let finishedCopy = copy
-        let desktopOnly = app == CursorProfile.appClaudeDesktop
         Task { [weak self] in
             let copyErrorMessage = await Task.detached(priority: .userInitiated) {
-                if desktopOnly {
-                    Self.copyDesktopConfig(source: sourceURL, dest: destURL)
-                } else {
-                    Self.copyProfileData(source: sourceURL, dest: destURL)
-                }
+                Self.copyProfileData(source: sourceURL, dest: destURL)
             }.value
             self?.finishDuplicate(folderName: folderName, copy: finishedCopy,
                                   dest: destURL, errorMessage: copyErrorMessage)
-        }
-    }
-
-    /// Config-only Desktop copy: fresh dir + MCP/connectors config.
-    private static nonisolated func copyDesktopConfig(source: URL, dest: URL) -> String? {
-        do {
-            try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-            let src = source.appendingPathComponent("claude_desktop_config.json")
-            if FileManager.default.fileExists(atPath: src.path) {
-                try FileManager.default.copyItem(
-                    at: src, to: dest.appendingPathComponent("claude_desktop_config.json"))
-            }
-            return nil
-        } catch {
-            return error.localizedDescription
         }
     }
 
@@ -419,6 +400,8 @@ final class ProfileStore: ObservableObject {
             profiles.append(copy)
             saveMetadata()
             refreshSizes()
+            // Copied Cursor settings carry the source's title bar color.
+            TitleBarColorizer.apply(profile: copy, profileDir: dest)
         }
     }
 

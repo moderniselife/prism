@@ -109,11 +109,14 @@ def system_data_dir_for(app):
 # to find the profile in the process list; environment variables are
 # invisible there.
 #
-# An *overflow* profile carries over another profile's agents and config —
-# only the agent data root, minus anything that identifies an account, a
-# machine or a running instance. Electron userData is never copied: it holds
-# the encrypted tokens and machine id (sand-secrets.json), user-secrets.json,
-# cookies and account-scoped caches. Keep in sync with tui/grokbot.go.
+# A Grok Bot *overflow* profile carries over the local setup only — the data
+# root minus anything that identifies an account, a machine or a running
+# instance, and settings.json minus its account-scoped keys. Grok Bot's
+# agents are not local: they live on the account's cloud box and arrive as a
+# server roster, so no copy can move them ("Share with team" in the app can).
+# Electron userData is never copied: it holds the encrypted tokens and
+# machine id, user secrets, cookies and account-scoped caches. Keep in sync
+# with tui/grokbot.go.
 
 GROK_USER_DATA_ENV = "SAND_USER_DATA_DIR"
 GROK_DATA_SUBDIR = "sand-data"
@@ -126,6 +129,11 @@ GROK_SKIP_TOP = (
     "dev-box", "computer-use", "logs", "v8-code-cache",
 )
 GROK_SKIP_TOP_PREFIXES = ("local-exec-",)
+# settings.json fields bound to the signed-in account or its cloud box.
+GROK_ACCOUNT_SETTINGS_KEYS = (
+    "activeAccountScope", "hasSeenOnboardingAccountScope", "hasSeenOnboarding",
+    "boxRosterCensus", "egressTunnelCommittedBoxUrls",
+)
 
 
 def grok_carry_over_skips(rel: str) -> bool:
@@ -178,6 +186,121 @@ def carry_over_grok_data(src_root: Path, dst_root: Path) -> int:
                 copied += 1
 
     walk(src_root, dst_root, "")
+    settings = dst_root / "settings.json"
+    if settings.is_file():
+        try:
+            data = json.loads(settings.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("unexpected settings.json shape")
+        except ValueError:
+            settings.unlink()  # never carry what can't be vetted
+        else:
+            for key in GROK_ACCOUNT_SETTINGS_KEYS:
+                data.pop(key, None)
+            settings.write_text(json.dumps(data, indent=2))
+    return copied
+
+
+# -- Overflow accounts for every app -------------------------------------------
+#
+# A new profile that carries another same-app profile's config over, never its
+# identity. Allowlists wherever an app mixes config and identity, so an unknown
+# new token file can never leak. Keep in sync with tui/carryover.go.
+
+CURSOR_CARRY_OVER = ("User/settings.json", "User/keybindings.json",
+                     "User/tasks.json", "User/snippets")
+DESKTOP_CARRY_OVER = ("claude_desktop_config.json", "Claude Extensions",
+                      "Claude Extensions Settings")
+CODE_CARRY_OVER = ("settings.json", "CLAUDE.md", "keybindings.json", "agents",
+                   "commands", "skills", "output-styles", "hooks", "plugins")
+CODE_STATE_KEYS = ("mcpServers", "theme", "editorMode", "autoCompactEnabled",
+                   "verbose", "preferredNotifChannel")
+
+OVERFLOW_EXPLAINERS = {
+    APP_CURSOR: "Copies settings, keybindings, tasks and snippets (extensions are already "
+                "shared). Its login and machine id stay behind.",
+    APP_CODE: "Copies settings, CLAUDE.md, agents, commands, skills, output styles, hooks, "
+              "plugins and your user-level MCP servers. Its login, account id and chat "
+              "history stay behind.",
+    APP_DESKTOP: "Copies the MCP config and installed extensions with their settings. "
+                 "Its login and cookies stay behind.",
+    APP_GROK: "Copies local settings, permission choices and tool approvals; its login and "
+              "machine identity stay behind. Grok Bot agents live on your account's cloud "
+              "box — use Share with team on an agent in Grok Bot to give this account the "
+              "same agents.",
+}
+
+
+def _skips_anywhere(name: str) -> bool:
+    leaf = name.lower()
+    return (leaf in ("lockfile", "singletonlock", "singletonsocket", "singletoncookie")
+            or leaf.endswith((".lock", ".sock", ".pid")))
+
+
+def _copy_tree_no_links(src: Path, dst: Path) -> int:
+    """Copy a file or directory, skipping symlinks, special and lock files."""
+    if src.is_symlink() or _skips_anywhere(src.name):
+        return 0
+    if src.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        shutil.copy2(src, dst, follow_symlinks=False)
+        return 1
+    if not src.is_dir():
+        return 0
+    dst.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return sum(_copy_tree_no_links(Path(e.path), dst / e.name) for e in os.scandir(src))
+
+
+def _copy_allowlist(src_dir: Path, dst_dir: Path, entries) -> int:
+    if not Path(src_dir).is_dir():
+        raise OSError(f"nothing to carry over: {src_dir} does not exist — "
+                      "launch the source profile once first")
+    return sum(_copy_tree_no_links(Path(src_dir) / rel, Path(dst_dir) / rel)
+               for rel in entries if os.path.lexists(Path(src_dir) / rel))
+
+
+def claude_code_state_file(config_dir: Path, is_system: bool) -> Path:
+    """.claude.json lives in $HOME for the default config dir."""
+    if is_system and not os.environ.get("CLAUDE_CONFIG_DIR"):
+        return Path.home() / ".claude.json"
+    return Path(config_dir) / ".claude.json"
+
+
+def carry_over(app: str, src_dir: Path, src_is_system: bool, dst_dir: Path) -> int:
+    """Copy a profile's config (never its identity) into a new profile dir."""
+    app = normalize_app(app)
+    src_dir, dst_dir = Path(src_dir), Path(dst_dir)
+    if app == APP_GROK:
+        return carry_over_grok_data(grok_data_root(src_dir, src_is_system),
+                                    grok_data_root(dst_dir, False))
+    if app == APP_DESKTOP:
+        return _copy_allowlist(src_dir, dst_dir, DESKTOP_CARRY_OVER)
+    if app == APP_CURSOR:
+        return _copy_allowlist(src_dir, dst_dir, CURSOR_CARRY_OVER)
+    copied = _copy_allowlist(src_dir, dst_dir, CODE_CARRY_OVER)
+    # Plugin bookkeeping records absolute install paths: repoint them.
+    plugins = dst_dir / "plugins"
+    if plugins.is_dir():
+        pairs = [(str(src_dir), str(dst_dir)),
+                 (json.dumps(str(src_dir))[1:-1], json.dumps(str(dst_dir))[1:-1])]
+        for path in plugins.rglob("*.json"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            new = text
+            for old, repl in pairs:
+                new = new.replace(old, repl)
+            if new != text:
+                path.write_text(new, encoding="utf-8")
+    state = claude_code_state_file(src_dir, src_is_system)
+    if state.is_file():
+        data = json.loads(state.read_text())
+        kept = {k: data[k] for k in CODE_STATE_KEYS if isinstance(data, dict) and k in data}
+        if kept:
+            out = dst_dir / ".claude.json"
+            out.write_text(json.dumps(kept, indent=2))
+            os.chmod(out, 0o600)
+            copied += 1
     return copied
 
 LAUNCHERS_DIR = Path(GLib.get_user_data_dir()) / "applications"
@@ -862,26 +985,12 @@ class Store:
         except OSError as e:
             self.on_error(f"Could not create profile folder: {e}")
             return None
-        if app == APP_DESKTOP:
-            self.seed_desktop_config(system_data_dir_for(app), profile_dir)
         self.profiles.append(profile)
         self.save_metadata()
         self.on_changed()
         self.refresh_sizes()
         TitleBarColorizer.apply(profile, profile_dir)
         return profile
-
-    @staticmethod
-    def seed_desktop_config(system_dir: Path, profile_dir: Path):
-        """Copy just claude_desktop_config.json (MCP/connectors) into a fresh
-        profile — never gigabytes of Electron cache."""
-        try:
-            src = system_dir / "claude_desktop_config.json"
-            dst = profile_dir / "claude_desktop_config.json"
-            if src.is_file() and not dst.exists():
-                shutil.copy2(src, dst)
-        except OSError:
-            pass
 
     def update(self, profile: Profile):
         self.save_metadata()
@@ -913,29 +1022,44 @@ class Store:
     def remove_launcher(self, profile: Profile):
         LauncherBuilder.remove(profile)
 
-    def create_grok_overflow(self, name: str, color_hex: str, source: Profile):
-        """New Grok Bot profile as an overflow account: the source profile's
-        agents and config, never its sign-in. The card appears when the copy
-        finishes; the source card shows a spinner meanwhile."""
+    def create_overflow(self, name: str, color_hex: str, memory_mb: int,
+                        project_path, source: Profile):
+        """New profile as an overflow account of source (same app): its config,
+        never its sign-in. The card appears when the copy finishes; the source
+        card shows a spinner meanwhile."""
+        app = normalize_app(source.app)
         base = sanitize_folder_name(name.replace(" ", "_"))
         if not base:
             self.on_error("Profile name must contain at least one letter, number, hyphen or underscore.")
             return
-        profile = Profile(folderName=self.unique_folder_name(base, APP_GROK),
-                          displayName=name.strip(), app=APP_GROK, colorHex=color_hex)
-        self._start_grok_carry_over(source, profile)
+        self._start_carry_over(source, Profile(
+            folderName=self.unique_folder_name(base, app), displayName=name.strip(),
+            app=app, colorHex=color_hex, defaultMemoryMB=memory_mb,
+            defaultProjectPath=project_path or None))
 
-    def _start_grok_carry_over(self, source: Profile, new_profile: Profile):
-        src_root = grok_data_root(self.directory_for(source), source.isSystem)
-        dest = profiles_dir_for(APP_GROK) / new_profile.folderName
+    def new_overflow(self, source: Profile):
+        """One-click overflow account from a card's menu."""
+        app = normalize_app(source.app)
+        name = (app_label(app) if source.isSystem else source.displayName) + " Overflow"
+        self._start_carry_over(source, Profile(
+            folderName=self.unique_folder_name(sanitize_folder_name(name.replace(" ", "-")), app),
+            displayName=name, app=app, colorHex=source.colorHex,
+            defaultMemoryMB=source.defaultMemoryMB,
+            defaultProjectPath=source.defaultProjectPath))
+
+    def _start_carry_over(self, source: Profile, new_profile: Profile):
+        app = normalize_app(source.app)
+        src_dir = self.directory_for(source)
+        dest = profiles_dir_for(app) / new_profile.folderName
         self.duplicating.add(source.folderName)
         self.on_status()
 
         def work():
             error = None
             try:
-                carry_over_grok_data(src_root, dest / GROK_DATA_SUBDIR)
-            except (OSError, shutil.Error) as e:
+                dest.mkdir(parents=True, exist_ok=True)
+                carry_over(app, src_dir, source.isSystem, dest)
+            except (OSError, ValueError, shutil.Error) as e:
                 error = str(e)
                 shutil.rmtree(dest, ignore_errors=True)
 
@@ -949,6 +1073,8 @@ class Store:
                     self.save_metadata()
                     self.on_changed()
                     self.refresh_sizes()
+                    # Copied Cursor settings carry the source's title bar color.
+                    TitleBarColorizer.apply(new_profile, dest)
                 return False
 
             GLib.idle_add(finish)
@@ -957,16 +1083,12 @@ class Store:
 
     def duplicate(self, profile: Profile):
         """Clone a profile. For the built-in profile the original is only read.
-        Desktop duplicates are config-only (full Electron dirs are gigabytes
-        of cache); Grok Bot duplicates are overflow accounts (agents and
-        config, never the sign-in); Code/Cursor duplicates copy the whole
-        folder."""
+        Desktop and Grok Bot duplicates are overflow accounts (config, never
+        the sign-in; full Electron dirs are gigabytes of cache); Code/Cursor
+        duplicates copy the whole folder."""
         app = normalize_app(profile.app)
-        if app == APP_GROK:
-            name = "Grok Bot Overflow" if profile.isSystem else profile.displayName + " Overflow"
-            self._start_grok_carry_over(profile, Profile(
-                folderName=self.unique_folder_name(sanitize_folder_name(name.replace(" ", "-")), app),
-                displayName=name, app=app, colorHex=profile.colorHex))
+        if app in (APP_GROK, APP_DESKTOP):
+            self.new_overflow(profile)
             return
         if profile.isSystem:
             base = {APP_CODE: "Main-Claude-Code-Clone",
@@ -991,14 +1113,8 @@ class Store:
         def work():
             error = None
             try:
-                if app == APP_DESKTOP:
-                    dest.mkdir(parents=True, exist_ok=True)
-                    src = source / "claude_desktop_config.json"
-                    if src.is_file():
-                        shutil.copy2(src, dest / "claude_desktop_config.json")
-                else:
-                    shutil.copytree(source, dest, symlinks=True,
-                                    ignore_dangling_symlinks=True, dirs_exist_ok=True)
+                shutil.copytree(source, dest, symlinks=True,
+                                ignore_dangling_symlinks=True, dirs_exist_ok=True)
             except (OSError, shutil.Error) as e:
                 error = str(e)
                 shutil.rmtree(dest, ignore_errors=True)
@@ -1825,10 +1941,14 @@ description="Each profile is a fully isolated instance — its own settings, log
         item("Launch with Options…", lambda: LaunchOptionsDialog(self, self.store, profile).present())
         item("Unpin" if profile.isPinned else "Pin to Top", lambda: self.toggle_pin(profile))
         item("Edit…", lambda: EditorDialog(self, self.store, profile).present())
-        item("New Overflow Account from This" if normalize_app(profile.app) == APP_GROK
-             else "Clone into New Profile" if profile.isSystem else "Duplicate",
+        clones_whole = normalize_app(profile.app) in (APP_CURSOR, APP_CODE)
+        item("Clone into New Profile" if profile.isSystem and clones_whole
+             else "Duplicate" if clones_whole else "New Overflow Account from This",
              lambda: self.store.duplicate(profile),
              enabled=profile.folderName not in self.store.duplicating)
+        if clones_whole:
+            item("New Overflow Account from This", lambda: self.store.new_overflow(profile),
+                 enabled=profile.folderName not in self.store.duplicating)
         item("Open in Files", lambda: Gio.AppInfo.launch_default_for_uri(
             Gio.File.new_for_path(str(self.store.directory_for(profile))).get_uri(), None))
         item("Update Dash Launcher" if self.store.has_launcher(profile) else "Create Dash Launcher…",
@@ -1951,25 +2071,18 @@ class EditorDialog(Adw.Window):
         self.memory_row = self._labeled("Memory limit (MB, Cursor only)", self.memory)
         form.append(self.memory_row)
 
-        # Grok Bot only: fresh account, or an overflow account carrying
-        # another profile's agents & config (never its sign-in).
-        self.grok_sources = [p for p in store.profiles if normalize_app(p.app) == APP_GROK]
-        self.grok_drop = Gtk.DropDown(model=Gtk.StringList.new(
-            ["Fresh account — starts empty"]
-            + [f"Overflow of {p.displayName} — its agents & config, your other sign-in"
-               for p in self.grok_sources]))
-        main_grok = next((i for i, p in enumerate(self.grok_sources) if p.isSystem), None)
-        if main_grok is not None:
-            self.grok_drop.set_selected(main_grok + 1)
-        grok_hint = Gtk.Label(xalign=0, wrap=True, label=(
-            "Overflow copies agents, settings, skills, plugins, MCP setup and tool "
-            "approvals. The sign-in, machine identity, cookies and MCP logins stay "
-            "behind — sign in with your other account on first launch."))
-        grok_hint.add_css_class("caption")
-        grok_hint.add_css_class("dim-label")
-        self.grok_row = self._labeled("Account", self.grok_drop)
-        self.grok_row.append(grok_hint)
-        form.append(self.grok_row)
+        # Fresh account, or an overflow account carrying another same-app
+        # profile's config (never its sign-in). Rebuilt when the app changes.
+        self.account_sources: list[Profile] = []
+        self.account_model = Gtk.StringList.new([])
+        self.account_drop = Gtk.DropDown(model=self.account_model)
+        self.account_drop.connect("notify::selected", lambda *_: self._update_account_hint())
+        self.account_hint = Gtk.Label(xalign=0, wrap=True)
+        self.account_hint.add_css_class("caption")
+        self.account_hint.add_css_class("dim-label")
+        self.account_row = self._labeled("Account", self.account_drop)
+        self.account_row.append(self.account_hint)
+        form.append(self.account_row)
 
         project_row = Gtk.Box(spacing=6)
         self.project = Gtk.Entry(hexpand=True, placeholder_text="Optional",
@@ -2012,9 +2125,24 @@ class EditorDialog(Adw.Window):
         is_cursor = app == APP_CURSOR
         self.memory.set_sensitive(is_cursor)
         self.memory_row.set_opacity(1.0 if is_cursor else 0.45)
-        # Grok Bot: account choice on create; it never opens project folders.
-        self.grok_row.set_visible(app == APP_GROK and self.profile is None)
+        # Account choice on create; Grok Bot never opens project folders.
+        self.account_row.set_visible(self.profile is None)
         self.project_row.set_visible(app != APP_GROK)
+        self.account_sources = [p for p in self.store.profiles if normalize_app(p.app) == app]
+        self.account_model.splice(0, self.account_model.get_n_items(),
+                                  ["Fresh account — starts empty"]
+                                  + [f"Overflow of {p.displayName} — its config, your other sign-in"
+                                     for p in self.account_sources])
+        self.account_drop.set_selected(0)
+        self._update_account_hint()
+
+    def _update_account_hint(self):
+        if self.account_drop.get_selected() == 0:
+            text = "Starts empty — no settings, config or sign-in."
+        else:
+            text = OVERFLOW_EXPLAINERS[self.selected_app()]
+        self.account_hint.set_label(text + " Sign in with your other account on first launch."
+                                    if self.account_drop.get_selected() else text)
 
     def set_color(self, hex_color):
         self.color_hex = hex_color
@@ -2058,9 +2186,11 @@ class EditorDialog(Adw.Window):
             p.defaultMemoryMB, p.defaultProjectPath = memory, project
             self.store.update(p)
             self.close()
-        elif self.selected_app() == APP_GROK and self.grok_drop.get_selected() > 0:
-            source = self.grok_sources[self.grok_drop.get_selected() - 1]
-            self.store.create_grok_overflow(name, self.color_hex, source)
+        elif self.account_drop.get_selected() > 0:
+            source = self.account_sources[self.account_drop.get_selected() - 1]
+            self.store.create_overflow(name, self.color_hex, memory,
+                                       project if self.selected_app() in (APP_CURSOR, APP_CODE) else None,
+                                       source)
             self.close()
         else:
             if self.store.create(name, self.color_hex, memory, project,
