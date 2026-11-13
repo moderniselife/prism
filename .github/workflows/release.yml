@@ -123,7 +123,12 @@ jobs:
                 pypi/prism-tui/setup.py pypi/prism-tui/prism_tui wheelbuild/
           mkdir -p wheelbuild/prism_tui/bin
           # Archives hold the binary plus a README — stage the binary only.
-          tar -xf "assets/${{ matrix.asset }}" -C stage
+          # Windows ships a .zip, which Git Bash's tar can't read: use Python.
+          case "${{ matrix.asset }}" in
+            *.zip) python -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' \
+                     "assets/${{ matrix.asset }}" stage ;;
+            *) tar -xf "assets/${{ matrix.asset }}" -C stage ;;
+          esac
           BIN=prism-tui; if [ "${{ runner.os }}" = Windows ]; then BIN=prism-tui.exe; fi
           cp "stage/$BIN" wheelbuild/prism_tui/bin/
           chmod +x wheelbuild/prism_tui/bin/"$BIN" 2>/dev/null || true
