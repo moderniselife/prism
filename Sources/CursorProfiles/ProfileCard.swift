@@ -370,6 +370,12 @@ struct ProfileCard: View {
             store.duplicate(profile)
         }
         .disabled(store.duplicating.contains(profile.folderName))
+        if clonesWholeProfile {
+            Button("New Overflow Account from This") {
+                store.newOverflow(from: profile)
+            }
+            .disabled(store.duplicating.contains(profile.folderName))
+        }
         Button("Reveal in Finder") { store.revealInFinder(profile) }
         if !profile.isSystem {
             Divider()
@@ -393,11 +399,14 @@ struct ProfileCard: View {
         return profile.normalizedApp == CursorProfile.appClaudeCode ? "terminal" : "play.fill"
     }
 
-    /// Grok Bot copies are overflow accounts (agents & config, own sign-in).
+    /// Cursor and Claude Code duplicates are full clones (same login);
+    /// Desktop and Grok Bot copies are always overflow accounts.
+    private var clonesWholeProfile: Bool {
+        profile.normalizedApp == CursorProfile.appCursor || profile.normalizedApp == CursorProfile.appClaudeCode
+    }
+
     private var duplicateTitle: String {
-        if profile.normalizedApp == CursorProfile.appGrokBot {
-            return "New Overflow Account from This"
-        }
+        if !clonesWholeProfile { return "New Overflow Account from This" }
         return profile.isSystem ? "Clone into New Profile" : "Duplicate"
     }
 

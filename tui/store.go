@@ -592,30 +592,11 @@ func (s *Store) CreateApp(displayName, app, colorHex string, memoryMB int, proje
 	if app == AppCursor {
 		_ = applyTitleBarColor(s.dirFor(p), p.ColorHex)
 	}
-	// Claude Desktop: seed a fresh profile with the user's MCP/connectors
-	// config so a new profile starts useful, without copying GBs of cache.
-	if app == AppClaudeDesktop && !p.IsSystem {
-		seedDesktopConfig(systemDataDirFor(app), s.dirFor(p))
-	}
 	s.Profiles = append(s.Profiles, p)
 	if err := s.save(); err != nil {
 		return nil, err
 	}
 	return &s.Profiles[len(s.Profiles)-1], nil
-}
-
-// seedDesktopConfig copies just claude_desktop_config.json (MCP servers,
-// connectors) from the main install into a fresh profile dir.
-func seedDesktopConfig(systemDir, profileDir string) {
-	src, err := os.ReadFile(filepath.Join(systemDir, "claude_desktop_config.json"))
-	if err != nil {
-		return
-	}
-	dst := filepath.Join(profileDir, "claude_desktop_config.json")
-	if _, err := os.Stat(dst); err == nil {
-		return // don't overwrite an adopted profile's own config
-	}
-	_ = os.WriteFile(dst, src, 0o644)
 }
 
 // Delete moves the profile folder to a timestamped trash directory inside

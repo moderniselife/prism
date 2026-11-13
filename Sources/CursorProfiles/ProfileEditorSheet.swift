@@ -25,12 +25,12 @@ struct ProfileEditorSheet: View {
     @State private var colorHex = AccentPalette.all[0].hex
     @State private var memoryMB = 16384
     @State private var projectPath = ""
-    /// Grok Bot only: start empty, or carry another profile's agents and
-    /// config over into a second account ("overflow").
-    @State private var grokSetup: GrokSetup = .fresh
-    @State private var grokSourceFolder = ""
+    /// Start empty, or carry another same-app profile's config over into a
+    /// second account ("overflow"). Never its sign-in.
+    @State private var accountSetup: AccountSetup = .fresh
+    @State private var sourceFolder = ""
 
-    enum GrokSetup: Hashable {
+    enum AccountSetup: Hashable {
         case fresh
         case overflow
     }
@@ -47,15 +47,15 @@ struct ProfileEditorSheet: View {
     private var previewColor: Color { Color(hex: colorHex) ?? .accentColor }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var isGrok: Bool { app == CursorProfile.appGrokBot }
-    private var grokSources: [CursorProfile] {
-        store.profiles.filter { $0.normalizedApp == CursorProfile.appGrokBot }
+    private var overflowSources: [CursorProfile] {
+        store.profiles.filter { $0.normalizedApp == app }
     }
-    private var grokSource: CursorProfile? {
-        grokSources.first { $0.folderName == grokSourceFolder }
+    private var overflowSource: CursorProfile? {
+        overflowSources.first { $0.folderName == sourceFolder }
     }
-    private var isGrokOverflow: Bool { !isEditing && isGrok && grokSetup == .overflow }
+    private var isOverflow: Bool { !isEditing && accountSetup == .overflow }
     private var canSave: Bool {
-        !trimmedName.isEmpty && (!isGrokOverflow || grokSource != nil)
+        !trimmedName.isEmpty && (!isOverflow || overflowSource != nil)
     }
 
     var body: some View {
@@ -67,8 +67,8 @@ struct ProfileEditorSheet: View {
                 VStack(spacing: 16) {
                     previewStrip
                     detailsSection
-                    if isGrok && !isEditing {
-                        grokAccountSection
+                    if !isEditing {
+                        accountSection
                     }
                     resourcesSection
                     if !isGrok {
@@ -84,12 +84,7 @@ struct ProfileEditorSheet: View {
         .frame(width: 560, height: 600)
         .background(PrismTheme.Colors.bg)
         .onAppear(perform: populate)
-        .onChange(of: app) { _, newApp in
-            if newApp == CursorProfile.appGrokBot && grokSource == nil {
-                // Default to the main install: the usual overflow source.
-                grokSourceFolder = (grokSources.first { $0.isSystem } ?? grokSources.first)?.folderName ?? ""
-            }
-        }
+        .onChange(of: app) { _, _ in defaultSource() }
     }
 
     // MARK: - Header
@@ -133,14 +128,22 @@ struct ProfileEditorSheet: View {
     private var previewSubtitle: String {
         let project = projectPath.isEmpty ? "" : " · \((projectPath as NSString).abbreviatingWithTildeInPath)"
         switch app {
-        case CursorProfile.appClaudeCode: return "Claude Code\(project)"
-        case CursorProfile.appClaudeDesktop: return "Claude Desktop"
-        case CursorProfile.appGrokBot:
-            if isGrokOverflow, let source = grokSource {
-                return "Grok Bot · overflow of \(source.displayName)"
-            }
-            return "Grok Bot"
-        default: return "\(formatGB(memoryMB)) limit\(project)"
+        case CursorProfile.appClaudeCode: return "Claude Code\(project)\(overflowNote)"
+        case CursorProfile.appClaudeDesktop: return "Claude Desktop\(overflowNote)"
+        case CursorProfile.appGrokBot: return "Grok Bot\(overflowNote)"
+        default: return "\(formatGB(memoryMB)) limit\(project)\(overflowNote)"
+        }
+    }
+
+    private var overflowNote: String {
+        guard isOverflow, let source = overflowSource else { return "" }
+        return " · overflow of \(source.displayName)"
+    }
+
+    /// Pick the app's built-in profile as the default overflow source.
+    private func defaultSource() {
+        if overflowSource == nil {
+            sourceFolder = (overflowSources.first { $0.isSystem } ?? overflowSources.first)?.folderName ?? ""
         }
     }
 
@@ -239,25 +242,25 @@ struct ProfileEditorSheet: View {
         }
     }
 
-    private var grokAccountSection: some View {
+    private var accountSection: some View {
         section(title: "Account") {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("", selection: $grokSetup) {
-                    Text("Fresh account").tag(GrokSetup.fresh)
-                    Text("Overflow account").tag(GrokSetup.overflow)
+                Picker("", selection: $accountSetup) {
+                    Text("Fresh account").tag(AccountSetup.fresh)
+                    Text("Overflow account").tag(AccountSetup.overflow)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
 
-                switch grokSetup {
+                switch accountSetup {
                 case .fresh:
-                    Text("Starts empty — no agents, settings or sign-in. Sign in with any account on first launch.")
+                    Text("Starts empty — no settings, config or sign-in. Sign in with any account on first launch.")
                         .font(.system(size: 11))
                         .foregroundStyle(PrismTheme.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 case .overflow:
-                    if grokSources.isEmpty {
-                        Text("No Grok Bot profile to carry over from yet. Open Grok Bot once, then come back.")
+                    if overflowSources.isEmpty {
+                        Text("No \(CursorProfile.label(for: app)) profile to carry over from yet. Open \(CursorProfile.label(for: app)) once, then come back.")
                             .font(.system(size: 11))
                             .foregroundStyle(PrismTheme.Colors.red)
                             .fixedSize(horizontal: false, vertical: true)
@@ -266,8 +269,8 @@ struct ProfileEditorSheet: View {
                             Text("Carry over from")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(PrismTheme.Colors.textSecondary)
-                            Picker("", selection: $grokSourceFolder) {
-                                ForEach(grokSources) { source in
+                            Picker("", selection: $sourceFolder) {
+                                ForEach(overflowSources) { source in
                                     Text(source.displayName).tag(source.folderName)
                                 }
                             }
@@ -275,7 +278,7 @@ struct ProfileEditorSheet: View {
                             .labelsHidden()
                             .frame(maxWidth: 240)
                         }
-                        Text(Self.overflowExplainer)
+                        Text(Self.overflowExplainer(for: app))
                             .font(.system(size: 11))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -283,9 +286,23 @@ struct ProfileEditorSheet: View {
                 }
             }
         }
+        .onAppear(perform: defaultSource)
     }
 
-    private static let overflowExplainer = "Copies its agents, settings, skills, plugins, MCP setup and tool approvals. Its sign-in, machine identity, cookies and MCP logins stay behind — sign in with your other account on first launch and carry on where the first one left off."
+    /// What an overflow copies for each app — kept honest and specific.
+    private static func overflowExplainer(for app: String) -> String {
+        let tail = " Sign in with your other account on first launch."
+        switch CursorProfile.normalizeApp(app) {
+        case CursorProfile.appClaudeCode:
+            return "Copies settings, CLAUDE.md, agents, commands, skills, output styles, hooks, plugins and your user-level MCP servers. Its login, account id and chat history stay behind." + tail
+        case CursorProfile.appClaudeDesktop:
+            return "Copies the MCP config and installed extensions with their settings. Its login and cookies stay behind." + tail
+        case CursorProfile.appGrokBot:
+            return "Copies local settings, permission choices and tool approvals; its login and machine identity stay behind. Grok Bot agents live on your account's cloud box, not on this Mac — use Share with team on an agent in Grok Bot to give this account the same agents." + tail
+        default:
+            return "Copies settings, keybindings, tasks and snippets (extensions are already shared). Its login and machine id stay behind." + tail
+        }
+    }
 
     private var resourcesSection: some View {
         section(title: "Resources") {
@@ -412,9 +429,12 @@ struct ProfileEditorSheet: View {
     private func save() {
         let trimmedProject = projectPath.trimmingCharacters(in: .whitespaces)
         switch mode {
-        case .create where isGrokOverflow:
-            guard let source = grokSource else { return }
-            store.createGrokOverflow(displayName: trimmedName, colorHex: colorHex, source: source)
+        case .create where isOverflow:
+            guard let source = overflowSource else { return }
+            store.createOverflow(displayName: trimmedName, colorHex: colorHex,
+                                 memoryMB: max(512, memoryMB),
+                                 defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject,
+                                 source: source)
             close()
         case .create:
             let created = store.createProfile(

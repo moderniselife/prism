@@ -49,10 +49,14 @@ All three read and write the same `~/.cursor_profiles` directory and `.profiles.
 - **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit, default project folder)
 - Each profile is a separate `--user-data-dir`: own settings, extensions, login, chat history. Existing profiles are picked up automatically
 
-### Grok Bot: fresh or overflow accounts
-- **Main Grok Bot** appears as a built-in card, and new Grok Bot profiles run side by side, each with its own sign-in
-- **Fresh account** starts empty
-- **Overflow account** carries another Grok Bot profile's **agents and config** over — agents, settings, skills, plugins, MCP setup, tool approvals — but **none of its identity**: sign-in tokens, machine id, cookies, MCP logins and local daemon/gateway credentials stay behind. Sign in with your other account on first launch and carry on where the first one left off. Pick it in the New Profile sheet, or right-click any Grok Bot card → **New Overflow Account from This**
+### Fresh or overflow accounts (every app)
+New profiles start as a **fresh account** (empty) or an **overflow account**: a copy of another profile's config with none of its identity, so you sign in with your other account on first launch and carry on where the first one left off. Pick it in the New Profile sheet, or right-click a card → **New Overflow Account from This**. What carries over:
+- **Cursor** — `settings.json`, keybindings, tasks and snippets (extensions are already shared). Not the login database or machine id
+- **Claude Code** — `settings.json`, `CLAUDE.md`, agents, commands, skills, output styles, hooks and plugins, plus user-level MCP servers and a few preferences from `.claude.json`. Not credentials, account ids or chat history
+- **Claude Desktop** — the MCP config and installed extensions with their settings. Not cookies or the login
+- **Grok Bot** — local settings, permission choices and tool approvals. Grok Bot's agents live on your account's cloud box, not on disk, so no copy can move them: use **Share with team** on an agent in Grok Bot to give another account the same agents
+
+Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available in the macOS, Linux and terminal apps; the Windows app doesn't have it yet.
 
 ### Launching & switching
 - **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
@@ -144,7 +148,7 @@ runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
 
 Launching a Cursor profile runs Cursor with `--user-data-dir <profile> --max-memory <limit>`, so isolation is enforced by Cursor itself rather than by anything Prism fakes. The built-in profile launches with no `--user-data-dir` at all — byte-for-byte identical to opening Cursor normally. Claude Code profiles set `CLAUDE_CONFIG_DIR` (the documented multi-account switch — separate login, settings, history per profile). Claude Desktop profiles launch with `--user-data-dir=<profile>` too, so each has its own login and several run side by side. On Windows this needs the standalone installer build of Claude Desktop (the Microsoft Store build drops launch flags) — Prism prompts you with the download link. Verified on Windows; macOS and Linux are untested.
 
-Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` — the app's own isolation switch, which moves both its Electron data and its agent data root (`~/.grokbot` → `<profile>/sand-data`) and gives each profile its own single-instance lock. Prism adds a matching `--user-data-dir=<profile>` only so it can recognise the profile in the process list (environment variables aren't visible there). The built-in profile launches with neither. Overflow carry-over copies the agent data root only, skipping identity and runtime files; Electron's userData is never copied because it holds the Keychain-encrypted tokens and machine id. The Mac app, Linux app and terminal client support Grok Bot; the Windows app doesn't yet.
+Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` — the app's own isolation switch, which moves both its Electron data and its agent data root (`~/.grokbot` → `<profile>/sand-data`) and gives each profile its own single-instance lock. Prism adds a matching `--user-data-dir=<profile>` only so it can recognise the profile in the process list (environment variables aren't visible there). The built-in profile launches with neither. Overflow carry-over copies the data root only, skipping identity and runtime files and stripping account-scoped keys from `settings.json`; Electron's userData is never copied because it holds the Keychain-encrypted tokens and machine id. The Mac app, Linux app and terminal client support Grok Bot; the Windows app doesn't yet.
 
 ## Layout
 

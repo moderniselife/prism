@@ -43,7 +43,7 @@ runtime needed anywhere.
 | `/` then type | Filter profiles (`esc` clears) |
 | `enter` | Launch (opens a new window when already running) |
 | `x` | Stop the selected profile |
-| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). For Grok Bot, `space` on the last field picks **fresh account** or **overflow of** an existing Grok Bot profile |
+| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). `space` on the last field picks a **fresh account** or an **overflow of** an existing profile of the same app |
 | `d d` | Delete (press twice; moves the folder to `.trash/`) |
 | `R` | Rescan profiles from disk |
 | `q` / `ctrl+c` | Quit |
@@ -61,13 +61,23 @@ runtime needed anywhere.
   (the Store build drops launch flags) — Prism tells you and points to
   claude.com/download. Verified on Windows; macOS/Linux untested.
 - Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` (the app's own
-  isolation switch: separate login, agents in `<profile>/sand-data`, several
-  at once) plus a matching `--user-data-dir=` so Prism can spot them running.
-  An **overflow** profile copies the source profile's agents and config
-  (agents, settings, skills, plugins, MCP setup, tool approvals) but none of
-  its identity — tokens, machine id, cookies, MCP sign-ins and daemon/gateway
-  credentials stay behind — so you sign in with your other account on first
-  launch and pick up where the first one left off.
+  isolation switch: separate login, data in `<profile>/sand-data`, several at
+  once) plus a matching `--user-data-dir=` so Prism can spot them running.
+- **Fresh vs overflow accounts (every app).** A new profile can start empty, or
+  be an *overflow* of an existing profile of the same app: it copies that
+  profile's config but none of its identity, so you sign in with your other
+  account on first launch. What carries over:
+  - **Cursor:** `settings.json`, keybindings, tasks, snippets (extensions are
+    already shared). Not the login database or machine id.
+  - **Claude Code:** `settings.json`, `CLAUDE.md`, agents, commands, skills,
+    output styles, hooks, plugins, plus user-scoped MCP servers and a few
+    preferences from `.claude.json`. Not credentials, account ids or history.
+  - **Claude Desktop:** `claude_desktop_config.json` and installed extensions
+    with their settings. Not cookies or the login.
+  - **Grok Bot:** local settings, permission gates and tool approvals.
+    Grok Bot's agents live on your account's cloud box, not on disk, so no
+    copy can move them — use **Share with team** on an agent in Grok Bot to
+    give a second account the same agents.
 - Window counts are intentionally absent: there is no honest cross-platform
   way to count another app's windows from a terminal (notably on Wayland).
 - Deleting never `rm -rf`s: folders move to a `.trash/` inside their own app

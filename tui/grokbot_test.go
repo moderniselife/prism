@@ -74,7 +74,8 @@ func TestCarryOverGrokData(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("settings.json", `{"theme":"dark"}`)
+	write("settings.json", `{"macMailSendEnabled":true,"activeAccountScope":"acct-A",`+
+		`"hasSeenOnboardingAccountScope":"acct-A","boxRosterCensus":"x","egressTunnelCommittedBoxUrls":["https://box-a"]}`)
 	write("agents/a1/agent.json", `{"name":"Researcher"}`)
 	write("skills/s/SKILL.md", "# skill")
 	write("host-secrets.json", "SECRET")
@@ -109,12 +110,21 @@ func TestCarryOverGrokData(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dst, "agents", "a1", "agent.json")); string(b) != `{"name":"Researcher"}` {
 		t.Fatalf("content mismatch: %q", b)
 	}
+	sb, _ := os.ReadFile(filepath.Join(dst, "settings.json"))
+	for _, leaked := range []string{"acct-A", "box-a", "boxRosterCensus"} {
+		if strings.Contains(string(sb), leaked) {
+			t.Fatalf("account-bound setting %q leaked: %s", leaked, sb)
+		}
+	}
+	if !strings.Contains(string(sb), `"macMailSendEnabled": true`) {
+		t.Fatalf("preferences lost: %s", sb)
+	}
 	if _, err := CarryOverGrokData(filepath.Join(src, "nope"), dst); err == nil {
 		t.Fatal("missing source must be an error, not a silent empty profile")
 	}
 }
 
-func TestCreateGrokOverflow(t *testing.T) {
+func TestCreateOverflowGrok(t *testing.T) {
 	base := t.TempDir()
 	s := &Store{
 		Dir: filepath.Join(base, "c"), CodeDir: filepath.Join(base, "cc"),
@@ -135,7 +145,7 @@ func TestCreateGrokOverflow(t *testing.T) {
 	// Identity in userData must never travel either.
 	_ = os.WriteFile(filepath.Join(s.dirFor(*src), "sand-secrets.json"), []byte("enc"), 0o600)
 
-	over, n, err := s.CreateGrokOverflow("Overflow", "#10B981", *src)
+	over, n, err := s.CreateOverflow("Overflow", "#10B981", 0, "", *src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +168,7 @@ func TestCreateGrokOverflow(t *testing.T) {
 	// Failed copy rolls the half-made profile back.
 	empty, _ := s.CreateApp("Empty", AppGrokBot, "", 0, "")
 	before := len(s.Profiles)
-	if _, _, err := s.CreateGrokOverflow("Broken", "", *empty); err == nil {
+	if _, _, err := s.CreateOverflow("Broken", "", 0, "", *empty); err == nil {
 		t.Fatal("carry-over from a profile with no data root must fail")
 	}
 	if len(s.Profiles) != before {
