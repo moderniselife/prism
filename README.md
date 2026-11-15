@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#supported-apps">Apps</a> ·
   <a href="#features">Features</a> ·
+  <a href="#second-brain-brainium">Second brain</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#terminal-tui">Terminal</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -71,6 +72,15 @@ New profiles start as a **fresh account** (empty) or a copy of another same-app 
 - **Grok Bot** — called **Copy settings**, not overflow, because it can't bring your agents: they live on your Grok Bot account, not on disk. It copies local settings, permission choices and tool approvals. To bring an agent across, open it in the source profile → **Create Template** → **Share a template link** → **Copy the share link**, then paste the link into a chat in the new profile (paste rather than click, so it opens in that profile). Right-click a Grok Bot card → **New Profile with These Settings**
 
 Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available in the macOS, Linux and terminal apps; the Windows app doesn't have it yet.
+
+### Second brain (Brainium)
+Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium](https://github.com/moderniselife/brainium)** into every profile — a git-backed **personal brain** that follows you (preferences, cross-project learnings, **agent cards** to recreate any agent on a new account) plus each repo's **project brain** — so a fresh or overflow account starts with everything the last one knew.
+
+- **Claude Code** — skill, `CLAUDE.md` section and MCP server; optional **session capture** (redacted, private, outside git) queued to be filed into the brain
+- **Claude Desktop** and **Cursor** — the Brainium MCP server (search, read, log, agent cards)
+- **Grok Bot** — its agents run in the cloud, so Prism copies an instructions snippet that points them at your personal brain's GitHub repo
+- **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
+- Set it up in **Settings → Second brain**: point at a Brainium checkout, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available in the macOS, Linux and terminal apps
 
 ### Launching & switching
 - **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
@@ -180,6 +190,9 @@ Sources/CursorProfiles/
   ClaudeLauncher.swift      # Find/launch Claude Code (CLAUDE_CONFIG_DIR) & Desktop (--user-data-dir)
   GrokLauncher.swift        # Find/launch/detect Grok Bot (SAND_USER_DATA_DIR)
   CarryOver.swift           # Fresh vs overflow accounts: what each app may copy
+  BrainiumBridge.swift      # Second brain: find node + Brainium, run its CLI
+  ProfileStore+Brain.swift  # Second brain actions (wire, capture, summarizer)
+  SecondBrainSettingsView.swift # Settings → Second brain tab
   TitleBarColorizer.swift   # Merges per-profile title bar colors into User/settings.json
   PrismTheme.swift          # Adaptive light/dark design system
   MeshBackgroundView.swift  # Ambient background
@@ -190,6 +203,7 @@ tui/
   main.go, store.go,        # TUI: entry, profiles/persistence/launch/detect
   stats.go, colorize.go, ui.go
   grokbot.go, carryover.go  # Grok Bot support, overflow carry-over rules (+ tests)
+  brainium.go               # Second brain wiring (+ integration test with the real CLI)
 npm/prism-tui/              # npm wrapper (downloads the release binary)
 pypi/prism-tui/             # PyPI wrapper (platform wheels bundle it)
 packaging/homebrew-cask/    # Prism.app cask template for the tap

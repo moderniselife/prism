@@ -317,6 +317,120 @@ def carry_over(app: str, src_dir: Path, src_is_system: bool, dst_dir: Path) -> i
             copied += 1
     return copied
 
+# -- Second brain (Brainium) ---------------------------------------------------
+#
+# Prism wires Brainium (github.com/moderniselife/brainium) into every profile
+# so agents share one git-backed memory across apps and accounts. Prism stays
+# thin: it finds node and a Brainium checkout and runs its CLI. Brainium's own
+# config (personal brain, capture, summarizer) is the single source of truth,
+# shared with its hooks and MCP server. Keep in sync with tui/brainium.go.
+
+BRAINIUM_PROVIDERS = (
+    ("agent", "Your AI, via MCP (no extra cost)"),
+    ("none", "No AI (mechanical summary)"),
+    ("anthropic", "Anthropic API"),
+    ("openai", "OpenAI API"),
+    ("bonsai", "Bonsai (local)"),
+    ("openai-compatible", "Other OpenAI-compatible API"),
+)
+
+BRAINIUM_NOT_FOUND = ("Brainium or Node.js wasn't found. Install Node.js, then: git clone "
+                      "https://github.com/moderniselife/brainium ~/brainium — or set the paths here.")
+
+
+def _version_key(name: str):
+    return [int(p) if p.isdigit() else 0 for p in name.lstrip("v").split(".")]
+
+
+def find_node(custom: str = "") -> str | None:
+    """node: custom -> PATH -> nvm (newest) -> system/Volta. Launchers from
+    the app grid don't always get the shell PATH, so the fallbacks matter."""
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which("node")
+    if found:
+        return found
+    home = Path.home()
+    nvm = home / ".nvm" / "versions" / "node"
+    candidates = []
+    if nvm.is_dir():
+        candidates += [str(d / "bin" / "node")
+                       for d in sorted(nvm.iterdir(), key=lambda d: _version_key(d.name), reverse=True)]
+    candidates += ["/usr/local/bin/node", "/usr/bin/node", str(home / ".volta" / "bin" / "node")]
+    return next((c for c in candidates if os.path.isfile(c)), None)
+
+
+def find_brainium_cli(custom: str = "") -> str | None:
+    """bin/brainium.mjs: custom (checkout or script) -> $BRAINIUM_HOME -> common clones."""
+    if custom.endswith(".mjs") and os.path.isfile(custom):
+        return custom
+    home = Path.home()
+    dirs = ([custom] if custom else []) + ([os.environ["BRAINIUM_HOME"]] if os.environ.get("BRAINIUM_HOME") else [])
+    dirs += [str(home / d) for d in ("brainium", "Projects/brainium", "src/brainium", "code/brainium")]
+    return next((c for c in (os.path.join(d, "bin", "brainium.mjs") for d in dirs) if os.path.isfile(c)), None)
+
+
+def brain_wire_args(app: str, profile_dir: str, is_system: bool, capture: bool, enable: bool = True):
+    """CLI args to (un)wire one profile, or None when the app has nothing local
+    to wire (Grok Bot agents run in the cloud: they get a snippet)."""
+    verb = "wire" if enable else "unwire"
+    app = normalize_app(app)
+    if app == APP_CODE:
+        args = [verb, "--app", "claude-code", "--profile", profile_dir, "--json"]
+        if is_system:
+            args.append("--system")
+        if enable and capture:
+            args.append("--capture")
+        return args
+    if app == APP_DESKTOP:
+        return [verb, "--app", "claude-desktop", "--profile", profile_dir, "--json"]
+    if app == APP_CURSOR:
+        return [verb, "--app", "cursor", "--json"]
+    return None
+
+
+class Brainium:
+    def __init__(self, node: str, cli: str):
+        self.node, self.cli = node, cli
+
+    @classmethod
+    def resolve(cls, cli_path: str = "", node_path: str = ""):
+        node, cli = find_node(node_path), find_brainium_cli(cli_path)
+        return cls(node, cli) if node and cli else None
+
+    def run(self, *args) -> str:
+        proc = subprocess.run([self.node, self.cli, *args], capture_output=True, text=True, timeout=120)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"brainium exited with {proc.returncode}")
+        return proc.stdout
+
+    def status(self) -> dict:
+        return json.loads(self.run("status", "--json"))
+
+    def wire_all(self, targets, enable: bool = True) -> str:
+        """targets: [(app, dir, is_system)]. Cursor's shared config is wired once."""
+        st = self.status()
+        if enable and not st.get("personalExists"):
+            raise RuntimeError("Create your personal brain first.")
+        done, cursor_done, problems = 0, False, []
+        for app, directory, is_system in targets:
+            args = brain_wire_args(app, str(directory), is_system, bool(st.get("capture")), enable)
+            if args is None:
+                continue
+            if normalize_app(app) == APP_CURSOR:
+                if cursor_done:
+                    done += 1
+                    continue
+                cursor_done = True
+            try:
+                self.run(*args)
+                done += 1
+            except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+                problems.append(f"{Path(directory).name}: {e}")
+        summary = f"{'Wired' if enable else 'Unwired'} {done} profile{'' if done == 1 else 's'}."
+        return summary + (" Problems: " + "; ".join(problems) if problems else "")
+
+
 LAUNCHERS_DIR = Path(GLib.get_user_data_dir()) / "applications"
 LAUNCHER_ICONS_DIR = Path(GLib.get_user_data_dir()) / "icons" / "hicolor" / "256x256" / "apps"
 
@@ -1004,7 +1118,70 @@ class Store:
         self.on_changed()
         self.refresh_sizes()
         TitleBarColorizer.apply(profile, profile_dir)
+        self.wire_brain_if_enabled(profile)
         return profile
+
+    # -- Second brain
+
+    def brainium(self):
+        return Brainium.resolve(self.settings.get("brainiumPath", ""), self.settings.get("nodePath", ""))
+
+    def _brain_targets(self, profiles=None):
+        return [(normalize_app(p.app), str(self.directory_for(p)), p.isSystem)
+                for p in (self.profiles if profiles is None else profiles)]
+
+    def brain_task(self, label, work, on_done=None):
+        """Run work(brainium) off the main loop; report via on_info/on_error."""
+        b = self.brainium()
+        if b is None:
+            self.on_error(BRAINIUM_NOT_FOUND)
+            return
+
+        def run():
+            try:
+                result, error = work(b), None
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
+                result, error = None, str(e)
+
+            def finish():
+                if error:
+                    self.on_error(f"{label}: {error}")
+                elif on_done:
+                    on_done(result)
+                elif result:
+                    self.on_info(result)
+                return False
+
+            GLib.idle_add(finish)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def wire_all_brains(self, enable=True):
+        targets = self._brain_targets()
+        self.brain_task("Wiring failed" if enable else "Unwiring failed",
+                        lambda b: b.wire_all(targets, enable))
+
+    def wire_brain_if_enabled(self, profile: Profile):
+        if not self.settings.get("brainAutoWire") or brain_wire_args(profile.app, "", False, False) is None:
+            return
+        targets = self._brain_targets([profile])
+        self.brain_task(f"Couldn't wire '{profile.displayName}'", lambda b: b.wire_all(targets, True),
+                        on_done=lambda _r: None)
+
+    def set_brain_config(self, pairs):
+        """`brainium config set` for each pair in order, in one task (the config
+        file is read-modify-written). Capture changes re-wire Claude Code hooks."""
+        targets = (self._brain_targets([p for p in self.profiles if normalize_app(p.app) == APP_CODE])
+                   if any(k == "capture" for k, _ in pairs) else [])
+
+        def work(b):
+            for key, value in pairs:
+                b.run("config", "set", key, value)
+            if targets:
+                b.wire_all(targets, True)
+            return "Saved."
+
+        self.brain_task("Couldn't save the setting", work)
 
     def update(self, profile: Profile):
         self.save_metadata()
@@ -1090,6 +1267,7 @@ class Store:
                     self.refresh_sizes()
                     # Copied Cursor settings carry the source's title bar color.
                     TitleBarColorizer.apply(new_profile, dest)
+                    self.wire_brain_if_enabled(new_profile)
                 return False
 
             GLib.idle_add(finish)
@@ -2354,6 +2532,121 @@ class PreferencesDialog(Adw.PreferencesWindow):
         rescan_btn.connect("clicked", lambda *_: store.reload())
         rescan_row.add_suffix(rescan_btn)
         storage_group.add(rescan_row)
+
+        self.add(self._brain_page())
+
+    # -- Second brain page
+
+    def _brain_page(self):
+        store = self.store
+        page = Adw.PreferencesPage(title="Second brain", icon_name="system-search-symbolic")
+        intro = Adw.PreferencesGroup(description=(
+            "Brainium keeps a git-backed memory outside every account — a personal brain that "
+            "follows you, plus a project brain in each repo — so agents keep their knowledge when "
+            "you switch apps or accounts."))
+        page.add(intro)
+
+        where = Adw.PreferencesGroup(title="Brainium")
+        page.add(where)
+        b = store.brainium()
+        self.brain_found_row = Adw.ActionRow(title="Detected",
+                                             subtitle=f"{b.cli}\n{b.node}" if b else BRAINIUM_NOT_FOUND)
+        where.add(self.brain_found_row)
+        for key, title in (("brainiumPath", "Brainium checkout (empty = auto-detect)"),
+                           ("nodePath", "Node.js (empty = auto-detect)")):
+            row = Adw.EntryRow(title=title)
+            row.set_text(store.settings.get(key, ""))
+            row.connect("changed", lambda r, k=key: self._set(k, r.get_text().strip()))
+            where.add(row)
+
+        status = {}
+        if b:
+            try:
+                status = b.status()
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                status = {}
+
+        personal = Adw.PreferencesGroup(title="Personal brain")
+        page.add(personal)
+        exists = bool(status.get("personalExists"))
+        self.personal_row = Adw.EntryRow(title="Folder (Enter creates it)")
+        self.personal_row.set_text(status.get("personalBrain", str(Path.home() / "Brainium")))
+        self.personal_row.set_show_apply_button(True)
+        self.personal_row.connect("apply", lambda r: store.brain_task(
+            "Couldn't create the personal brain",
+            lambda bb, path=r.get_text().strip(): (bb.run("init-personal", path), f"Personal brain ready at {path}.")[1]))
+        personal.add(self.personal_row)
+        if exists and not status.get("personalRemote"):
+            personal.add(Adw.ActionRow(subtitle=(
+                "Tip: push it to a private GitHub repo to use it on other machines — and so Grok Bot "
+                "agents can reach it.")))
+
+        prof = Adw.PreferencesGroup(title="Profiles")
+        page.add(prof)
+        auto = Adw.SwitchRow(title="Wire new profiles automatically")
+        auto.set_active(bool(store.settings.get("brainAutoWire")))
+        auto.connect("notify::active", lambda r, *_: self._set("brainAutoWire", r.get_active()))
+        prof.add(auto)
+        cap = Adw.SwitchRow(title="Capture Claude Code sessions",
+                            subtitle="Redacted, private (outside git), queued to be filed into the brain")
+        cap.set_active(bool(status.get("capture")))
+        cap.connect("notify::active", lambda r, *_: store.set_brain_config(
+            [("capture", "true" if r.get_active() else "false")]))
+        prof.add(cap)
+        buttons = Gtk.Box(spacing=8, margin_top=6)
+        for label, handler in (("Wire All Profiles", lambda *_: store.wire_all_brains(True)),
+                               ("Unwire All", lambda *_: store.wire_all_brains(False)),
+                               ("Copy Grok Bot Snippet", lambda *_: self._copy_grok_snippet())):
+            btn = Gtk.Button(label=label)
+            btn.connect("clicked", handler)
+            buttons.append(btn)
+        prof.add(buttons)
+
+        summ = Adw.PreferencesGroup(title="Summarizing captures")
+        page.add(summ)
+        current = (status.get("summarizer") or {}).get("provider", "agent")
+        ids = [pid for pid, _ in BRAINIUM_PROVIDERS]
+        self.provider_row = Adw.ComboRow(title="Summarize with",
+                                         model=Gtk.StringList.new([label for _, label in BRAINIUM_PROVIDERS]))
+        self.provider_row.set_selected(ids.index(current) if current in ids else 0)
+        summ.add(self.provider_row)
+        self.api_rows = {}
+        for key, title in (("summarizer.url", "URL (e.g. http://host:port/v1 for Bonsai)"),
+                           ("summarizer.model", "Model (Anthropic: claude-haiku-5-5 · Bonsai: solo-quick)"),
+                           ("summarizer.apiKeyEnv", "API key env var (e.g. ANTHROPIC_API_KEY)")):
+            row = Adw.EntryRow(title=title)
+            summ.add(row)
+            self.api_rows[key] = row
+        self.api_rows["summarizer.apiKey"] = Adw.PasswordEntryRow(title="API key (optional if the env var is set)")
+        summ.add(self.api_rows["summarizer.apiKey"])
+        save = Gtk.Button(label="Save Summarizer", halign=Gtk.Align.END, margin_top=6)
+        save.connect("clicked", lambda *_: self._save_summarizer())
+        summ.add(save)
+
+        def sync_api_rows(*_):
+            uses_api = ids[self.provider_row.get_selected()] not in ("agent", "none")
+            for row in self.api_rows.values():
+                row.set_visible(uses_api)
+
+        self.provider_row.connect("notify::selected", sync_api_rows)
+        sync_api_rows()
+        return page
+
+    def _save_summarizer(self):
+        ids = [pid for pid, _ in BRAINIUM_PROVIDERS]
+        provider = ids[self.provider_row.get_selected()]
+        pairs = [("summarizer.provider", provider)]
+        if provider not in ("agent", "none"):
+            pairs += [(k, r.get_text().strip()) for k, r in self.api_rows.items() if r.get_text().strip()]
+        self.api_rows["summarizer.apiKey"].set_text("")
+        self.store.set_brain_config(pairs)
+
+    def _copy_grok_snippet(self):
+        def done(text):
+            Gdk.Display.get_default().get_clipboard().set(text)
+            self.store.on_info("Grok Bot snippet copied — paste it into the agent's instructions.")
+
+        self.store.brain_task("Couldn't build the snippet", lambda b: b.run("snippet", "grok"), on_done=done)
 
     def _set(self, key, value):
         self.store.settings[key] = value
