@@ -5,6 +5,15 @@ struct SettingsView: View {
     @EnvironmentObject var store: ProfileStore
 
     var body: some View {
+        TabView {
+            appsForm
+                .tabItem { Label("Apps", systemImage: "square.grid.2x2") }
+            SecondBrainSettingsView()
+                .tabItem { Label("Second brain", systemImage: "brain") }
+        }
+    }
+
+    private var appsForm: some View {
         Form {
             Section("Cursor") {
                 LabeledContent("Detected path") {
