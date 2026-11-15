@@ -45,6 +45,8 @@ final class ProfileStore: ObservableObject {
     @AppStorage("brainAutoWire") var brainAutoWire: Bool = false
     @Published var brainStatus: BrainiumBridge.Status?
     @Published var brainBusy = false
+    /// Brainium or Node.js install/update in progress (Settings shows a spinner).
+    @Published var brainSetupStep: BrainSetupStep?
     @Published var brainMessage: String?
     @AppStorage("defaultMemoryMB") var defaultMemoryMB: Int = 16384
 
