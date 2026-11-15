@@ -72,7 +72,7 @@ struct ContentView: View {
     @State private var keyMonitor: Any?
 
     /// Below this width the detail panel is hidden.
-    private static let inspectorMinWindowWidth: CGFloat = 1040
+    private static let inspectorMinWindowWidth: CGFloat = 1180
 
     private func matches(_ profile: CursorProfile, _ filter: ProfileFilter) -> Bool {
         switch filter {

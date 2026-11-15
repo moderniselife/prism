@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     private static readonly string[] SortLabels = { "Recent ▾", "Name ▾", "Size ▾" };
     private static readonly string[] FilterTitles =
         { "All profiles", "Running", "Custom", "Cursor", "Claude Code", "Claude Desktop", "Grok Bot" };
-    private const double InspectorMinWindowWidth = 1040;
+    private const double InspectorMinWindowWidth = 1180;
 
     private ProfileVM? _selected;
     private HashSet<ProfileVM> _lastRunning = new();
