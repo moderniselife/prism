@@ -121,6 +121,24 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     /// Only Cursor launches with --max-memory; other apps have no cap.
     var hasMemoryCap: Bool { normalizedApp == Self.appCursor }
 
+    /// Grok Bot's agents live on the signed-in account (its cloud box), so
+    /// a copy to another account carries local settings only. Calling that
+    /// an "overflow" would promise agents it can't bring, so it gets plainer
+    /// words everywhere; the other apps carry their working setup over.
+    static func copyChoiceLabel(for app: String) -> String {
+        normalizeApp(app) == appGrokBot ? "Copy settings" : "Overflow account"
+    }
+
+    static func copyMenuTitle(for app: String) -> String {
+        normalizeApp(app) == appGrokBot ? "New Profile with These Settings" : "New Overflow Account from This"
+    }
+
+    /// Display name for a one-click copy of `source`.
+    static func copyName(of source: CursorProfile) -> String {
+        let base = source.isSystem ? source.appLabel : source.displayName
+        return base + (source.normalizedApp == appGrokBot ? " 2" : " Overflow")
+    }
+
     /// Whether launching can open a project folder (Cursor, Claude Code).
     var opensProjectFolder: Bool {
         normalizedApp == Self.appCursor || normalizedApp == Self.appClaudeCode

@@ -157,9 +157,13 @@ enum GrokLauncher {
 
     // MARK: Overflow-account carry-over
     //
-    // An overflow profile is a second account that picks up where the first
-    // left off: same agents, settings, tool approvals, plugins and MCP
-    // setup, but its own sign-in. Only the agent data root is copied.
+    // An overflow profile is a second account with the first one's local
+    // setup: settings, permission gates, tool approvals and MCP setup, but
+    // its own sign-in. Grok Bot's *agents* are not local: they live on the
+    // account's cloud box (/home/box/agent-data) and reach the app as a
+    // server roster, so no file copy can move them to another account —
+    // the app's own route is "Share with team" on an agent. Only the data
+    // root is copied, and settings.json loses its account-scoped keys.
     // Everything in Electron's userData is per-account or per-machine
     // (Keychain-encrypted tokens *and* the machine id in sand-secrets.json,
     // user-secrets.json, cookies, account-scoped sand-client-persistence,
@@ -211,6 +215,29 @@ enum GrokLauncher {
         return skippedTopLevelPrefixes.contains(where: { top.hasPrefix($0) })
     }
 
+    /// settings.json fields bound to the signed-in account or its cloud
+    /// box; the rest of the file is preferences.
+    static let accountSettingsKeys = [
+        "activeAccountScope",
+        "hasSeenOnboardingAccountScope",
+        "hasSeenOnboarding",
+        "boxRosterCensus",
+        "egressTunnelCommittedBoxUrls",
+    ]
+
+    /// Drop account-bound keys from a copied settings.json. A file that
+    /// can't be parsed is removed: never carry what can't be vetted.
+    static func scrubSettings(at url: URL) throws {
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard var all = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            try FileManager.default.removeItem(at: url)
+            return
+        }
+        for key in accountSettingsKeys { all.removeValue(forKey: key) }
+        let out = try JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys])
+        try out.write(to: url, options: .atomic)
+    }
+
     enum CarryOverError: LocalizedError {
         case missingSource(String)
 
@@ -231,6 +258,7 @@ enum GrokLauncher {
         }
         var copied = 0
         try copyTree(source: sourceRoot, destination: destinationRoot, relativePath: "", copied: &copied)
+        try scrubSettings(at: destinationRoot.appendingPathComponent("settings.json"))
         return copied
     }
 

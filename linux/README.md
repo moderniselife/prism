@@ -57,9 +57,11 @@ with the standalone build; on Linux this is untested.)
 Grok Bot is found as `grok-bot` on PATH / `/usr/bin` / `/usr/local/bin` /
 `/opt/Grok Bot` / `~/.local/bin`. Its profiles launch with
 `SAND_USER_DATA_DIR=<profile>` (the app's own isolation switch: separate login,
-agents in `<profile>/sand-data`, several at once). New Grok Bot profiles can be
-a **fresh account** or an **overflow account** that carries another profile's
-agents and config over without its sign-in. (Untested on Linux.)
+data in `<profile>/sand-data`, several at once). (Untested on Linux.)
+
+New profiles of any app can be a **fresh account** or an **overflow account**
+that carries another same-app profile's config over without its sign-in — see
+the main README for exactly what each app copies.
 
 ## Pinning a profile to the dash/dock
 

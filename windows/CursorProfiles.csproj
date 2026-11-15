@@ -12,7 +12,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Allows building (not running) this Windows app from macOS/Linux CI. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- WPF handles per-monitor DPI via app.manifest; the WinForms analyzer doesn't know that. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>

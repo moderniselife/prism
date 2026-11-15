@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Prism"
 BUNDLE_ID="com.mojolayers.prism"
-VERSION="1.1.0"
+VERSION="1.2.0"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 

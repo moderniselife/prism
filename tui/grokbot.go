@@ -15,6 +15,7 @@ package main
 // profiles can sign in to different accounts at the same time.
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -239,9 +240,13 @@ func matchGrok(it snapshotItem, processes []procInfo, selfPID int) []int32 {
 
 // -- Overflow-account carry-over --------------------------------------------
 //
-// An overflow profile is a second account that picks up where the first
-// left off: same agents, settings, tool approvals, plugins and MCP setup,
-// but its own sign-in. Only the agent data root is copied. Everything in
+// An overflow profile is a second account with the first one's local setup:
+// settings, permission gates, tool approvals and MCP setup, but its own
+// sign-in. Grok Bot's *agents* are not local: they live on the account's
+// cloud box (/home/box/agent-data) and reach the app as a server roster,
+// so no file copy can move them to another account. The app's own route is
+// "Share with team" / clone-to-team on an agent. Only the agent data root
+// is copied, and settings.json loses its account-scoped keys. Everything in
 // Electron's userData is per-account or per-machine (Keychain-encrypted
 // tokens and machine id in sand-secrets.json, user-secrets.json, cookies,
 // account-scoped sand-client-persistence, automation webhook keys), so the
@@ -270,6 +275,41 @@ var grokSkipTop = []string{
 	"computer-use", // helper runtime state
 	"logs",
 	"v8-code-cache",
+}
+
+// grokAccountSettingsKeys are the settings.json fields bound to the signed-
+// in account or its cloud box; the rest of the file is preferences.
+var grokAccountSettingsKeys = []string{
+	"activeAccountScope",
+	"hasSeenOnboardingAccountScope",
+	"hasSeenOnboarding",
+	"boxRosterCensus",
+	"egressTunnelCommittedBoxUrls",
+}
+
+// scrubGrokSettings drops account-bound keys from a copied settings.json,
+// keeping every other field (and its raw JSON) untouched.
+func scrubGrokSettings(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		// Unknown shape: never carry something we can't vet.
+		return os.Remove(path)
+	}
+	for _, k := range grokAccountSettingsKeys {
+		delete(all, k)
+	}
+	out, err := json.MarshalIndent(all, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(out, '\n'), 0o600)
 }
 
 // grokSkipTopPrefixes: the local-exec daemon's discovery file, credential,
@@ -348,7 +388,10 @@ func CarryOverGrokData(srcRoot, dstRoot string) (int, error) {
 		// Symlinks, sockets, pipes: skipped.
 		return nil
 	})
-	return copied, err
+	if err != nil {
+		return copied, err
+	}
+	return copied, scrubGrokSettings(filepath.Join(dstRoot, "settings.json"))
 }
 
 func copyFile(src, dst string) error {
@@ -370,40 +413,4 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
-}
-
-// CreateGrokOverflow creates a Grok Bot profile carrying over agents and
-// config from source (any Grok Bot profile, built-in included). The new
-// profile signs in on first launch. On a failed copy the half-made
-// profile is removed again.
-func (s *Store) CreateGrokOverflow(displayName, colorHex string, source Profile) (*Profile, int, error) {
-	if source.App != AppGrokBot {
-		return nil, 0, errors.New("carry-over source must be a Grok Bot profile")
-	}
-	srcRoot := grokDataRoot(s.dirFor(source), source.IsSystem)
-	p, err := s.CreateApp(displayName, AppGrokBot, colorHex, 16384, "")
-	if err != nil {
-		return nil, 0, err
-	}
-	created := *p
-	dir := s.dirFor(created)
-	n, err := CarryOverGrokData(srcRoot, grokDataRoot(dir, false))
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		kept := s.Profiles[:0]
-		for _, q := range s.Profiles {
-			if q.FolderName != created.FolderName {
-				kept = append(kept, q)
-			}
-		}
-		s.Profiles = kept
-		_ = s.save()
-		return nil, 0, fmt.Errorf("could not carry over from %s: %w", source.DisplayName, err)
-	}
-	for i := range s.Profiles {
-		if s.Profiles[i].FolderName == created.FolderName {
-			return &s.Profiles[i], n, nil
-		}
-	}
-	return &created, n, nil
 }
