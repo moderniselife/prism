@@ -35,13 +35,9 @@ struct SpotlightCommandBar: View {
     var body: some View {
         ZStack {
             // Dimmed backdrop
-            PrismTheme.Colors.bg.opacity(0.85)
+            Color.black.opacity(0.18)
                 .ignoresSafeArea()
                 .onTapGesture { dismiss() }
-
-            // Ambient glow
-            PrismTheme.Colors.purple.opacity(0.1)
-                .ignoresSafeArea()
 
             // Modal
             VStack(spacing: 0) {
@@ -49,10 +45,12 @@ struct SpotlightCommandBar: View {
                 resultsList
                 footerBar
             }
-            .frame(width: 720, height: 520)
-            .glassCard()
-            .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerXLarge))
-            .glowShadow(color: PrismTheme.Colors.purple, radius: 40)
+            .frame(width: 680, height: 480)
+            .background(PrismTheme.Colors.bg)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(PrismTheme.Colors.border, lineWidth: 1))
+            .glowShadow(radius: 40)
         }
         .onAppear {
             isSearchFocused = true
@@ -113,7 +111,7 @@ struct SpotlightCommandBar: View {
                     .fill(PrismTheme.Colors.cyan)
                     .frame(width: 6, height: 6)
                 Text("All Profiles")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(PrismTheme.Colors.textSecondary)
             }
             .padding(.horizontal, 8)
@@ -123,7 +121,7 @@ struct SpotlightCommandBar: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
 
             Text("⌘P")
-                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(PrismTheme.Colors.textMuted)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 3)
@@ -208,14 +206,14 @@ struct SpotlightCommandBar: View {
         HStack {
             HStack(spacing: 6) {
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
                     .textCase(.uppercase)
                     .tracking(0.5)
 
                 if let count {
                     Text("\(count)")
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(PrismTheme.Colors.cyan)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -229,7 +227,7 @@ struct SpotlightCommandBar: View {
 
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(PrismTheme.Colors.textMuted)
             }
         }
@@ -304,7 +302,7 @@ struct SpotlightCommandBar: View {
 
                 if !shortcut.isEmpty {
                     Text(shortcut)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(PrismTheme.Colors.textMuted)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 3)
@@ -334,19 +332,19 @@ struct SpotlightCommandBar: View {
                     .frame(width: 6, height: 6)
                 if let firstRunning = runningProfiles.first {
                     Text(firstRunning.displayName)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(PrismTheme.Colors.textSecondary)
                     if let pids = store.runningPIDs[firstRunning.folderName], let pid = pids.first(where: { $0 > 0 }) {
                         Text("PID \(pid)")
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(PrismTheme.Colors.textMuted)
                     }
                     Text(Format.bytes(Int64(store.liveMemory[firstRunning.folderName] ?? 0)))
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(PrismTheme.Colors.emerald)
                 } else {
                     Text("No active instance")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(PrismTheme.Colors.textMuted)
                 }
             }
@@ -374,7 +372,7 @@ struct SpotlightCommandBar: View {
     private func keyHint(key: String, label: String) -> some View {
         HStack(spacing: 4) {
             Text(key)
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(PrismTheme.Colors.textSecondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
@@ -424,159 +422,42 @@ struct SpotlightItem: View {
     let store: ProfileStore
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Icon
-            ZStack {
-                RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall)
-                    .fill(
-                        LinearGradient(
-                            colors: [profile.accentColor.opacity(0.3), profile.accentColor.opacity(0.1)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                Text(profile.initial)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(profile.accentColor)
-
-                if isRunning {
-                    Circle()
-                        .fill(PrismTheme.Colors.emerald)
-                        .frame(width: 7, height: 7)
-                        .offset(x: 13, y: 13)
-                        .shadow(color: PrismTheme.Colors.emerald.opacity(0.6), radius: 3)
-                }
-            }
-            .frame(width: 36, height: 36)
-
-            // Details
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(profile.displayName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isSelected ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textSecondary)
-
-                    if profile.isSystem {
-                        Text("BUILT-IN")
-                            .font(.system(size: 8, weight: .bold, design: .rounded))
-                            .foregroundStyle(PrismTheme.Colors.cyan)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(PrismTheme.Colors.cyan.opacity(0.15))
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(PrismTheme.Colors.cyan.opacity(0.3), lineWidth: 0.5))
-                    }
-
-                    if profile.showAppBadge {
-                        Text(profile.appBadge)
-                            .font(.system(size: 8, weight: .bold, design: .rounded))
-                            .foregroundStyle(profile.accentColor)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(profile.accentColor.opacity(0.15))
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(profile.accentColor.opacity(0.3), lineWidth: 0.5))
-                            .help(profile.appLabel)
-                    }
-
-                    if isRunning, let pids = store.runningPIDs[profile.folderName], let pid = pids.first(where: { $0 > 0 }) {
-                        Text("PID \(pid)")
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
-                            .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    }
-                }
-
-                HStack(spacing: 4) {
-                    if let project = profile.defaultProjectPath {
-                        Text((project as NSString).abbreviatingWithTildeInPath)
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(PrismTheme.Colors.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Text("·")
-                        .foregroundStyle(PrismTheme.Colors.textMuted)
-
-                    if isRunning {
-                        let live = store.liveMemory[profile.folderName] ?? 0
-                        Text("\(Format.bytes(Int64(live))) live")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundStyle(profile.accentColor)
-                    } else if profile.hasMemoryCap {
-                        Text("\(formatMB(profile.defaultMemoryMB)) limit")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    } else {
-                        Text(profile.appLabel)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Action button
-            if isRunning {
-                HStack(spacing: 4) {
-                    Text("⏎")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                    Text("Focus")
-                        .font(.system(size: 10, weight: .semibold))
-                }
+        HStack(spacing: 12) {
+            Circle()
+                .fill(profile.accentColor)
+                .frame(width: 8, height: 8)
+            Text(profile.displayName)
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    LinearGradient(
-                        colors: [PrismTheme.Colors.cyan, PrismTheme.Colors.cyan.opacity(0.8)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                HStack(spacing: 4) {
-                    Text("⏎")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                    Text("Open")
-                        .font(.system(size: 10, weight: .semibold))
+                .lineLimit(1)
+            HStack(spacing: 6) {
+                AppGlyph(app: profile.normalizedApp, size: 12)
+                Text(profile.appLabel)
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(PrismTheme.Colors.textTertiary)
+            .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            if isRunning {
+                HStack(spacing: 6) {
+                    LiveDot(size: 5)
+                    Text("Running")
                 }
-                .foregroundStyle(PrismTheme.Colors.textSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(PrismTheme.Colors.surfaceAlt)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                .font(.system(size: 12))
+                .foregroundStyle(PrismTheme.Colors.emerald)
+            }
+            if isSelected {
+                Text(isRunning ? "↵ Show" : "↵ Open")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            isSelected
-                ? LinearGradient(
-                    colors: [profile.accentColor.opacity(0.12), PrismTheme.Colors.surfaceAlt],
-                    startPoint: .leading, endPoint: .trailing
-                  )
-                : LinearGradient(
-                    colors: [Color.clear, Color.clear],
-                    startPoint: .leading, endPoint: .trailing
-                  )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(
-                    isSelected ? profile.accentColor.opacity(0.35) : Color.clear,
-                    lineWidth: 1
-                )
-                .allowsHitTesting(false)
-        )
-    }
-
-    private func formatMB(_ mb: Int) -> String {
-        if mb >= 1024 {
-            return String(format: "%.1f GB", Double(mb) / 1024.0)
-        }
-        return "\(mb) MB"
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(isSelected ? PrismTheme.Colors.accent.opacity(0.09) : .clear))
+        .contentShape(Rectangle())
     }
 }

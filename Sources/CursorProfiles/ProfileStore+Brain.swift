@@ -85,8 +85,14 @@ extension ProfileStore {
     }
 
     func wireBrainIfEnabled(_ profile: CursorProfile) {
-        guard brainAutoWire, brainium != nil,
-              BrainiumBridge.wireArguments(app: profile.normalizedApp, profileDir: "", isSystem: false, capture: false) != nil
+        guard brainAutoWire, brainium != nil else { return }
+        wireBrain(profile)
+    }
+
+    /// Wire one profile now (the inspector's "Connect this profile").
+    /// Grok Bot has nothing local to wire; it uses the snippet instead.
+    func wireBrain(_ profile: CursorProfile) {
+        guard BrainiumBridge.wireArguments(app: profile.normalizedApp, profileDir: "", isSystem: false, capture: false) != nil
         else { return }
         let target = [(app: profile.normalizedApp, dir: directory(for: profile).path, isSystem: profile.isSystem)]
         let name = profile.displayName

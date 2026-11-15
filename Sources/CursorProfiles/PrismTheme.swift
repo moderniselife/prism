@@ -8,36 +8,42 @@ enum PrismTheme {
     // MARK: Core palette — all dynamic, listen to system appearance
 
     enum Colors {
-        // Surfaces: solid (no translucency) so cards never look washed out.
-        static let bg          = adaptive(lightHex: "#F1F2F5", darkHex: "#080B11")
-        static let bgAlt       = adaptive(lightHex: "#E8EAF0", darkHex: "#0C1017")
-        static let surface     = adaptive(lightHex: "#FFFFFF", darkHex: "#141A27")
-        static let surfaceAlt  = adaptive(lightHex: "#ECEFF4", darkHex: "#1B2233")
-        static let surfaceHigh = adaptive(lightHex: "#DDE3EC", darkHex: "#253046")
-        static let panel       = adaptive(lightHex: "#FFFFFF", darkHex: "#131824")
-        static let card        = adaptive(lightHex: "#FFFFFF", darkHex: "#161C2A")
-        static let control     = adaptive(lightHex: "#E4E8F0", darkHex: "#1E2638")
+        // Quiet neutrals: white / near-black grounds, one accent, hairline
+        // borders. Surfaces stay solid (no translucency).
+        static let bg          = adaptive(lightHex: "#FFFFFF", darkHex: "#141416")
+        static let bgAlt       = adaptive(lightHex: "#F7F7F8", darkHex: "#19191C") // sidebar
+        static let surface     = adaptive(lightHex: "#FFFFFF", darkHex: "#1C1C20")
+        static let surfaceAlt  = adaptive(lightHex: "#F1F1F3", darkHex: "#222227") // fields
+        static let surfaceHigh = adaptive(lightHex: "#E9E9EC", darkHex: "#2A2A30") // selected
+        static let panel       = adaptive(lightHex: "#FCFCFD", darkHex: "#17171A") // inspector
+        static let card        = adaptive(lightHex: "#FFFFFF", darkHex: "#1C1C20")
+        static let control     = adaptive(lightHex: "#EEEEF1", darkHex: "#25252A")
+        static let hover       = adaptive(lightHex: "#F4F4F6", darkHex: "#1F1F23")
 
-        // Borders derived from primary so they flip automatically.
-        // Stronger than before (0.09 was invisible on both modes).
-        static let border       = Color.primary.opacity(0.14)
-        static let borderSubtle = Color.primary.opacity(0.08)
-        static let borderMed    = Color.primary.opacity(0.18)
-        static let borderStrong = Color.primary.opacity(0.26)
+        static let border       = adaptive(lightHex: "#E6E6EA", darkHex: "#2A2A2F")
+        static let borderSubtle = adaptive(lightHex: "#EFEFF2", darkHex: "#222227")
+        static let borderMed    = adaptive(lightHex: "#DCDCE1", darkHex: "#34343A")
+        static let borderStrong = adaptive(lightHex: "#C9C9D0", darkHex: "#45454D")
 
-        // Text: real grays tuned for contrast, not white-at-opacity.
-        // Dark-bg values hit ~7:1 / ~4.6:1; light-bg values hit ~8:1 / ~4.6:1.
-        static let textPrimary   = adaptive(lightHex: "#10151F", darkHex: "#F2F4F8")
-        static let textSecondary = adaptive(lightHex: "#3F4756", darkHex: "#B7BFCD")
-        static let textTertiary  = adaptive(lightHex: "#646D7D", darkHex: "#8E97A8")
-        static let textMuted     = adaptive(lightHex: "#8B94A4", darkHex: "#6E7789")
+        // Text grays tuned for >= 4.5:1 on their grounds.
+        static let textPrimary   = adaptive(lightHex: "#18181B", darkHex: "#EDEDF0")
+        static let textSecondary = adaptive(lightHex: "#52525C", darkHex: "#A9A9B3")
+        static let textTertiary  = adaptive(lightHex: "#6B6B75", darkHex: "#8C8C97")
+        static let textMuted     = adaptive(lightHex: "#8E8E98", darkHex: "#6A6A74")
 
-        // Accents: darker cut for light mode (legible on white),
-        // brighter cut for dark mode (legible on near-black).
-        static let cyan    = adaptive(lightHex: "#0A7C93", darkHex: "#22D3EE")
+        /// The one brand accent: primary buttons, selection, focus.
+        static let accent     = adaptive(lightHex: "#5B5BD6", darkHex: "#7B7BEA")
+        /// Accent for text and icons on neutral grounds.
+        static let accentText = adaptive(lightHex: "#4F4FC4", darkHex: "#A5A5F3")
+        /// Legacy name for the brand accent, kept for older views.
+        static var cyan: Color { accent }
+
+        /// Running state: a live dot and its label.
+        static let live    = adaptive(lightHex: "#22C55E", darkHex: "#22C55E")
+        static let emerald = adaptive(lightHex: "#15803D", darkHex: "#4ADE80")
+
         static let purple  = adaptive(lightHex: "#6D28D9", darkHex: "#A78BFA")
         static let pink    = adaptive(lightHex: "#BE185D", darkHex: "#F472B6")
-        static let emerald = adaptive(lightHex: "#047857", darkHex: "#34D399")
         static let amber   = adaptive(lightHex: "#B45309", darkHex: "#FBBF24")
         static let red     = adaptive(lightHex: "#DC2626", darkHex: "#F87171")
         static let blue    = adaptive(lightHex: "#2563EB", darkHex: "#60A5FA")
@@ -131,8 +137,7 @@ enum PrismTheme {
 
 // MARK: - Reusable view modifiers
 
-/// Solid card — no `.ultraThinMaterial`, which was washing cards out to gray
-/// against the dark background and vibrating in light mode.
+/// Solid surface with a hairline border. No glow, no tint wash.
 struct GlassCardModifier: ViewModifier {
     var accentColor: Color = .clear
     var isActive: Bool = false
@@ -140,51 +145,85 @@ struct GlassCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                // Tint lives UNDER the content — an overlay here would sit
-                // above the buttons and swallow every click on the card.
-                ZStack {
-                    RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge)
-                        .fill(PrismTheme.Colors.surface)
-                    RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge)
-                        .fill(isActive ? accentColor.opacity(0.07) : .clear)
-                }
+                RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge)
+                    .fill(PrismTheme.Colors.surface)
             }
             .overlay(
                 RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerLarge)
-                    .strokeBorder(isActive ? accentColor.opacity(0.45) : PrismTheme.Colors.borderMed,
-                                  lineWidth: isActive ? 1.5 : 1)
+                    .strokeBorder(isActive ? accentColor.opacity(0.35) : PrismTheme.Colors.border, lineWidth: 1)
                     .allowsHitTesting(false)
             )
-            .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
     }
 }
 
+/// A single soft drop shadow for floating panels. `color` is ignored:
+/// coloured glows were part of the old look.
 struct GlowShadowModifier: ViewModifier {
-    var color: Color = PrismTheme.Colors.cyan
+    var color: Color = PrismTheme.Colors.accent
     var radius: CGFloat = 20
 
     func body(content: Content) -> some View {
-        content
-            .shadow(color: color.opacity(0.16), radius: radius, y: radius / 2)
-            .shadow(color: .black.opacity(0.14), radius: radius / 2, y: radius / 4)
+        content.shadow(color: .black.opacity(0.16), radius: radius * 0.6, y: radius * 0.2)
     }
 }
 
+/// Solid accent button (kept for older call sites).
 struct PrismGlowButtonStyle: ButtonStyle {
-    var color: Color = PrismTheme.Colors.cyan
+    var color: Color = PrismTheme.Colors.accent
 
     func makeBody(configuration: Configuration) -> some View {
+        PrismButtonStyle(kind: .primary).makeBody(configuration: configuration)
+    }
+}
+
+/// The app's button look: primary (solid accent), secondary (bordered),
+/// tinted (soft accent) or plain (text only, for quiet row actions).
+struct PrismButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, tinted, plain }
+    var kind: Kind = .secondary
+    var height: CGFloat = 28
+
+    func makeBody(configuration: Configuration) -> some View {
+        PrismButtonBody(configuration: configuration, kind: kind, height: height)
+    }
+}
+
+struct PrismButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let kind: PrismButtonStyle.Kind
+    let height: CGFloat
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var foreground: Color {
+        switch kind {
+        case .primary: return .white
+        case .secondary: return PrismTheme.Colors.textPrimary
+        case .tinted: return PrismTheme.Colors.accentText
+        case .plain: return PrismTheme.Colors.textSecondary
+        }
+    }
+
+    private var fill: Color {
+        switch kind {
+        case .primary: return PrismTheme.Colors.accent
+        case .secondary: return PrismTheme.Colors.surface
+        case .tinted: return PrismTheme.Colors.accent.opacity(0.12)
+        case .plain: return .clear
+        }
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
         configuration.label
-            .font(.system(size: PrismTheme.FontSize.body, weight: .semibold))
-            .foregroundStyle(PrismTheme.Colors.textPrimary)
+            .font(.system(size: 12, weight: .medium))
+            .lineLimit(1)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                LinearGradient(colors: [color, color.opacity(0.82)], startPoint: .top, endPoint: .bottom)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
-            .shadow(color: color.opacity(0.32), radius: 8, y: 3)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .frame(height: height)
+            .background(shape.fill(fill))
+            .overlay(shape.strokeBorder(kind == .secondary ? PrismTheme.Colors.borderMed : .clear, lineWidth: 1))
+            .contentShape(shape)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
     }
 }
 
