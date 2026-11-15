@@ -36,19 +36,32 @@ struct SecondBrainSettingsView: View {
 
             Section("Brainium") {
                 LabeledContent("Brainium") {
-                    pathRow(detected: store.brainium?.cli, binding: store.binding(\.brainiumPath),
-                            placeholder: "Auto-detect (~/brainium)", pickFolder: true)
+                    setupRow(found: cliPath.map(BrainiumSetup.checkoutDir(forCLI:)),
+                             step: .brainium,
+                             install: { store.installBrainium() },
+                             useExisting: pickBrainium,
+                             update: brainiumUpdate)
                 }
                 LabeledContent("Node.js") {
-                    pathRow(detected: store.brainium?.node, binding: store.binding(\.brainiumNodePath),
-                            placeholder: "Auto-detect", pickFolder: false)
+                    setupRow(found: nodePath,
+                             step: .node,
+                             install: { store.installNode() },
+                             useExisting: pickNode,
+                             update: nil)
                 }
-                if store.brainium == nil {
-                    Text(BrainiumBridge.notFoundMessage)
-                        .font(.system(size: 11))
-                        .foregroundStyle(PrismTheme.Colors.red)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                if cliPath == nil || nodePath == nil {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(setupHint)
+                            .font(.system(size: 11))
+                            .foregroundStyle(PrismTheme.Colors.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("Check Again") {
+                            store.objectWillChange.send()
+                            store.refreshBrainStatus()
+                        }
+                        .disabled(store.brainSetupStep != nil)
+                    }
                 }
             }
 
@@ -155,28 +168,101 @@ struct SecondBrainSettingsView: View {
 
     // MARK: Pieces
 
-    private func pathRow(detected: String?, binding: Binding<String>, placeholder: String, pickFolder: Bool) -> some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 6) {
-                TextField(placeholder, text: binding)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { store.refreshBrainStatus() }
-                Button("Browse…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = !pickFolder
-                    panel.canChooseDirectories = pickFolder
-                    panel.prompt = "Use"
-                    if panel.runModal() == .OK, let picked = panel.url {
-                        binding.wrappedValue = picked.path
-                        store.refreshBrainStatus()
-                    }
+    private var cliPath: String? { BrainiumBridge.findCLI(custom: store.brainiumPath) }
+
+    /// Update action for a git checkout of Brainium; nil otherwise.
+    private var brainiumUpdate: (() -> Void)? {
+        guard let cli = cliPath else { return nil }
+        let dir = BrainiumSetup.checkoutDir(forCLI: cli)
+        guard FileManager.default.fileExists(atPath: dir + "/.git") else { return nil }
+        let store = self.store
+        return { store.updateBrainium(at: dir) }
+    }
+    private var nodePath: String? { BrainiumBridge.findNode(custom: store.brainiumNodePath) }
+
+    private var setupHint: String {
+        switch (cliPath == nil, nodePath == nil) {
+        case (true, true):
+            return "Brainium runs on Node.js. Install both, or point Prism at copies you already have."
+        case (false, true):
+            return BrainiumSetup.homebrew != nil
+                ? "Brainium needs Node.js 18 or newer. Install uses Homebrew."
+                : "Brainium needs Node.js 18 or newer. Install downloads the official installer from nodejs.org."
+        default:
+            return BrainiumSetup.hasGit
+                ? "Install clones Brainium from GitHub into ~/brainium."
+                : "Install downloads Brainium from GitHub into ~/brainium."
+        }
+    }
+
+    /// Found: its path plus Change… (and Update for git checkouts).
+    /// Missing: Install and Use existing…. Installing: a spinner.
+    @ViewBuilder
+    private func setupRow(found: String?, step: BrainSetupStep,
+                          install: @escaping () -> Void,
+                          useExisting: @escaping () -> Void,
+                          update: (() -> Void)?) -> some View {
+        HStack(spacing: 8) {
+            if store.brainSetupStep == step {
+                ProgressView().controlSize(.small)
+                Text(step == .brainium ? "Installing…" : "Installing Node.js…")
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+            } else if let found {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PrismTheme.Colors.emerald)
+                Text(BrainiumSetup.tilde(found))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(found)
+                    .textSelection(.enabled)
+                if let update {
+                    Button("Update", action: update)
+                        .disabled(store.brainSetupStep != nil)
                 }
+                Button("Change…", action: useExisting)
+            } else {
+                Text("Not installed")
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                Button("Install", action: install)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.brainSetupStep != nil)
+                Button("Use existing…", action: useExisting)
             }
-            Text(detected.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "Not found")
-                .font(.system(size: 10))
-                .foregroundStyle(detected == nil ? PrismTheme.Colors.red : PrismTheme.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        }
+    }
+
+    private func pickBrainium() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.prompt = "Use"
+        panel.message = "Choose your Brainium folder (the one containing bin/brainium.mjs)."
+        panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())
+        if panel.runModal() == .OK, let picked = panel.url {
+            guard BrainiumBridge.findCLI(custom: picked.path) != nil else {
+                store.brainMessage = "That folder doesn't contain bin/brainium.mjs."
+                return
+            }
+            store.brainiumPath = picked.path
+            store.objectWillChange.send()
+            store.refreshBrainStatus()
+        }
+    }
+
+    private func pickNode() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
+        panel.treatsFilePackagesAsDirectories = true
+        panel.prompt = "Use"
+        panel.message = "Choose the node executable (for example /usr/local/bin/node or ~/.nvm/versions/node/…/bin/node)."
+        panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+        if panel.runModal() == .OK, let picked = panel.url {
+            store.brainiumNodePath = picked.path
+            store.objectWillChange.send()
+            store.refreshBrainStatus()
         }
     }
 

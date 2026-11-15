@@ -42,7 +42,7 @@ struct BrainiumBridge: Sendable {
     }
 
     static let notFoundMessage =
-        "Brainium or Node.js wasn't found. Install Node.js (nodejs.org), then: git clone https://github.com/moderniselife/brainium ~/brainium — or set the paths here."
+        "Brainium isn't set up yet. Open Settings → Second brain and click Install."
 
     struct Provider: Identifiable, Sendable {
         let id: String
