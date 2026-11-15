@@ -55,7 +55,7 @@ struct BrainiumBridge: Sendable {
         Provider(id: "none", label: "No AI (mechanical summary)"),
         Provider(id: "anthropic", label: "Anthropic API"),
         Provider(id: "openai", label: "OpenAI API"),
-        Provider(id: "bonsai", label: "Bonsai (local)"),
+        Provider(id: "bonsai", label: "Bonsai (self-hosted)"),
         Provider(id: "openai-compatible", label: "Other OpenAI-compatible API"),
     ]
 

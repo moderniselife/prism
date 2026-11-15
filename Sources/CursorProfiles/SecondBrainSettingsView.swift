@@ -17,6 +17,14 @@ struct SecondBrainSettingsView: View {
     private var status: BrainiumBridge.Status? { store.brainStatus }
     private var usesAPI: Bool { !["agent", "none"].contains(provider) }
 
+    /// Self-hosted servers have no default address: the user must enter one
+    /// (unless this provider already has a saved URL).
+    private var needsURL: Bool {
+        guard ["bonsai", "openai-compatible"].contains(provider),
+              url.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return status?.summarizer?.provider != provider || (status?.summarizer?.url ?? "").isEmpty
+    }
+
     var body: some View {
         Form {
             Section {
@@ -100,11 +108,19 @@ struct SecondBrainSettingsView: View {
                     TextField("Model", text: $model, prompt: Text(modelPlaceholder))
                     TextField("API key env var", text: $apiKeyEnv, prompt: Text(keyEnvPlaceholder))
                     SecureField("API key", text: $apiKey, prompt: Text(status?.summarizer?.hasKey == true ? "Saved — leave empty to keep" : "Optional if the env var is set"))
+                    if needsURL {
+                        Text(provider == "bonsai"
+                             ? "Enter your Bonsai server's URL — its OpenAI-compatible API, usually ending in /v1."
+                             : "Enter the server's OpenAI-compatible base URL, usually ending in /v1.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PrismTheme.Colors.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 HStack {
                     Spacer()
                     Button("Save Summarizer") { saveSummarizer() }
-                        .disabled(store.brainium == nil || store.brainBusy)
+                        .disabled(store.brainium == nil || store.brainBusy || needsURL)
                 }
             }
 
@@ -170,7 +186,7 @@ struct SecondBrainSettingsView: View {
         case "none": return "Files a plain mechanical summary (prompts, files, commands). No AI involved."
         case "anthropic": return "Uses the Anthropic Messages API. Default model claude-haiku-5-5; key from ANTHROPIC_API_KEY unless you save one."
         case "openai": return "Uses the OpenAI Chat Completions API. Set a model; key from OPENAI_API_KEY unless you save one."
-        case "bonsai": return "Uses your Bonsai server (OpenAI-compatible). Set its URL, e.g. http://bonsai.local:8080/v1; default model solo-quick."
+        case "bonsai": return "Uses your self-hosted Bonsai server through its OpenAI-compatible API. Enter its URL below; default model solo-quick."
         default: return "Any OpenAI-compatible endpoint: set its base URL (ending in /v1 where needed) and model."
         }
     }
@@ -179,7 +195,8 @@ struct SecondBrainSettingsView: View {
         switch provider {
         case "anthropic": return "https://api.anthropic.com"
         case "openai": return "https://api.openai.com/v1"
-        default: return "http://host:port/v1"
+        case "bonsai": return "Your Bonsai server, e.g. http://<host>:<port>/v1"
+        default: return "http://<host>:<port>/v1"
         }
     }
 
