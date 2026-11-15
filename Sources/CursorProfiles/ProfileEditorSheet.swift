@@ -35,6 +35,8 @@ struct ProfileEditorSheet: View {
         case overflow
     }
 
+    private static let sheetWidth: CGFloat = 560
+
     private func close() {
         if let onClose { onClose() } else { dismiss() }
     }
@@ -76,18 +78,18 @@ struct ProfileEditorSheet: View {
                         projectSection
                     }
                 }
+                // Pin the form to the sheet's width. Without a fixed width
+                // the first layout pass sizes it from its widest child and
+                // the form renders clipped until something re-lays it out.
+                .frame(width: Self.sheetWidth - 48, alignment: .leading)
                 .padding(.horizontal, 24)
                 .padding(.top, 4)
                 .padding(.bottom, 24)
-                // Pin the content to the sheet's width. Without this the
-                // first layout pass sizes it from its widest child and the
-                // form renders clipped until something re-lays it out.
-                .containerRelativeFrame(.horizontal, alignment: .leading)
             }
 
             footer
         }
-        .frame(width: 560, height: 640)
+        .frame(width: Self.sheetWidth, height: 640)
         .background(PrismTheme.Colors.bg)
         .tint(PrismTheme.Colors.accent)
         .onAppear(perform: populate)
