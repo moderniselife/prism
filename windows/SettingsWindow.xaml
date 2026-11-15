@@ -4,9 +4,9 @@
         Title="Settings" Width="520" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI">
-    <StackPanel Margin="20,16">
+    <StackPanel Margin="24,20">
 
-        <TextBlock Text="Cursor" FontSize="15" FontWeight="Bold"/>
+        <TextBlock Text="Cursor" FontSize="13" FontWeight="SemiBold"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
             <TextBlock x:Name="DetectedPath" Foreground="{DynamicResource SubTextBrush}"
@@ -19,7 +19,7 @@
             <TextBox x:Name="CustomPathBox" Style="{StaticResource DarkField}"/>
         </DockPanel>
 
-        <TextBlock Text="Claude Code (CLI)" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <TextBlock Text="Claude Code (CLI)" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
             <TextBlock x:Name="DetectedCodePath" Foreground="{DynamicResource SubTextBrush}"
@@ -32,7 +32,7 @@
             <TextBox x:Name="CustomCodePathBox" Style="{StaticResource DarkField}"/>
         </DockPanel>
 
-        <TextBlock Text="Claude Desktop (app)" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <TextBlock Text="Claude Desktop (app)" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
             <TextBlock x:Name="DetectedDesktopPath" Foreground="{DynamicResource SubTextBrush}"
@@ -45,7 +45,28 @@
             <TextBox x:Name="CustomDesktopPathBox" Style="{StaticResource DarkField}"/>
         </DockPanel>
 
-        <TextBlock Text="Appearance" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <TextBlock Text="Grok Bot (app)" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,10,0,0">
+            <TextBlock Text="Detected path" VerticalAlignment="Center" Width="110"/>
+            <TextBlock x:Name="DetectedGrokPath" Foreground="{DynamicResource SubTextBrush}"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        </DockPanel>
+        <DockPanel Margin="0,8,0,0">
+            <TextBlock Text="Custom path" VerticalAlignment="Center" Width="110"/>
+            <Button Content="Browse…" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                    Margin="6,0,0,0" Click="BrowseGrok_Click"/>
+            <TextBox x:Name="CustomGrokPathBox" Style="{StaticResource DarkField}"/>
+        </DockPanel>
+
+        <TextBlock Text="Second brain" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
+        <DockPanel Margin="0,10,0,0">
+            <Button Content="Open…" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"
+                    Margin="6,0,0,0" Click="SecondBrain_Click"/>
+            <TextBlock Text="Brainium setup, your personal brain, wiring and capture." TextWrapping="Wrap"
+                       VerticalAlignment="Center" Foreground="{DynamicResource SubTextBrush}"/>
+        </DockPanel>
+
+        <TextBlock Text="Appearance" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Theme" VerticalAlignment="Center" Width="110"/>
             <ComboBox x:Name="ThemeBox" Style="{StaticResource ThemeComboBox}">
@@ -55,7 +76,7 @@
             </ComboBox>
         </DockPanel>
 
-        <TextBlock Text="New profile defaults" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <TextBlock Text="New profile defaults" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Memory limit" VerticalAlignment="Center" Width="110"/>
             <TextBlock Text="MB" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0"
@@ -64,7 +85,7 @@
                      HorizontalAlignment="Left"/>
         </DockPanel>
 
-        <TextBlock Text="Storage" FontSize="15" FontWeight="Bold" Margin="0,18,0,0"/>
+        <TextBlock Text="Storage" FontSize="13" FontWeight="SemiBold" Margin="0,18,0,0"/>
         <DockPanel Margin="0,10,0,0">
             <TextBlock Text="Profiles folder" VerticalAlignment="Center" Width="110"/>
             <Button Content="Open" DockPanel.Dock="Right" Style="{StaticResource GhostButton}"

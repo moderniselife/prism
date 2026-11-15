@@ -18,7 +18,7 @@ public partial class LaunchOptionsWindow : Window
         ProjectBox.Text = vm.Model.DefaultProjectPath ?? "";
         // Memory cap is Cursor-only; project folder is unused by Desktop.
         var isCursor = vm.Model.NormalizedApp == CursorProfile.AppCursor;
-        var isDesktop = vm.Model.NormalizedApp == CursorProfile.AppClaudeDesktop;
+        var isDesktop = !vm.Model.OpensProjectFolder; // Desktop and Grok Bot never open a folder
         MemoryBox.IsEnabled = isCursor;
         MemoryBox.Opacity = isCursor ? 1.0 : 0.45;
         ProjectBox.IsEnabled = !isDesktop;

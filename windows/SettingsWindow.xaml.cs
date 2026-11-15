@@ -18,6 +18,8 @@ public partial class SettingsWindow : Window
         CustomCodePathBox.Text = store.Settings.CustomCodePath;
         DetectedDesktopPath.Text = store.ResolvedDesktopPath ?? "Not found";
         CustomDesktopPathBox.Text = store.Settings.CustomDesktopPath;
+        DetectedGrokPath.Text = store.ResolvedGrokPath ?? "Not found";
+        CustomGrokPathBox.Text = store.Settings.CustomGrokPath;
         SelectTheme(ThemeManager.NormalizeChoice(store.Settings.Theme));
         MemoryBox.Text = store.Settings.DefaultMemoryMB.ToString();
         ProfilesDirText.Text = store.ProfilesDir;
@@ -70,6 +72,19 @@ public partial class SettingsWindow : Window
         if (dialog.ShowDialog(this) == true) CustomDesktopPathBox.Text = dialog.FileName;
     }
 
+    private void BrowseGrok_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Grok Bot|Grok Bot.exe;grok-bot.exe|Executables|*.exe",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        };
+        if (dialog.ShowDialog(this) == true) CustomGrokPathBox.Text = dialog.FileName;
+    }
+
+    private void SecondBrain_Click(object sender, RoutedEventArgs e) =>
+        new SecondBrainWindow(_store) { Owner = this }.ShowDialog();
+
     private void OpenProfiles_Click(object sender, RoutedEventArgs e) =>
         System.Diagnostics.Process.Start("explorer.exe", $"\"{_store.ProfilesDir}\"");
 
@@ -80,6 +95,7 @@ public partial class SettingsWindow : Window
         _store.Settings.CustomCursorPath = CustomPathBox.Text.Trim();
         _store.Settings.CustomCodePath = CustomCodePathBox.Text.Trim();
         _store.Settings.CustomDesktopPath = CustomDesktopPathBox.Text.Trim();
+        _store.Settings.CustomGrokPath = CustomGrokPathBox.Text.Trim();
         _store.Settings.Theme = SelectedTheme;
         if (int.TryParse(MemoryBox.Text.Trim(), out var memory) && memory >= 512)
             _store.Settings.DefaultMemoryMB = memory;
