@@ -44,7 +44,6 @@ struct ProfileEditorSheet: View {
         return false
     }
 
-    private var previewColor: Color { Color(hex: colorHex) ?? .accentColor }
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var isGrok: Bool { app == CursorProfile.appGrokBot }
     private var overflowSources: [CursorProfile] {
@@ -61,28 +60,36 @@ struct ProfileEditorSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
 
             ScrollView {
-                VStack(spacing: 16) {
-                    previewStrip
-                    detailsSection
+                VStack(alignment: .leading, spacing: 22) {
+                    nameField
+                    appPicker
+                    colorPicker
                     if !isEditing {
                         accountSection
                     }
-                    resourcesSection
-                    if !isGrok {
+                    if app == CursorProfile.appCursor {
+                        memorySection
+                    }
+                    if opensProjectFolder {
                         projectSection
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+                // Pin the content to the sheet's width. Without this the
+                // first layout pass sizes it from its widest child and the
+                // form renders clipped until something re-lays it out.
+                .containerRelativeFrame(.horizontal, alignment: .leading)
             }
 
-            Divider()
             footer
         }
-        .frame(width: 560, height: 600)
+        .frame(width: 560, height: 640)
         .background(PrismTheme.Colors.bg)
+        .tint(PrismTheme.Colors.accent)
         .onAppear(perform: populate)
         .onChange(of: app) { _, _ in defaultSource() }
     }
@@ -90,54 +97,34 @@ struct ProfileEditorSheet: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(isEditing ? "Edit Profile" : "New Profile")
-                    .font(.system(size: 14, weight: .semibold))
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isEditing ? "Edit profile" : "New profile")
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(PrismTheme.Colors.textPrimary)
-                Text("Each profile is an isolated instance — own settings, login and history.")
-                    .font(.system(size: 11))
+                Text("Each profile keeps its own sign-in, settings and history.")
+                    .font(.system(size: 12))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
             }
 
             Spacer()
 
-            Button(role: .cancel) {
+            Button {
                 close()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 28, height: 28)
+                    .background(PrismTheme.Colors.surfaceAlt, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.plain)
             .help("Close (Esc)")
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-    }
-
-    // MARK: - Live preview
-
-    private var previewInitial: String {
-        guard let first = trimmedName.first else { return "?" }
-        return String(first).uppercased()
-    }
-
-    private var previewSubtitle: String {
-        let project = projectPath.isEmpty ? "" : " · \((projectPath as NSString).abbreviatingWithTildeInPath)"
-        switch app {
-        case CursorProfile.appClaudeCode: return "Claude Code\(project)\(overflowNote)"
-        case CursorProfile.appClaudeDesktop: return "Claude Desktop\(overflowNote)"
-        case CursorProfile.appGrokBot: return "Grok Bot\(overflowNote)"
-        default: return "\(formatGB(memoryMB)) limit\(project)\(overflowNote)"
-        }
-    }
-
-    private var overflowNote: String {
-        guard isOverflow, let source = overflowSource else { return "" }
-        return isGrok ? " · settings from \(source.displayName)" : " · overflow of \(source.displayName)"
+        .padding(.horizontal, 24)
+        .padding(.top, 22)
+        .padding(.bottom, 18)
     }
 
     /// Pick the app's built-in profile as the default overflow source.
@@ -147,127 +134,103 @@ struct ProfileEditorSheet: View {
         }
     }
 
-    private var previewStrip: some View {
-        HStack(spacing: 12) {
-            Text(previewInitial)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(previewColor)
-                .frame(width: 50, height: 50)
-                .background(previewColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trimmedName.isEmpty ? "Profile name" : trimmedName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(trimmedName.isEmpty
-                                      ? PrismTheme.Colors.textMuted
-                                      : PrismTheme.Colors.textPrimary)
-                    .lineLimit(1)
-                Text(previewSubtitle)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer()
-
-            Circle()
-                .fill(previewColor)
-                .frame(width: 14, height: 14)
-                .overlay(Circle().stroke(PrismTheme.Colors.borderMed, lineWidth: 1))
-                .help("Accent color")
-        }
-        .padding(12)
-        .background(PrismTheme.Colors.surface)
-        .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium))
-        .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium)
-            .stroke(previewColor.opacity(0.35), lineWidth: 1)
-            .allowsHitTesting(false))
+    private var opensProjectFolder: Bool {
+        app == CursorProfile.appCursor || app == CursorProfile.appClaudeCode
     }
 
-    // MARK: - Sections
+    // MARK: - Fields
 
-    private var detailsSection: some View {
-        section(title: "Details") {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Name")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    TextField("e.g. Work, Personal, Experiments", text: $name)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                }
+    private var nameField: some View {
+        field("Name") {
+            TextField("e.g. Client work", text: $name)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(PrismTheme.Colors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(PrismTheme.Colors.borderMed, lineWidth: 1))
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("App")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    Picker("", selection: $app) {
-                        Text("Cursor (editor)").tag(CursorProfile.appCursor)
-                        Text("Claude Code (CLI)").tag(CursorProfile.appClaudeCode)
-                        Text("Claude Desktop").tag(CursorProfile.appClaudeDesktop)
-                        Text("Grok Bot").tag(CursorProfile.appGrokBot)
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(isEditing)
-                    .help(isEditing ? "The app is fixed after creation." : "Which app this profile belongs to.")
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Accent color")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    HStack(spacing: 8) {
-                        ForEach(AccentPalette.all) { swatch in
-                            Button {
-                                colorHex = swatch.hex
-                            } label: {
-                                Circle()
-                                    .fill(swatch.color)
-                                    .frame(width: 22, height: 22)
-                                    .overlay(
-                                        Circle().strokeBorder(
-                                            colorHex == swatch.hex ? PrismTheme.Colors.textPrimary : .clear,
-                                            lineWidth: 2)
-                                    )
-                                    .shadow(color: swatch.color.opacity(colorHex == swatch.hex ? 0.5 : 0), radius: 4)
-                            }
-                            .buttonStyle(.plain)
-                            .help(swatch.name)
+    private var appPicker: some View {
+        field("App") {
+            HStack(spacing: 8) {
+                ForEach(CursorProfile.allApps, id: \.self) { candidate in
+                    let selected = app == candidate
+                    Button {
+                        app = candidate
+                    } label: {
+                        VStack(spacing: 8) {
+                            AppGlyph(app: candidate, size: 18)
+                            Text(CursorProfile.label(for: candidate))
+                                .font(.system(size: 12, weight: selected ? .medium : .regular))
+                                .lineLimit(1)
                         }
+                        .foregroundStyle(selected ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 70)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(selected ? PrismTheme.Colors.accent.opacity(0.07) : PrismTheme.Colors.surface))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(selected ? PrismTheme.Colors.accent : PrismTheme.Colors.border,
+                                          lineWidth: selected ? 1.5 : 1))
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            .disabled(isEditing)
+            .opacity(isEditing ? 0.6 : 1)
+            .help(isEditing ? "The app is fixed after creation." : "Which app this profile belongs to.")
+        }
+    }
+
+    private var colorPicker: some View {
+        field("Color") {
+            HStack(spacing: 10) {
+                ForEach(AccentPalette.all) { swatch in
+                    let selected = colorHex == swatch.hex
+                    Button {
+                        colorHex = swatch.hex
+                    } label: {
+                        Circle()
+                            .fill(swatch.color)
+                            .frame(width: 22, height: 22)
+                            .padding(3)
+                            .overlay(Circle().strokeBorder(selected ? swatch.color : .clear, lineWidth: 2))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(swatch.name)
+                }
+            }
+            .padding(.leading, -3)
         }
     }
 
     private var accountSection: some View {
-        section(title: "Account") {
-            VStack(alignment: .leading, spacing: 10) {
-                Picker("", selection: $accountSetup) {
-                    Text("Fresh account").tag(AccountSetup.fresh)
-                    Text(CursorProfile.copyChoiceLabel(for: app)).tag(AccountSetup.overflow)
+        field("Account") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    accountOption(.fresh, title: "Fresh account",
+                                  detail: "Starts empty. Sign in with any account on first launch.")
+                    accountOption(.overflow, title: CursorProfile.copyChoiceLabel(for: app),
+                                  detail: isGrok
+                                    ? "Copies local settings. Agents stay on your Grok account."
+                                    : "Copies your setup, then you sign in with another account.")
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
 
-                switch accountSetup {
-                case .fresh:
-                    Text("Starts empty — no settings, config or sign-in. Sign in with any account on first launch.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PrismTheme.Colors.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .overflow:
+                if accountSetup == .overflow {
                     if overflowSources.isEmpty {
                         Text("No \(CursorProfile.label(for: app)) profile to carry over from yet. Open \(CursorProfile.label(for: app)) once, then come back.")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(PrismTheme.Colors.red)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        HStack(spacing: 8) {
-                            Text(isGrok ? "Copy settings from" : "Carry over from")
-                                .font(.system(size: 11, weight: .medium))
+                        HStack(spacing: 10) {
+                            Text("Copy from")
+                                .font(.system(size: 12))
                                 .foregroundStyle(PrismTheme.Colors.textSecondary)
                             Picker("", selection: $sourceFolder) {
                                 ForEach(overflowSources) { source in
@@ -276,17 +239,49 @@ struct ProfileEditorSheet: View {
                             }
                             .pickerStyle(.menu)
                             .labelsHidden()
-                            .frame(maxWidth: 240)
+                            .frame(maxWidth: 260, alignment: .leading)
                         }
                         Text(Self.overflowExplainer(for: app))
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
+                            .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
         }
         .onAppear(perform: defaultSource)
+    }
+
+    private func accountOption(_ choice: AccountSetup, title: String, detail: String) -> some View {
+        let selected = accountSetup == choice
+        return Button {
+            accountSetup = choice
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(selected ? PrismTheme.Colors.accent : PrismTheme.Colors.textMuted)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textPrimary)
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(selected ? PrismTheme.Colors.accent.opacity(0.06) : PrismTheme.Colors.surface))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(selected ? PrismTheme.Colors.accent : PrismTheme.Colors.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// What an overflow copies for each app — kept honest and specific.
@@ -304,79 +299,78 @@ struct ProfileEditorSheet: View {
         }
     }
 
-    private var resourcesSection: some View {
-        section(title: "Resources") {
+    private var memorySection: some View {
+        field("Memory limit") {
             VStack(alignment: .leading, spacing: 8) {
-                Text(app == CursorProfile.appCursor
-                     ? "Memory limit — passed to Cursor as --max-memory."
-                     : "Memory limit applies to Cursor only — ignored for this app.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                HStack(spacing: 10) {
+                    HStack(spacing: 2) {
+                        memoryPreset("8 GB", value: 8192)
+                        memoryPreset("16 GB", value: 16384)
+                        memoryPreset("32 GB", value: 32768)
+                    }
+                    .padding(3)
+                    .background(PrismTheme.Colors.surfaceAlt, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
-                HStack(spacing: 6) {
-                    memoryPreset("8 GB", value: 8192)
-                    memoryPreset("16 GB", value: 16384)
-                    memoryPreset("32 GB", value: 32768)
-                    Spacer()
+                    Spacer(minLength: 8)
+
                     TextField("MB", value: $memoryMB, format: .number.grouping(.never))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 11, design: .rounded))
-                        .frame(width: 90)
+                        .font(.system(size: 12))
+                        .frame(width: 80)
                         .multilineTextAlignment(.trailing)
-                        .disabled(app != CursorProfile.appCursor)
                     Text("MB")
-                        .font(.system(size: 11, design: .rounded))
+                        .font(.system(size: 12))
                         .foregroundStyle(PrismTheme.Colors.textTertiary)
                 }
+                Text("Passed to Cursor as --max-memory.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
             }
         }
-        .opacity(app == CursorProfile.appCursor ? 1.0 : 0.55)
     }
 
     private var projectSection: some View {
-        section(title: "Project") {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Folder opened on launch (optional).")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-                HStack(spacing: 6) {
-                    TextField("No folder — open Finder picker on launch", text: $projectPath)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 11, design: .rounded))
-                    Button("Choose…") { pickFolder() }
-                }
+        field("Project folder") {
+            HStack(spacing: 8) {
+                TextField("None — choose when you launch", text: $projectPath)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(PrismTheme.Colors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(PrismTheme.Colors.borderMed, lineWidth: 1))
+                Button("Choose…") { pickFolder() }
+                    .buttonStyle(PrismButtonStyle(kind: .secondary, height: 32))
             }
         }
     }
 
-    private func section<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(PrismTheme.Colors.textTertiary)
-                .textCase(.uppercase)
-            VStack(alignment: .leading, spacing: 12) {
-                content()
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PrismTheme.Colors.surface)
-            .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium))
-            .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium)
-                .stroke(PrismTheme.Colors.border, lineWidth: 1)
-                .allowsHitTesting(false))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PrismTheme.Colors.textSecondary)
+            content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func memoryPreset(_ label: String, value: Int) -> some View {
-        Button {
+        let selected = memoryMB == value
+        return Button {
             memoryMB = value
         } label: {
             Text(label)
-                .font(.system(size: 11, weight: memoryMB == value ? .semibold : .regular))
+                .font(.system(size: 12, weight: selected ? .medium : .regular))
+                .foregroundStyle(selected ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textSecondary)
+                .frame(width: 64, height: 26)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(selected ? PrismTheme.Colors.surface : .clear)
+                    .shadow(color: .black.opacity(selected ? 0.08 : 0), radius: 1, y: 1))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .tint(memoryMB == value ? previewColor : nil)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Footer
@@ -387,8 +381,8 @@ struct ProfileEditorSheet: View {
                 Text(profile.isSystem
                      ? "Built-in profile — \(profile.appLabel) data"
                      : "Folder: \(profile.folderName)")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textMuted)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -396,20 +390,20 @@ struct ProfileEditorSheet: View {
             Button("Cancel", role: .cancel) { close() }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.cancelAction)
-            Button(isEditing ? "Save" : "Create Profile") { save() }
+            Button(isEditing ? "Save" : "Create profile") { save() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .padding(.vertical, 14)
+        .background(PrismTheme.Colors.panel)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
+        }
     }
 
     // MARK: - Helpers
-
-    private func formatGB(_ mb: Int) -> String {
-        mb >= 1024 ? String(format: "%.0f GB", Double(mb) / 1024.0) : "\(mb) MB"
-    }
 
     private func populate() {
         switch mode {

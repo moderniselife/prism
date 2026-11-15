@@ -12,6 +12,8 @@ struct CursorProfilesApp: App {
                 .environmentObject(store)
         }
         .windowStyle(.hiddenTitleBar)
+        // Wide enough for sidebar + list + detail panel on first launch.
+        .defaultSize(width: 1240, height: 780)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Rescan Profiles") { store.reload() }
@@ -126,11 +128,11 @@ struct MenuBarDropdown: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("Prism")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(PrismTheme.Colors.textPrimary)
                         .lineLimit(1)
                     Text("v\(PrismVersion.string)")
-                        .font(.system(size: 8, weight: .medium, design: .rounded))
+                        .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(PrismTheme.Colors.cyan)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -141,7 +143,7 @@ struct MenuBarDropdown: View {
                 Text(runningCount > 0
                      ? "\(runningCount) running · \(Format.bytes(Int64(store.liveMemoryTotal))) live"
                      : "All profiles idle")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
                     .lineLimit(1)
                     .frame(width: 170, alignment: .leading)
@@ -180,7 +182,7 @@ struct MenuBarDropdown: View {
                 .foregroundStyle(PrismTheme.Colors.textMuted)
             TextField("Filter profiles...", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11, design: .rounded))
+                .font(.system(size: 11))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
                 .frame(width: 270, alignment: .leading)
         }
@@ -199,7 +201,7 @@ struct MenuBarDropdown: View {
             if hiddenCount > 0 {
                 Button { PrismUI.openHub() } label: {
                     Text("+\(hiddenCount) more — open hub")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(PrismTheme.Colors.cyan)
                         .frame(width: MenuMetrics.contentWidth, alignment: .center)
                         .padding(.vertical, 4)
@@ -208,7 +210,7 @@ struct MenuBarDropdown: View {
             }
             if visibleProfiles.isEmpty {
                 Text(searchText.isEmpty ? "No profiles yet" : "No matches")
-                    .font(.system(size: 11, design: .rounded))
+                    .font(.system(size: 11))
                     .foregroundStyle(PrismTheme.Colors.textTertiary)
                     .frame(width: MenuMetrics.contentWidth, alignment: .center)
                     .padding(.vertical, 12)
@@ -227,12 +229,12 @@ struct MenuBarDropdown: View {
                 .fill(runningCount > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textMuted)
                 .frame(width: 6, height: 6)
             Text(runningCount > 0 ? "\(runningCount) running" : "Idle")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(PrismTheme.Colors.textTertiary)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Text("Live \(Format.bytes(Int64(store.liveMemoryTotal))) / \(Format.bytes(Int64(store.physicalMemory)))")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(PrismTheme.Colors.textMuted)
                 .lineLimit(1)
         }
@@ -248,7 +250,7 @@ struct MenuBarDropdown: View {
         HStack(spacing: 8) {
             Button { PrismUI.newProfile() } label: {
                 Label("New Profile", systemImage: "plus")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -257,13 +259,13 @@ struct MenuBarDropdown: View {
 
             Button { store.quitAll() } label: {
                 Text("Stop All")
-                    .font(.system(size: 11, design: .rounded))
+                    .font(.system(size: 11))
             }
             .buttonStyle(.borderless)
 
             Button { PrismUI.openHub() } label: {
                 Text("Open Hub")
-                    .font(.system(size: 11, design: .rounded))
+                    .font(.system(size: 11))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -290,7 +292,7 @@ struct MenuBarProfileItem: View {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(profile.accentColor.opacity(0.18))
                     Text(profile.initial)
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(profile.accentColor)
                     if isRunning {
                         Circle()
@@ -304,7 +306,7 @@ struct MenuBarProfileItem: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         Text(profile.displayName)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PrismTheme.Colors.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -318,13 +320,13 @@ struct MenuBarProfileItem: View {
 
                     if let pids = store.runningPIDs[profile.folderName], let pid = pids.first(where: { $0 > 0 }) {
                         Text("PID \(pid)")
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 9))
                             .foregroundStyle(PrismTheme.Colors.textMuted)
                             .lineLimit(1)
                             .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
                     } else if let project = profile.defaultProjectPath {
                         Text((project as NSString).abbreviatingWithTildeInPath)
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 9))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -335,19 +337,19 @@ struct MenuBarProfileItem: View {
                         let live = store.liveMemory[profile.folderName] ?? 0
                         let wins = store.windows(for: profile)
                         Text("\(Format.bytes(Int64(live))) · \(wins == 1 ? "1 window" : "\(wins) windows")")
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(profile.accentColor)
                             .lineLimit(1)
                             .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
                     } else if profile.hasMemoryCap {
                         Text("\(formatMB(profile.defaultMemoryMB)) limit")
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 9))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                             .lineLimit(1)
                             .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
                     } else {
                         Text(profile.appLabel)
-                            .font(.system(size: 9, design: .rounded))
+                            .font(.system(size: 9))
                             .foregroundStyle(PrismTheme.Colors.textTertiary)
                             .lineLimit(1)
                             .frame(width: MenuMetrics.textColumnWidth, alignment: .leading)
@@ -360,7 +362,7 @@ struct MenuBarProfileItem: View {
                 if isRunning {
                     Button { store.launch(profile) } label: {
                         Text("Focus")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .font(.system(size: 10, weight: .bold))
                             .frame(width: 52)
                     }
                     .buttonStyle(.borderedProminent)
@@ -368,7 +370,7 @@ struct MenuBarProfileItem: View {
                 } else {
                     Button { store.launch(profile) } label: {
                         Text("Start")
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .font(.system(size: 10, weight: .medium))
                             .frame(width: 52)
                     }
                     .buttonStyle(.bordered)

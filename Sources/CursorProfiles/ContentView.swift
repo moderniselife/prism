@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - Filter & Sort
 
@@ -13,6 +12,30 @@ enum ProfileFilter: String, CaseIterable, Identifiable {
     case grok = "Grok"
 
     var id: String { rawValue }
+
+    /// Heading shown above the list.
+    var title: String {
+        switch self {
+        case .all: return "All profiles"
+        case .active: return "Running"
+        case .custom: return "Custom"
+        case .cursor: return "Cursor"
+        case .code: return "Claude Code"
+        case .desktop: return "Claude Desktop"
+        case .grok: return "Grok Bot"
+        }
+    }
+
+    /// The app a per-app filter shows, if any.
+    var app: String? {
+        switch self {
+        case .cursor: return CursorProfile.appCursor
+        case .code: return CursorProfile.appClaudeCode
+        case .desktop: return CursorProfile.appClaudeDesktop
+        case .grok: return CursorProfile.appGrokBot
+        default: return nil
+        }
+    }
 }
 
 enum SortMode: String, CaseIterable, Identifiable {
@@ -22,7 +45,17 @@ enum SortMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// A titled group of rows ("Running", "Not running").
+struct HubSection: Identifiable {
+    let title: String
+    let profiles: [CursorProfile]
+    var id: String { title }
+}
+
 // MARK: - Main Hub Window
+//
+// Sidebar (filters, second brain, totals) | profile list | detail panel.
+// The detail panel hides when the window is too narrow for three columns.
 
 @MainActor
 struct ContentView: View {
@@ -30,14 +63,32 @@ struct ContentView: View {
     @State private var search = ""
     @State private var sortMode: SortMode = .recent
     @State private var filter: ProfileFilter = .all
+    @State private var selectedID: String?
     @State private var showingAdd = false
     @State private var editingProfile: CursorProfile?
     @State private var deletingProfile: CursorProfile?
     @State private var showSpotlight = false
     @FocusState private var isSearchFocused: Bool
+    @State private var keyMonitor: Any?
+
+    /// Below this width the detail panel is hidden.
+    private static let inspectorMinWindowWidth: CGFloat = 1040
+
+    private func matches(_ profile: CursorProfile, _ filter: ProfileFilter) -> Bool {
+        switch filter {
+        case .all: return true
+        case .active: return store.isRunning(profile)
+        case .custom: return !profile.isSystem
+        default: return profile.normalizedApp == filter.app
+        }
+    }
+
+    func count(_ filter: ProfileFilter) -> Int {
+        store.profiles.filter { matches($0, filter) }.count
+    }
 
     private var filtered: [CursorProfile] {
-        var list = store.profiles
+        var list = store.profiles.filter { matches($0, filter) }
 
         if !search.isEmpty {
             list = list.filter {
@@ -48,26 +99,9 @@ struct ContentView: View {
             }
         }
 
-        switch filter {
-        case .active:
-            list = list.filter { store.isRunning($0) }
-        case .custom:
-            list = list.filter { !$0.isSystem }
-        case .cursor:
-            list = list.filter { $0.normalizedApp == CursorProfile.appCursor }
-        case .code:
-            list = list.filter { $0.normalizedApp == CursorProfile.appClaudeCode }
-        case .desktop:
-            list = list.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }
-        case .grok:
-            list = list.filter { $0.normalizedApp == CursorProfile.appGrokBot }
-        case .all:
-            break
-        }
-
         list.sort { a, b in
-            if a.isSystem != b.isSystem { return a.isSystem }
             if a.isPinned != b.isPinned { return a.isPinned }
+            if a.isSystem != b.isSystem { return a.isSystem }
             switch sortMode {
             case .name:
                 return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
@@ -80,22 +114,44 @@ struct ContentView: View {
         return list
     }
 
-    private var runningCount: Int {
-        store.profiles.filter { store.isRunning($0) }.count
+    private var sections: [HubSection] {
+        let list = filtered
+        let running = list.filter { store.isRunning($0) }
+        let idle = list.filter { !store.isRunning($0) }
+        var out: [HubSection] = []
+        if !running.isEmpty { out.append(HubSection(title: "Running", profiles: running)) }
+        if !idle.isEmpty { out.append(HubSection(title: "Not running", profiles: idle)) }
+        return out
     }
 
-    @State private var keyMonitor: Any?
+    /// The selected profile, falling back to the first one listed.
+    private var selectedProfile: CursorProfile? {
+        if let id = selectedID, let match = store.profiles.first(where: { $0.folderName == id }) {
+            return match
+        }
+        return sections.first?.profiles.first
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            titleBar
-            filterBar
-            UpdateBanner()
-            mainContent
-            statusBar
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                HubSidebar(search: $search, filter: $filter,
+                           searchFocus: $isSearchFocused, count: count)
+                mainColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if geo.size.width >= Self.inspectorMinWindowWidth, let profile = selectedProfile {
+                    ProfileInspector(profile: profile,
+                                     onEdit: { editingProfile = profile },
+                                     onDelete: { deletingProfile = profile })
+                        .id(profile.folderName)
+                        .frame(width: 320)
+                }
+            }
         }
         .background(PrismTheme.Colors.bg.ignoresSafeArea())
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 860, minHeight: 560)
+        .tint(PrismTheme.Colors.accent)
         .sheet(isPresented: $showingAdd) {
             ProfileEditorSheet(mode: .create, onClose: { showingAdd = false })
         }
@@ -137,6 +193,7 @@ struct ContentView: View {
             isSearchFocused = true
         }
         .onAppear {
+            store.refreshBrainStatus()
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                     if event.modifierFlags.contains(.option) && event.charactersIgnoringModifiers == " " {
@@ -155,347 +212,404 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Title Bar
+    // MARK: - Main column
 
-    private var titleBar: some View {
-        HStack(spacing: 0) {
-            // Space for macOS traffic lights (close/minimize/zoom)
-            // Standard position: ~20px from left, buttons are ~52px wide total
-            Color.clear.frame(width: 72, height: 1)
+    private var mainColumn: some View {
+        VStack(spacing: 0) {
+            header
 
-            // Logo & title
-            HStack(spacing: 8) {
-                PrismLogoView(size: 24)
-                Text("Prism")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textPrimary)
-                Text("v\(PrismVersion.string)")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.cyan)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(PrismTheme.Colors.cyan.opacity(0.15))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(PrismTheme.Colors.cyan.opacity(0.3), lineWidth: 0.5))
+            VStack(spacing: 8) {
+                if store.resolvedCursorPath == nil && count(.cursor) > 0 {
+                    cursorMissingBanner
+                }
+                UpdateBanner()
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
 
-            Spacer()
-
-            // Center search bar
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-                TextField("Search profiles, tools, or folders...", text: $search)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(PrismTheme.Colors.textPrimary)
-                    .focused($isSearchFocused)
-                Text("⌘K")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(PrismTheme.Colors.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(PrismTheme.Colors.bg.opacity(0.8))
-            .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
-            .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall).stroke(PrismTheme.Colors.border, lineWidth: 1))
-            .frame(maxWidth: 400)
-
-            Spacer()
-
-            // Right controls
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(SortMode.allCases) { mode in
-                        Button { sortMode = mode } label: {
-                            HStack {
-                                Text(mode.rawValue)
-                                if sortMode == mode { Image(systemName: "checkmark") }
+            if store.profiles.isEmpty {
+                emptyState
+            } else if sections.isEmpty {
+                noMatches
+            } else {
+                columnHeader
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(sections) { section in
+                            sectionHeader(section)
+                            ForEach(section.profiles) { profile in
+                                ProfileRow(
+                                    profile: profile,
+                                    isSelected: profile.folderName == selectedProfile?.folderName,
+                                    onSelect: { selectedID = profile.folderName },
+                                    onEdit: { editingProfile = profile },
+                                    onDelete: { deletingProfile = profile }
+                                )
+                                .padding(.horizontal, 16)
                             }
                         }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(sortMode.rawValue)
-                            .font(.system(size: 11))
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
-                    }
-                    .foregroundStyle(PrismTheme.Colors.textSecondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(PrismTheme.Colors.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                    .padding(.bottom, 16)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+            }
+        }
+        .background(PrismTheme.Colors.bg)
+    }
 
-                Button {
-                    showingAdd = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("New Profile")
-                            .font(.system(size: 11, weight: .semibold))
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text(filter.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(PrismTheme.Colors.textPrimary)
+            Text("\(filtered.count)")
+                .font(.system(size: 13))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+                .monospacedDigit()
+
+            Spacer()
+
+            Menu {
+                Picker("Sort by", selection: $sortMode) {
+                    ForEach(SortMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
                     }
-                    .foregroundStyle(PrismTheme.Colors.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        LinearGradient(
-                            colors: [PrismTheme.Colors.cyan, PrismTheme.Colors.indigo],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .shadow(color: PrismTheme.Colors.cyan.opacity(0.3), radius: 8, y: 3)
                 }
-                .buttonStyle(.plain)
-
-                // Running status badge (live measured RAM)
+                .pickerStyle(.inline)
+            } label: {
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(runningCount > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textMuted)
-                        .frame(width: 6, height: 6)
-                    Text(runningCount > 0
-                         ? "\(runningCount) Running · \(Format.bytes(Int64(store.liveMemoryTotal))) live"
-                         : "Idle")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                    Text(sortMode == .recent ? "Recent" : sortMode.rawValue)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
                 }
-                .foregroundStyle(runningCount > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background((runningCount > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textMuted).opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke((runningCount > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textMuted).opacity(0.2), lineWidth: 0.5))
+                .font(.system(size: 12))
+                .foregroundStyle(PrismTheme.Colors.textSecondary)
             }
-            .padding(.trailing, 16)
-        }
-        .frame(height: PrismTheme.Layout.titleBarHeight)
-        .background(PrismTheme.Colors.bgAlt.opacity(0.9))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(PrismTheme.Colors.borderSubtle)
-                .frame(height: 1)
-        }
-    }
-
-    // MARK: - Filter Bar
-
-    private var filterBar: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 2) {
-                Text("Profiles:")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-                    .padding(.trailing, 8)
-
-                ForEach(ProfileFilter.allCases) { f in
-                    Button {
-                        filter = f
-                    } label: {
-                        let count: Int = {
-                            switch f {
-                            case .all: return store.profiles.count
-                            case .active: return runningCount
-                            case .custom: return store.profiles.filter { !$0.isSystem }.count
-                            case .cursor: return store.profiles.filter { $0.normalizedApp == CursorProfile.appCursor }.count
-                            case .code: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeCode }.count
-                            case .desktop: return store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeDesktop }.count
-                            case .grok: return store.profiles.filter { $0.normalizedApp == CursorProfile.appGrokBot }.count
-                            }
-                        }()
-                        Text("\(f.rawValue) (\(count))")
-                            .font(.system(size: 11, weight: filter == f ? .semibold : .regular))
-                            .foregroundStyle(filter == f ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textTertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(filter == f ? PrismTheme.Colors.surfaceHigh : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Spacer()
-
-            HStack(spacing: 12) {
-                Text("\(store.profiles.count) profiles on disk")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
-
-                Button {
-                    store.reload()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PrismTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .help("Rescan profiles")
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(PrismTheme.Colors.bg.opacity(0.6))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(PrismTheme.Colors.borderSubtle)
-                .frame(height: 1)
-        }
-    }
-
-    // MARK: - Main Content
-
-    @ViewBuilder
-    private var mainContent: some View {
-        if store.profiles.isEmpty {
-            emptyState
-        } else {
-            ScrollView {
-                if store.resolvedCursorPath == nil {
-                    cursorMissingBanner
-                        .padding([.horizontal, .top])
-                }
-
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: PrismTheme.Layout.cardMinWidth), spacing: 16)],
-                    spacing: 16
-                ) {
-                    ForEach(filtered) { profile in
-                        ProfileCard(
-                            profile: profile,
-                            onEdit: { editingProfile = profile },
-                            onDelete: { deletingProfile = profile }
-                        )
-                    }
-                }
-                .padding(20)
-            }
-        }
-    }
-
-    // MARK: - Status Bar
-
-    private var statusBar: some View {
-        HStack(spacing: 16) {
-            // Real system CPU (Mach host statistics; "—" until 2nd sample)
-            HStack(spacing: 4) {
-                Text("CPU")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(PrismTheme.Colors.textMuted)
-                Text(store.systemCPU.map { String(format: "%.0f%%", $0) } ?? "—")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textSecondary)
-                ProgressView(value: (store.systemCPU ?? 0) / 100)
-                    .frame(width: 48, height: 4)
-                    .tint(PrismTheme.Colors.cyan)
-            }
-
-            Rectangle().fill(PrismTheme.Colors.textMuted).frame(width: 1, height: 12)
-
-            // Real live RSS of running profiles / real physical RAM
-            HStack(spacing: 4) {
-                Text("RAM")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(PrismTheme.Colors.textMuted)
-                Text(Format.bytes(Int64(store.liveMemoryTotal)))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.cyan)
-                Text("/ \(Format.bytes(Int64(store.physicalMemory)))")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textMuted)
-            }
-            .help("Live resident memory of running profiles / total physical RAM")
-
-            Spacer()
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort profiles")
 
             Button {
-                showSpotlight = true
+                showingAdd = true
             } label: {
-                Text("⌥ Space")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .foregroundStyle(PrismTheme.Colors.textMuted)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(PrismTheme.Colors.surfaceAlt)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(PrismTheme.Colors.border, lineWidth: 0.5))
+                Label("New profile", systemImage: "plus")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PrismButtonStyle(kind: .primary, height: 30))
+            .help("New profile (⌘N)")
         }
-        .padding(.horizontal, 20)
-        .frame(height: PrismTheme.Layout.statusBarHeight)
-        .background(PrismTheme.Colors.bg.opacity(0.95))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(PrismTheme.Colors.borderSubtle)
-                .frame(height: 1)
+        .padding(.leading, 24)
+        .padding(.trailing, 16)
+        .frame(height: 52)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
         }
     }
 
-    // MARK: - Empty State
+    private var columnHeader: some View {
+        HStack(spacing: HubColumns.spacing) {
+            Text("Name").frame(maxWidth: .infinity, alignment: .leading)
+            Text("App").frame(width: HubColumns.app, alignment: .leading)
+            Text("Status").frame(width: HubColumns.status, alignment: .leading)
+            Color.clear.frame(width: HubColumns.action, height: 1)
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(PrismTheme.Colors.textTertiary)
+        .padding(.horizontal, 30)
+        .padding(.top, 14)
+        .padding(.bottom, 2)
+    }
+
+    private func sectionHeader(_ section: HubSection) -> some View {
+        HStack(spacing: 8) {
+            Text(section.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PrismTheme.Colors.textPrimary)
+            Text("\(section.profiles.count)")
+                .font(.system(size: 12))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+    }
+
+    // MARK: - Empty states
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            PrismLogoView(size: 64)
-                .opacity(0.6)
+        VStack(spacing: 12) {
+            PrismLogoView(size: 44)
+                .opacity(0.9)
             Text("No profiles yet")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
-            Text("Each profile is a fully isolated instance —\nits own settings, login and history, per app.")
+            Text("Each profile keeps its own sign-in, settings and history.")
                 .font(.system(size: 12))
-                .multilineTextAlignment(.center)
                 .foregroundStyle(PrismTheme.Colors.textTertiary)
             Button {
                 showingAdd = true
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Create your first profile")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(PrismTheme.Colors.textPrimary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    LinearGradient(
-                        colors: [PrismTheme.Colors.cyan, PrismTheme.Colors.indigo],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerSmall))
-                .shadow(color: PrismTheme.Colors.cyan.opacity(0.4), radius: 12, y: 4)
+                Label("New profile", systemImage: "plus")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PrismButtonStyle(kind: .primary, height: 32))
             .keyboardShortcut(.defaultAction)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Cursor Missing Banner
+    private var noMatches: some View {
+        VStack(spacing: 10) {
+            Text(!search.isEmpty ? "No profiles match “\(search)”" : (filter == .active ? "Nothing is running" : "Nothing here yet"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PrismTheme.Colors.textSecondary)
+            if !search.isEmpty {
+                Button("Clear search") { search = "" }
+                    .buttonStyle(PrismButtonStyle(kind: .secondary))
+            } else if filter != .all {
+                Button("Show all profiles") { filter = .all }
+                    .buttonStyle(PrismButtonStyle(kind: .secondary))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var cursorMissingBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(PrismTheme.Colors.amber)
-            Text("Cursor was not found. Install it from cursor.sh, or set a custom path in Settings (⌘,).")
-                .font(.system(size: 11))
-            Spacer()
-            SettingsLink { Text("Open Settings").font(.system(size: 11)) }
+        HubBanner(icon: "exclamationmark.triangle", iconColor: PrismTheme.Colors.amber,
+                  text: "Cursor wasn't found. Install it from cursor.com, or set its path in Settings.") {
+            SettingsLink { Text("Open Settings") }
+                .buttonStyle(PrismButtonStyle(kind: .secondary, height: 26))
         }
-        .padding(12)
-        .background(PrismTheme.Colors.amber.opacity(0.1), in: RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium))
-        .overlay(RoundedRectangle(cornerRadius: PrismTheme.Layout.cornerMedium).stroke(PrismTheme.Colors.amber.opacity(0.2), lineWidth: 1))
+    }
+}
+
+// MARK: - Sidebar
+
+@MainActor
+struct HubSidebar: View {
+    @EnvironmentObject var store: ProfileStore
+    @Binding var search: String
+    @Binding var filter: ProfileFilter
+    var searchFocus: FocusState<Bool>.Binding
+    var count: (ProfileFilter) -> Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Room for the window's traffic lights.
+            Color.clear.frame(height: 52)
+
+            searchField
+
+            VStack(spacing: 2) {
+                item(.all) { symbol("square.stack") }
+                item(.active) { symbol("waveform.path.ecg") }
+                item(.custom) { symbol("person") }
+            }
+            .padding(.top, 16)
+
+            Text("Apps")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.top, 20)
+                .padding(.bottom, 6)
+
+            VStack(spacing: 2) {
+                ForEach([ProfileFilter.cursor, .code, .desktop, .grok]) { f in
+                    item(f) { AppGlyph(app: f.app ?? "", size: 15) }
+                }
+            }
+
+            Spacer(minLength: 16)
+
+            brainCard
+            footer
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .frame(width: 228)
+        .frame(maxHeight: .infinity)
+        .background(PrismTheme.Colors.bgAlt)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(PrismTheme.Colors.border).frame(width: 1)
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+            TextField("Search", text: $search)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(PrismTheme.Colors.textPrimary)
+                .focused(searchFocus)
+            if search.isEmpty {
+                Text("⌘K").font(.system(size: 11))
+            } else {
+                Button {
+                    search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .foregroundStyle(PrismTheme.Colors.textTertiary)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(PrismTheme.Colors.surfaceAlt, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 13))
+            .frame(width: 16, height: 16)
+    }
+
+    private func label(for f: ProfileFilter) -> String {
+        f == .all ? "All profiles" : f.title
+    }
+
+    private func item<Icon: View>(_ f: ProfileFilter, @ViewBuilder icon: () -> Icon) -> some View {
+        let selected = filter == f
+        let n = count(f)
+        return Button {
+            filter = f
+        } label: {
+            HStack(spacing: 10) {
+                icon()
+                    .frame(width: 16)
+                Text(label(for: f))
+                    .font(.system(size: 13, weight: selected ? .medium : .regular))
+                Spacer(minLength: 4)
+                Text("\(n)")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(f == .active && n > 0 ? PrismTheme.Colors.emerald : PrismTheme.Colors.textTertiary)
+            }
+            .foregroundStyle(selected ? PrismTheme.Colors.textPrimary : PrismTheme.Colors.textSecondary)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(selected ? PrismTheme.Colors.surfaceHigh : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Second brain + totals
+
+    private var brainOn: Bool { store.brainStatus?.personalExists == true }
+
+    private var brainDetail: String {
+        guard let status = store.brainStatus else { return "Not set up" }
+        guard status.personalExists == true, let path = status.personalBrain else { return "No personal brain yet" }
+        let pending = status.pending ?? 0
+        let place = "Saving to \((path as NSString).abbreviatingWithTildeInPath)"
+        return pending > 0 ? "\(pending) to file · \(place)" : place
+    }
+
+    private var brainCard: some View {
+        SettingsLink {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    Text("Second brain")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PrismTheme.Colors.textPrimary)
+                    Spacer(minLength: 4)
+                    Circle()
+                        .fill(brainOn ? PrismTheme.Colors.live : PrismTheme.Colors.textMuted)
+                        .frame(width: 6, height: 6)
+                    Text(brainOn ? "On" : "Off")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                }
+                Text(brainDetail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(PrismTheme.Colors.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(PrismTheme.Colors.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Second brain settings")
+    }
+
+    private var footer: some View {
+        let running = count(.active)
+        return HStack(alignment: .bottom, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(running > 0
+                     ? "\(running) running · \(Format.bytes(Int64(store.liveMemoryTotal)))"
+                     : "Nothing running")
+                Text("CPU \(store.systemCPU.map { String(format: "%.0f%%", $0) } ?? "—") · \(Format.bytes(Int64(store.physicalMemory))) RAM")
+            }
+            .font(.system(size: 11))
+            .monospacedDigit()
+            .foregroundStyle(PrismTheme.Colors.textTertiary)
+            .help("Live memory of running profiles · system CPU · installed RAM")
+
+            Spacer(minLength: 4)
+
+            SettingsLink {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 10)
+    }
+}
+
+// MARK: - Banner
+
+/// Slim bordered notice row used for updates and setup problems.
+struct HubBanner<Trailing: View>: View {
+    let icon: String
+    var iconColor: Color = PrismTheme.Colors.accentText
+    let text: String
+    var compact = false
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: compact ? 11 : 13))
+                .foregroundStyle(iconColor)
+            Text(text)
+                .font(.system(size: compact ? 11 : 12))
+                .foregroundStyle(PrismTheme.Colors.textSecondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, compact ? 6 : 8)
+        .background {
+            if compact {
+                Rectangle().fill(PrismTheme.Colors.accent.opacity(0.08))
+            } else {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(PrismTheme.Colors.border, lineWidth: 1)
+            }
+        }
     }
 }
 
@@ -561,41 +675,22 @@ struct UpdateBanner: View {
 
     var body: some View {
         if let progress = store.updateProgress {
-            row(icon: "arrow.triangle.2.circlepath", text: progress) {
+            HubBanner(icon: "arrow.triangle.2.circlepath", text: progress, compact: compact) {
                 ProgressView().controlSize(.small)
             }
         } else {
             ForEach(apps, id: \.self) { app in
                 let count = runningCount(app)
-                row(icon: "arrow.down.circle.fill",
-                    text: count > 0
-                        ? "\(label(app)) update ready — \(count) open profile\(count == 1 ? " is" : "s are") holding it"
-                        : "\(label(app)) update ready — waiting for its windows to close") {
-                    Button("Restart & Update") { store.restartToUpdate(app) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                HubBanner(icon: "arrow.up.circle",
+                          text: count > 0
+                            ? "A \(label(app)) update is ready. \(count) open profile\(count == 1 ? " is" : "s are") holding it."
+                            : "A \(label(app)) update is ready. Waiting for its windows to close.",
+                          compact: compact) {
+                    Button("Restart to update") { store.restartToUpdate(app) }
+                        .buttonStyle(PrismButtonStyle(kind: .tinted, height: compact ? 22 : 26))
                         .help("Quit every \(label(app)) profile, install the update, then reopen them")
                 }
             }
         }
-    }
-
-    private func row<Trailing: View>(icon: String, text: String,
-                                     @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: compact ? 11 : 12))
-                .foregroundStyle(PrismTheme.Colors.cyan)
-            Text(text)
-                .font(.system(size: compact ? 10 : 11, weight: .medium, design: .rounded))
-                .foregroundStyle(PrismTheme.Colors.textPrimary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            trailing()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, compact ? 6 : 8)
-        .background(PrismTheme.Colors.cyan.opacity(0.10))
     }
 }
