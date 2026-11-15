@@ -330,7 +330,7 @@ BRAINIUM_PROVIDERS = (
     ("none", "No AI (mechanical summary)"),
     ("anthropic", "Anthropic API"),
     ("openai", "OpenAI API"),
-    ("bonsai", "Bonsai (local)"),
+    ("bonsai", "Bonsai (self-hosted)"),
     ("openai-compatible", "Other OpenAI-compatible API"),
 )
 
@@ -2560,11 +2560,13 @@ class PreferencesDialog(Adw.PreferencesWindow):
             where.add(row)
 
         status = {}
+        self._brain_status = status
         if b:
             try:
                 status = b.status()
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
                 status = {}
+            self._brain_status = status
 
         personal = Adw.PreferencesGroup(title="Personal brain")
         page.add(personal)
@@ -2611,7 +2613,7 @@ class PreferencesDialog(Adw.PreferencesWindow):
         self.provider_row.set_selected(ids.index(current) if current in ids else 0)
         summ.add(self.provider_row)
         self.api_rows = {}
-        for key, title in (("summarizer.url", "URL (e.g. http://host:port/v1 for Bonsai)"),
+        for key, title in (("summarizer.url", "URL (required for Bonsai / OpenAI-compatible — usually ends in /v1)"),
                            ("summarizer.model", "Model (Anthropic: claude-haiku-5-5 · Bonsai: solo-quick)"),
                            ("summarizer.apiKeyEnv", "API key env var (e.g. ANTHROPIC_API_KEY)")):
             row = Adw.EntryRow(title=title)
@@ -2635,6 +2637,13 @@ class PreferencesDialog(Adw.PreferencesWindow):
     def _save_summarizer(self):
         ids = [pid for pid, _ in BRAINIUM_PROVIDERS]
         provider = ids[self.provider_row.get_selected()]
+        saved = (self._brain_status or {}).get("summarizer") or {}
+        if (provider in ("bonsai", "openai-compatible")
+                and not self.api_rows["summarizer.url"].get_text().strip()
+                and not (saved.get("provider") == provider and saved.get("url"))):
+            # Self-hosted servers have no default address.
+            self.store.on_error("Enter your server's URL first — its OpenAI-compatible API, usually ending in /v1.")
+            return
         pairs = [("summarizer.provider", provider)]
         if provider not in ("agent", "none"):
             pairs += [(k, r.get_text().strip()) for k, r in self.api_rows.items() if r.get_text().strip()]
