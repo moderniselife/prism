@@ -59,6 +59,12 @@ Grok Bot is found as `grok-bot` on PATH / `/usr/bin` / `/usr/local/bin` /
 `SAND_USER_DATA_DIR=<profile>` (the app's own isolation switch: separate login,
 data in `<profile>/sand-data`, several at once). (Untested on Linux.)
 
+**Second brain:** Preferences → Second brain wires [Brainium](https://github.com/moderniselife/brainium)
+into every profile (Claude Code skill/MCP/capture hooks, Claude Desktop and Cursor
+MCP, a Grok Bot instructions snippet) and picks the capture summarizer: your
+own AI over MCP, none, Anthropic, OpenAI, Bonsai or any OpenAI-compatible API.
+Needs Node.js and a Brainium checkout (`~/brainium` is found automatically).
+
 New profiles of any app can be a **fresh account** or an **overflow account**
 that carries another same-app profile's config over without its sign-in — see
 the main README for exactly what each app copies.

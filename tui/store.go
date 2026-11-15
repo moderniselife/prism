@@ -208,6 +208,10 @@ type Store struct {
 	customCodePath    string
 	customDesktopPath string
 	customGrokPath    string
+	// Second brain (Brainium) — see brainium.go.
+	brainiumPath  string
+	nodePath      string
+	brainAutoWire bool
 }
 
 func defaultDir() string {
@@ -358,6 +362,15 @@ func (s *Store) loadSettings() {
 	}
 	if v, ok := raw["customGrokPath"].(string); ok {
 		s.customGrokPath = v
+	}
+	if v, ok := raw["brainiumPath"].(string); ok {
+		s.brainiumPath = v
+	}
+	if v, ok := raw["nodePath"].(string); ok {
+		s.nodePath = v
+	}
+	if v, ok := raw["brainAutoWire"].(bool); ok {
+		s.brainAutoWire = v
 	}
 	if v, ok := raw["defaultMemoryMB"].(float64); ok && v >= 512 {
 		s.defaultMemoryMB = int(v)

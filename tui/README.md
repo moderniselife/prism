@@ -19,7 +19,7 @@ macOS, Windows and Linux apps — no app required:
      Memory ░░░░░░░░░░
 
  CPU 12% · RAM 372.6 MB / 34.4 GB · 2 profiles
- / filter · enter launch · x stop · n new · d delete · R rescan · q quit
+ / filter · enter launch · x stop · n new · d delete · W wire brain · R rescan · q quit
 ```
 
 ## Install
@@ -45,6 +45,7 @@ runtime needed anywhere.
 | `x` | Stop the selected profile |
 | `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). `space` on the last field picks a **fresh account** or a copy of an existing profile of the same app (**overflow**; **copy settings** for Grok Bot) |
 | `d d` | Delete (press twice; moves the folder to `.trash/`) |
+| `W` | Wire every profile into your **second brain** ([Brainium](https://github.com/moderniselife/brainium)): Claude Code (skill, `CLAUDE.md`, MCP, capture hooks when capture is on), Claude Desktop and Cursor (MCP). Grok Bot agents get a snippet: `brainium snippet grok` |
 | `R` | Rescan profiles from disk |
 | `q` / `ctrl+c` | Quit |
 
@@ -80,6 +81,12 @@ runtime needed anywhere.
     across: in the source profile open it → **Create Template** → **Share a
     template link** → **Copy the share link**, then paste the link into a chat
     in the new profile (paste, don't click, so it opens in that profile).
+- **Second brain.** Prism finds `node` and a Brainium checkout (`~/brainium`,
+  `~/Projects/brainium`, `$BRAINIUM_HOME`, or `brainiumPath` in
+  `~/.cursor_profiles/.launcher-settings.json`; `nodePath` overrides node).
+  Set `"brainAutoWire": true` there to wire each new profile as it's created.
+  Personal brain, capture and summarizer settings live in Brainium's own
+  config (`brainium config …`), shared with its hooks and MCP server.
 - Window counts are intentionally absent: there is no honest cross-platform
   way to count another app's windows from a terminal (notably on Wayland).
 - Deleting never `rm -rf`s: folders move to a `.trash/` inside their own app

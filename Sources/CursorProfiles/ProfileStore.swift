@@ -38,6 +38,14 @@ final class ProfileStore: ObservableObject {
     @AppStorage("customCodePath") var customCodePath: String = ""
     @AppStorage("customDesktopPath") var customDesktopPath: String = ""
     @AppStorage("customGrokPath") var customGrokPath: String = ""
+
+    // Second brain (Brainium) — see ProfileStore+Brain.swift.
+    @AppStorage("brainiumPath") var brainiumPath: String = ""
+    @AppStorage("brainiumNodePath") var brainiumNodePath: String = ""
+    @AppStorage("brainAutoWire") var brainAutoWire: Bool = false
+    @Published var brainStatus: BrainiumBridge.Status?
+    @Published var brainBusy = false
+    @Published var brainMessage: String?
     @AppStorage("defaultMemoryMB") var defaultMemoryMB: Int = 16384
 
     let profilesDir: URL
@@ -227,6 +235,7 @@ final class ProfileStore: ObservableObject {
         saveMetadata()
         refreshSizes()
         TitleBarColorizer.apply(profile: profile, profileDir: dir)
+        wireBrainIfEnabled(profile)
         return profile
     }
 
@@ -401,6 +410,7 @@ final class ProfileStore: ObservableObject {
             refreshSizes()
             // Copied Cursor settings carry the source's title bar color.
             TitleBarColorizer.apply(profile: copy, profileDir: dest)
+            wireBrainIfEnabled(copy)
         }
     }
 

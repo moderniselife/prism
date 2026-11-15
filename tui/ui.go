@@ -296,6 +296,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		m.rescan()
 		return m, m.refreshCmd(true)
+	case "W":
+		m.doWireBrain()
 	case "esc":
 		m.confirmDelete = ""
 	}
@@ -606,11 +608,25 @@ func (m *model) doSaveForm() {
 		m.setStatus("Create failed: " + err.Error())
 		return
 	}
+	m.store.autoWireBrain(*created)
 	m.setStatus(status)
 	m.formActive = false
 	m.profiles = append([]Profile(nil), m.store.Profiles...)
 	m.sel = created.FolderName
 	m.ensureSelection()
+}
+
+// doWireBrain wires every profile into the second brain (Brainium).
+func (m *model) doWireBrain() {
+	n, err := m.store.WireAllBrains()
+	switch {
+	case err != nil && n == 0:
+		m.setStatus("Second brain: " + err.Error())
+	case err != nil:
+		m.setStatus(fmt.Sprintf("Second brain: wired %d profiles; problems: %v", n, err))
+	default:
+		m.setStatus(fmt.Sprintf("Second brain: wired %d profiles (Grok Bot agents: brainium snippet grok)", n))
+	}
 }
 
 func (m *model) rescan() {
@@ -858,7 +874,7 @@ func (m model) footerView() string {
 	}
 	stats := fmt.Sprintf("CPU %s · RAM %s / %s · %d profiles",
 		cpu, formatBytes(live), total, len(m.profiles))
-	hints := "/ filter · enter launch · x stop · n new · d delete · R rescan · q quit"
+	hints := "/ filter · enter launch · x stop · n new · d delete · W wire brain · R rescan · q quit"
 	out := " " + fg(colDim, false).Render(stats) + "\n" +
 		" " + fg(colMute, false).Render(hints)
 	if m.status != "" && time.Since(m.statusAt) < 6*time.Second {

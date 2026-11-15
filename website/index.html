@@ -1,5 +1,5 @@
 <title>Prism</title>
-<meta name="description" content="A native profile switcher for Cursor — isolated settings, extensions, and color-coded windows, on macOS, Windows, and Linux.">
+<meta name="description" content="A native profile launcher for Cursor, Claude Code, Claude Desktop and Grok Bot — isolated accounts side by side, fresh or overflow profiles, and color-coded windows, on macOS, Windows, and Linux.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 
@@ -599,8 +599,8 @@
 
     <div class="wrap hero-inner">
       <div class="eyebrow">Mojo Layers</div>
-      <h1 class="headline">One Cursor. <span class="grad-text">Every color its own client.</span></h1>
-      <p class="sub">Prism splits Cursor into fully isolated profiles — separate settings, extensions, and chat history per client or project, each with its own color so you never lose track of which window is which.</p>
+      <h1 class="headline">Every AI app. <span class="grad-text">Every account its own color.</span></h1>
+      <p class="sub">Prism splits Cursor, Claude Code, Claude Desktop and Grok Bot into fully isolated profiles — separate logins, settings and history per client, project or account, running side by side, each with its own color so you never lose track of which window is which.</p>
       <div class="cta-row">
         <a class="btn primary" href="#platforms">Get Prism</a>
         <a class="btn" href="#how"><span class="kbd">→</span> How it works</a>
@@ -676,7 +676,7 @@
   <div class="wrap">
 
     <section class="tight">
-      <p class="lede">Cursor keeps one shared settings folder. <em>Every extension, every login, every AI chat, mixed across every project you open it for.</em> Prism gives each context its own <code>--user-data-dir</code> — and its own title bar color, so Cmd+Tab actually tells you something.</p>
+      <p class="lede">Your AI apps keep one shared login and settings folder. <em>Every extension, every account, every AI chat, mixed across every project you open them for.</em> Prism gives each context its own data folder, using each app's own isolation switch, plus its own color so Cmd+Tab actually tells you something.</p>
     </section>
 
     <section id="features" data-reveal>
@@ -684,34 +684,34 @@
       <div class="features">
         <div class="feature" style="--glow: var(--c-blue);">
           <div class="ic">⌘</div>
-          <h3>Real isolation</h3>
-          <p>Each profile is its own <code>--user-data-dir</code> — separate extensions, settings, logins, and chat history. Nothing bleeds between clients.</p>
+          <h3>Real isolation, four apps</h3>
+          <p>Cursor, Claude Code, Claude Desktop and Grok Bot — each profile uses the app's own isolation switch, so logins, settings and history never bleed between accounts.</p>
         </div>
         <div class="feature" style="--glow: var(--c-fuchsia);">
           <div class="ic">◑</div>
           <h3>Color-coded windows</h3>
-          <p>Every profile gets its own title bar color, merged straight into <code>settings.json</code>.</p>
+          <p>Every Cursor profile gets its own title bar color, merged straight into <code>settings.json</code>; every card everywhere wears its profile's color.</p>
           <div class="snippet">{<br>&nbsp;&nbsp;<span class="k">"window.titleBarStyle"</span>: <span class="s">"custom"</span><br>}</div>
         </div>
         <div class="feature" style="--glow: var(--c-lime);">
           <div class="ic">★</div>
-          <h3>Your real Cursor, protected</h3>
-          <p>Your existing install shows up as a pinned, un-deletable "Main Cursor" profile — clone it to start a new one from your current setup.</p>
+          <h3>Your real installs, protected</h3>
+          <p>Each app's existing install shows up as a pinned, un-deletable "Main" profile — Main Cursor, Main Claude Code, Main Claude Desktop, Main Grok Bot.</p>
         </div>
         <div class="feature" style="--glow: var(--c-orange);">
           <div class="ic">⇲</div>
           <h3>Drag, drop, launch</h3>
           <p>Drop a project folder onto a profile card to open it there directly — or double-click to launch with its default folder.</p>
         </div>
+        <div class="feature" style="--glow: var(--c-amber);">
+          <div class="ic">⇄</div>
+          <h3>Fresh or overflow accounts</h3>
+          <p>Start a new profile empty, or as an overflow of another: its settings, agents, skills and MCP setup come along, its login doesn't — sign in with your second account and keep going.</p>
+        </div>
         <div class="feature" style="--glow: var(--c-sky);">
           <div class="ic">●</div>
-          <h3>Live running status</h3>
-          <p>A dot shows which profiles are actually open right now, with a one-click quit for each.</p>
-        </div>
-        <div class="feature" style="--glow: var(--c-violet);">
-          <div class="ic">↺</div>
-          <h3>Delete means Trash</h3>
-          <p>Removing a profile sends it to the Trash / Recycle Bin — never an irreversible <code>rm -rf</code>.</p>
+          <h3>Live status, safe deletes</h3>
+          <p>A dot shows which profiles are actually open right now, with one-click quit — and deleting a profile sends it to the Trash, never an irreversible <code>rm -rf</code>.</p>
         </div>
       </div>
     </section>
@@ -722,18 +722,18 @@
         <div class="step">
           <div class="n">01</div>
           <h3>Create a profile</h3>
-          <p>Name it, pick an emoji and a color. Takes about five seconds.</p>
+          <p>Pick the app, name it, pick a color — fresh, or an overflow of a profile you already have.</p>
         </div>
         <div class="step">
           <div class="n">02</div>
-          <h3>Prism launches Cursor scoped to it</h3>
-          <p>A dedicated data directory, invisible to every other profile.</p>
+          <h3>Prism launches the app scoped to it</h3>
+          <p>A dedicated data directory, invisible to every other profile — via each app's own switch.</p>
           <code class="flag">--user-data-dir ~/.cursor_profiles/work</code>
         </div>
         <div class="step">
           <div class="n">03</div>
-          <h3>The window colors itself</h3>
-          <p>That profile's accent becomes its title bar — recognizable in Mission Control before you even read the label.</p>
+          <h3>Every profile wears its color</h3>
+          <p>On its card, in the menu bar and in Quick Switch — and Cursor windows get a matching title bar, recognizable in Mission Control before you even read the label.</p>
         </div>
       </div>
     </section>
@@ -786,7 +786,7 @@
 <footer>
   <div class="wrap foot-row">
     <span>Prism — a Mojo Layers project</span>
-    <span class="mono">~/.cursor_profiles</span>
+    <span class="mono">Cursor · Claude Code · Claude Desktop · Grok Bot</span>
   </div>
 </footer>
 

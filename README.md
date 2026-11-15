@@ -5,9 +5,9 @@
 <h1 align="center">Prism</h1>
 
 <p align="center">
-  <strong>One launcher for every Cursor you run — plus Claude Code, Claude Desktop and Grok Bot.</strong><br />
-  Isolated profiles — own settings, extensions, login, chat history — with live stats,<br />
-  instant switching, and per-profile title bar colors so you never mix up Work and Personal again.
+  <strong>One launcher for every AI app and account you run — Cursor, Claude Code, Claude Desktop and Grok Bot.</strong><br />
+  Isolated profiles — own login, settings and history — running side by side, with live stats,<br />
+  instant switching, fresh or overflow accounts, and color-coded windows so you never mix up Work and Personal again.
 </p>
 
 <p align="center">
@@ -15,11 +15,13 @@
   <img src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple&logoColor=white" alt="macOS 14+" />
   <img src="https://img.shields.io/badge/Windows-.NET%208-512BD4?logo=dotnet&logoColor=white" alt=".NET 8" />
   <img src="https://img.shields.io/badge/Linux-GTK4%20%2B%20libadwaita-4A86CF?logo=gnome&logoColor=white" alt="GTK4" />
-  <img src="https://img.shields.io/badge/Cursor-profiles-06B6D4" alt="Cursor profiles" />
+  <img src="https://img.shields.io/badge/apps-Cursor%20%C2%B7%20Claude%20Code%20%C2%B7%20Claude%20Desktop%20%C2%B7%20Grok%20Bot-06B6D4" alt="Cursor · Claude Code · Claude Desktop · Grok Bot" />
 </p>
 
 <p align="center">
+  <a href="#supported-apps">Apps</a> ·
   <a href="#features">Features</a> ·
+  <a href="#second-brain-brainium">Second brain</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#terminal-tui">Terminal</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -39,15 +41,28 @@ A Mojo Layers project. **Three native apps plus a terminal client, one profile f
 | Linux | GTK4 + libadwaita (Python) | [`linux/`](linux/) | `python3 linux/prism.py` |
 | Terminal | Go + Bubble Tea | [`tui/`](tui/) | `go run ./tui` (or `prism-tui`) |
 
-All three read and write the same `~/.cursor_profiles` directory and `.profiles.json` metadata, so profiles roam across operating systems. Every number the UI shows is **measured live** — resident memory from `ps`, window counts from the on-screen window list, CPU from the kernel. Nothing is hardcoded.
+All of them read and write the same profile folders and `.profiles.json` metadata, so profiles roam across operating systems. Every number the UI shows is **measured live** — resident memory from `ps`, window counts from the on-screen window list, CPU from the kernel. Nothing is hardcoded.
+
+## Supported apps
+
+Every profile uses the app's *own* isolation switch, so separation is enforced by the app itself rather than by anything Prism fakes. Your existing install always appears as a protected built-in profile that launches exactly like opening the app normally.
+
+| App | Each profile is | Built-in profile | Profiles folder | Prism apps |
+|-----|-----------------|------------------|-----------------|------------|
+| **Cursor** | its own `--user-data-dir` (+ `--max-memory`) | Main Cursor | `~/.cursor_profiles` | macOS, Windows, Linux, terminal |
+| **Claude Code** | its own `CLAUDE_CONFIG_DIR`, opened in a terminal | Main Claude Code (`~/.claude`) | `~/.claude_code_profiles` | macOS, Windows, Linux, terminal |
+| **Claude Desktop** | its own `--user-data-dir` | Main Claude Desktop | `~/.claude_desktop_profiles` | macOS, Windows, Linux, terminal |
+| **Grok Bot** | its own `SAND_USER_DATA_DIR` | Main Grok Bot | `~/.grokbot_profiles` | macOS, Linux, terminal |
+
+Each profile has its own sign-in, so you can run several accounts of the same app at once — Work and Personal, or a second account for when the first hits its usage limit.
 
 ## Features
 
 ### Profiles, properly isolated
-- **Profile grid** — colorful cards with per-profile accent color and initial, disk size, and last-launched info
-- **Your original Cursor profile is protected** — it shows up as a pinned **Main Cursor** card with a `BUILT-IN` badge, launches Cursor exactly like opening it normally (no `--user-data-dir`), can be **cloned** into a new managed profile, and can never be deleted
-- **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit, default project folder)
-- Each profile is a separate `--user-data-dir`: own settings, extensions, login, chat history. Existing profiles are picked up automatically
+- **Profile grid** — colorful cards with per-profile accent color and initial, an app badge, disk size, and last-launched info; filter by app (Cursor / Code / Desktop / Grok)
+- **Your original installs are protected** — each app's existing data shows up as a pinned built-in card (**Main Cursor**, **Main Claude Code**, **Main Claude Desktop**, **Main Grok Bot**) with a `BUILT-IN` badge. It launches exactly like opening the app normally, can be cloned or copied into a new profile, and can never be deleted
+- **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit for Cursor, default project folder for Cursor and Claude Code)
+- Each profile has its own data folder: own login, settings, history. Folders you create by hand are picked up automatically
 
 ### Fresh or overflow accounts (every app)
 New profiles start as a **fresh account** (empty) or a copy of another same-app profile's config with none of its identity, so you sign in with your other account on first launch. For Cursor, Claude Code and Claude Desktop that copy is an **overflow account**: your working setup comes with you and you carry on where the first account left off. Pick it in the New Profile sheet, or right-click a card → **New Overflow Account from This**. What carries over:
@@ -58,6 +73,15 @@ New profiles start as a **fresh account** (empty) or a copy of another same-app 
 
 Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available in the macOS, Linux and terminal apps; the Windows app doesn't have it yet.
 
+### Second brain (Brainium)
+Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium](https://github.com/moderniselife/brainium)** into every profile — a git-backed **personal brain** that follows you (preferences, cross-project learnings, **agent cards** to recreate any agent on a new account) plus each repo's **project brain** — so a fresh or overflow account starts with everything the last one knew.
+
+- **Claude Code** — skill, `CLAUDE.md` section and MCP server; optional **session capture** (redacted, private, outside git) queued to be filed into the brain
+- **Claude Desktop** and **Cursor** — the Brainium MCP server (search, read, log, agent cards)
+- **Grok Bot** — its agents run in the cloud, so Prism copies an instructions snippet that points them at your personal brain's GitHub repo
+- **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
+- Set it up in **Settings → Second brain**: point at a Brainium checkout, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available in the macOS, Linux and terminal apps
+
 ### Launching & switching
 - **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a card to open it with that profile
@@ -67,16 +91,16 @@ Copies use allowlists wherever an app mixes config and identity, so an unknown n
 - **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
 
 ### Honest live telemetry
-- **Live resident memory** per running profile (summed RSS) against its configured `--max-memory` limit, plus real total RAM for your Mac
+- **Live resident memory** per running profile (summed RSS), against its `--max-memory` limit for Cursor, plus real total RAM for your Mac
 - **Real on-screen window counts** per profile — counted, never guessed
 - **Real system CPU %** in the status bar
 - **Running detection** with graceful quit (SIGTERM)
 
 ### Tell profiles apart at a glance
-- **Distinct title bar color per profile** — merged into each profile's `User/settings.json` (`workbench.colorCustomizations` + `window.titleBarStyle: "custom"`), visible in the window, Cmd+Tab, and Mission Control. Your own settings are preserved; only the title bar keys are touched
+- **Distinct title bar color per Cursor profile** — merged into each profile's `User/settings.json` (`workbench.colorCustomizations` + `window.titleBarStyle: "custom"`), visible in the window, Cmd+Tab, and Mission Control. Your own settings are preserved; only the title bar keys are touched
 - **Pin, search, sort** (name / recently used / size)
 - **Safe delete** — profiles go to the Trash, never `rm -rf`
-- **Cursor auto-detection** via Launch Services + well-known paths, with a custom-path override in Settings
+- **App auto-detection** for Cursor, Claude Code, Claude Desktop and Grok Bot via Launch Services + well-known paths, with a custom-path override per app in Settings
 - **Light & dark mode** that follow the system
 
 ## Quick start
@@ -159,11 +183,16 @@ Sources/CursorProfiles/
   ProfileCard.swift         # Card UI, live memory bar, launch popover, drag & drop
   ProfileEditorSheet.swift  # Create/edit sheet with live preview
   SpotlightCommandBar.swift # ⌥Space quick-switch palette
-  SettingsView.swift        # Cursor path, defaults, storage
+  SettingsView.swift        # App paths, defaults, storage
   ProfileStore.swift        # Metadata, CRUD, live RSS/CPU/window polling
   SystemStats.swift         # Real CPU/RAM/window measurement + global hotkey helpers
-   CursorLauncher.swift      # Find/launch/quit Cursor processes
-   ClaudeLauncher.swift      # Find/launch Claude Code (CLAUDE_CONFIG_DIR) & Desktop (--user-data-dir)
+  CursorLauncher.swift      # Find/launch/quit Cursor processes
+  ClaudeLauncher.swift      # Find/launch Claude Code (CLAUDE_CONFIG_DIR) & Desktop (--user-data-dir)
+  GrokLauncher.swift        # Find/launch/detect Grok Bot (SAND_USER_DATA_DIR)
+  CarryOver.swift           # Fresh vs overflow accounts: what each app may copy
+  BrainiumBridge.swift      # Second brain: find node + Brainium, run its CLI
+  ProfileStore+Brain.swift  # Second brain actions (wire, capture, summarizer)
+  SecondBrainSettingsView.swift # Settings → Second brain tab
   TitleBarColorizer.swift   # Merges per-profile title bar colors into User/settings.json
   PrismTheme.swift          # Adaptive light/dark design system
   MeshBackgroundView.swift  # Ambient background
@@ -173,6 +202,8 @@ assets/
 tui/
   main.go, store.go,        # TUI: entry, profiles/persistence/launch/detect
   stats.go, colorize.go, ui.go
+  grokbot.go, carryover.go  # Grok Bot support, overflow carry-over rules (+ tests)
+  brainium.go               # Second brain wiring (+ integration test with the real CLI)
 npm/prism-tui/              # npm wrapper (downloads the release binary)
 pypi/prism-tui/             # PyPI wrapper (platform wheels bundle it)
 packaging/homebrew-cask/    # Prism.app cask template for the tap
@@ -213,7 +244,7 @@ Title bar coloring replaces it: it only edits a JSON settings file — no new ap
 <details>
 <summary><strong>Does Prism spy on my code or phone home?</strong></summary>
 
-No. Everything is local: it reads `ps` output, the on-screen window list, and files under `~/.cursor_profiles`. There is no network code, no analytics, no daemon.
+No. Everything is local: it reads `ps` output, the on-screen window list, and files in its profile folders (`~/.cursor_profiles`, `~/.claude_code_profiles`, `~/.claude_desktop_profiles`, `~/.grokbot_profiles`) and each app's own data. There is no network code, no analytics, no daemon.
 
 </details>
 
