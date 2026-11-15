@@ -216,6 +216,19 @@ CODE_CARRY_OVER = ("settings.json", "CLAUDE.md", "keybindings.json", "agents",
 CODE_STATE_KEYS = ("mcpServers", "theme", "editorMode", "autoCompactEnabled",
                    "verbose", "preferredNotifChannel")
 
+def copy_menu_title(app: str) -> str:
+    """Grok Bot agents live on the account, so its copy carries settings
+    only: don't promise an "overflow" it can't deliver."""
+    return ("New Profile with These Settings" if normalize_app(app) == APP_GROK
+            else "New Overflow Account from This")
+
+
+def copy_source_label(source) -> str:
+    if normalize_app(source.app) == APP_GROK:
+        return f"Settings from {source.displayName} — local settings only, not agents"
+    return f"Overflow of {source.displayName} — its config, your other sign-in"
+
+
 OVERFLOW_EXPLAINERS = {
     APP_CURSOR: "Copies settings, keybindings, tasks and snippets (extensions are already "
                 "shared). Its login and machine id stay behind.",
@@ -224,10 +237,11 @@ OVERFLOW_EXPLAINERS = {
               "history stay behind.",
     APP_DESKTOP: "Copies the MCP config and installed extensions with their settings. "
                  "Its login and cookies stay behind.",
-    APP_GROK: "Copies local settings, permission choices and tool approvals; its login and "
-              "machine identity stay behind. Grok Bot agents live on your account's cloud "
-              "box — use Share with team on an agent in Grok Bot to give this account the "
-              "same agents.",
+    APP_GROK: "Copies local settings, permission choices and tool approvals only — not your "
+              "agents, which live on your Grok Bot account. To bring an agent across: in the "
+              "source profile open it → Create Template → Share a template link → Copy the "
+              "share link, then paste that link into a chat in this profile (paste rather "
+              "than click, so it opens here).",
 }
 
 
@@ -1040,7 +1054,8 @@ class Store:
     def new_overflow(self, source: Profile):
         """One-click overflow account from a card's menu."""
         app = normalize_app(source.app)
-        name = (app_label(app) if source.isSystem else source.displayName) + " Overflow"
+        name = ((app_label(app) if source.isSystem else source.displayName)
+                + (" 2" if app == APP_GROK else " Overflow"))
         self._start_carry_over(source, Profile(
             folderName=self.unique_folder_name(sanitize_folder_name(name.replace(" ", "-")), app),
             displayName=name, app=app, colorHex=source.colorHex,
@@ -1943,11 +1958,11 @@ description="Each profile is a fully isolated instance — its own settings, log
         item("Edit…", lambda: EditorDialog(self, self.store, profile).present())
         clones_whole = normalize_app(profile.app) in (APP_CURSOR, APP_CODE)
         item("Clone into New Profile" if profile.isSystem and clones_whole
-             else "Duplicate" if clones_whole else "New Overflow Account from This",
+             else "Duplicate" if clones_whole else copy_menu_title(profile.app),
              lambda: self.store.duplicate(profile),
              enabled=profile.folderName not in self.store.duplicating)
         if clones_whole:
-            item("New Overflow Account from This", lambda: self.store.new_overflow(profile),
+            item(copy_menu_title(profile.app), lambda: self.store.new_overflow(profile),
                  enabled=profile.folderName not in self.store.duplicating)
         item("Open in Files", lambda: Gio.AppInfo.launch_default_for_uri(
             Gio.File.new_for_path(str(self.store.directory_for(profile))).get_uri(), None))
@@ -2131,8 +2146,7 @@ class EditorDialog(Adw.Window):
         self.account_sources = [p for p in self.store.profiles if normalize_app(p.app) == app]
         self.account_model.splice(0, self.account_model.get_n_items(),
                                   ["Fresh account — starts empty"]
-                                  + [f"Overflow of {p.displayName} — its config, your other sign-in"
-                                     for p in self.account_sources])
+                                  + [copy_source_label(p) for p in self.account_sources])
         self.account_drop.set_selected(0)
         self._update_account_hint()
 

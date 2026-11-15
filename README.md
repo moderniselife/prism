@@ -50,11 +50,11 @@ All three read and write the same `~/.cursor_profiles` directory and `.profiles.
 - Each profile is a separate `--user-data-dir`: own settings, extensions, login, chat history. Existing profiles are picked up automatically
 
 ### Fresh or overflow accounts (every app)
-New profiles start as a **fresh account** (empty) or an **overflow account**: a copy of another profile's config with none of its identity, so you sign in with your other account on first launch and carry on where the first one left off. Pick it in the New Profile sheet, or right-click a card → **New Overflow Account from This**. What carries over:
+New profiles start as a **fresh account** (empty) or a copy of another same-app profile's config with none of its identity, so you sign in with your other account on first launch. For Cursor, Claude Code and Claude Desktop that copy is an **overflow account**: your working setup comes with you and you carry on where the first account left off. Pick it in the New Profile sheet, or right-click a card → **New Overflow Account from This**. What carries over:
 - **Cursor** — `settings.json`, keybindings, tasks and snippets (extensions are already shared). Not the login database or machine id
 - **Claude Code** — `settings.json`, `CLAUDE.md`, agents, commands, skills, output styles, hooks and plugins, plus user-level MCP servers and a few preferences from `.claude.json`. Not credentials, account ids or chat history
 - **Claude Desktop** — the MCP config and installed extensions with their settings. Not cookies or the login
-- **Grok Bot** — local settings, permission choices and tool approvals. Grok Bot's agents live on your account's cloud box, not on disk, so no copy can move them: use **Share with team** on an agent in Grok Bot to give another account the same agents
+- **Grok Bot** — called **Copy settings**, not overflow, because it can't bring your agents: they live on your Grok Bot account, not on disk. It copies local settings, permission choices and tool approvals. To bring an agent across, open it in the source profile → **Create Template** → **Share a template link** → **Copy the share link**, then paste the link into a chat in the new profile (paste rather than click, so it opens in that profile). Right-click a Grok Bot card → **New Profile with These Settings**
 
 Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available in the macOS, Linux and terminal apps; the Windows app doesn't have it yet.
 

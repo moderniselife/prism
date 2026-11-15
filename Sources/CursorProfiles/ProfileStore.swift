@@ -272,12 +272,11 @@ final class ProfileStore: ObservableObject {
         startCarryOver(from: source, into: profile)
     }
 
-    /// One-click overflow account from a card's context menu.
+    /// One-click overflow account (Grok Bot: settings copy) from a card's
+    /// context menu.
     func newOverflow(from source: CursorProfile) {
         let app = source.normalizedApp
-        let name = source.isSystem
-            ? source.appLabel + " Overflow"
-            : source.displayName + " Overflow"
+        let name = CursorProfile.copyName(of: source)
         let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "-"))
         let profile = CursorProfile(
             folderName: uniqueFolderName(base: base, app: app),

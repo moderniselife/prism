@@ -474,7 +474,12 @@ func (m *model) nextSource(cur string, step int) string {
 
 func (m *model) sourceLabel(folder string) string {
 	if p := m.profileByFolder(folder); folder != "" && p != nil {
-		return "Overflow of " + p.DisplayName + " — its agents & config, your other sign-in"
+		// Grok Bot agents live on the account, not on disk: a copy carries
+		// local settings only, so don't promise an "overflow".
+		if p.App == AppGrokBot {
+			return "Settings from " + p.DisplayName + " — local settings only, not agents (share those via a Grok Bot template)"
+		}
+		return "Overflow of " + p.DisplayName + " — its config, your other sign-in"
 	}
 	return "Fresh account — starts empty"
 }
@@ -591,6 +596,9 @@ func (m *model) doSaveForm() {
 		created, n, err = m.store.CreateOverflow(name, accentFor(name), mem, project, *src)
 		status = fmt.Sprintf("Created %s with %d files from %s — sign in with your other account on first launch",
 			name, n, src.DisplayName)
+		if app == AppGrokBot {
+			status += " (agents: Create Template in the source, paste the link into a chat here)"
+		}
 	} else {
 		created, err = m.store.CreateApp(name, app, accentFor(name), mem, project)
 	}
@@ -803,7 +811,7 @@ func (m model) formView() string {
 		fieldApp:     "App (space switches)",
 		fieldMemory:  "Memory limit, MB",
 		fieldProject: "Project folder (optional)",
-		fieldAccount: "Account (space switches: fresh, or overflow of a profile)",
+		fieldAccount: "Account (space switches: fresh, or copy from a profile)",
 	}
 	hints := "tab next · enter next/save · esc cancel"
 	var b strings.Builder

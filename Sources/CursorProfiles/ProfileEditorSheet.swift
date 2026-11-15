@@ -137,7 +137,7 @@ struct ProfileEditorSheet: View {
 
     private var overflowNote: String {
         guard isOverflow, let source = overflowSource else { return "" }
-        return " · overflow of \(source.displayName)"
+        return isGrok ? " · settings from \(source.displayName)" : " · overflow of \(source.displayName)"
     }
 
     /// Pick the app's built-in profile as the default overflow source.
@@ -247,7 +247,7 @@ struct ProfileEditorSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 Picker("", selection: $accountSetup) {
                     Text("Fresh account").tag(AccountSetup.fresh)
-                    Text("Overflow account").tag(AccountSetup.overflow)
+                    Text(CursorProfile.copyChoiceLabel(for: app)).tag(AccountSetup.overflow)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -266,7 +266,7 @@ struct ProfileEditorSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         HStack(spacing: 8) {
-                            Text("Carry over from")
+                            Text(isGrok ? "Copy settings from" : "Carry over from")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(PrismTheme.Colors.textSecondary)
                             Picker("", selection: $sourceFolder) {
@@ -298,7 +298,7 @@ struct ProfileEditorSheet: View {
         case CursorProfile.appClaudeDesktop:
             return "Copies the MCP config and installed extensions with their settings. Its login and cookies stay behind." + tail
         case CursorProfile.appGrokBot:
-            return "Copies local settings, permission choices and tool approvals; its login and machine identity stay behind. Grok Bot agents live on your account's cloud box, not on this Mac — use Share with team on an agent in Grok Bot to give this account the same agents." + tail
+            return "Copies local settings, permission choices and tool approvals only — not your agents, which live on your Grok Bot account. To bring an agent across: in the source profile open the agent → Create Template → Share a template link → Copy the share link, then paste that link into a chat in this profile (paste it rather than clicking it, so it opens here)." + tail
         default:
             return "Copies settings, keybindings, tasks and snippets (extensions are already shared). Its login and machine id stay behind." + tail
         }

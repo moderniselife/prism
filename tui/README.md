@@ -43,7 +43,7 @@ runtime needed anywhere.
 | `/` then type | Filter profiles (`esc` clears) |
 | `enter` | Launch (opens a new window when already running) |
 | `x` | Stop the selected profile |
-| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). `space` on the last field picks a **fresh account** or an **overflow of** an existing profile of the same app |
+| `n` | New profile (`tab` moves fields, `space` switches app, `enter` advances/saves, `esc` cancels). `space` on the last field picks a **fresh account** or a copy of an existing profile of the same app (**overflow**; **copy settings** for Grok Bot) |
 | `d d` | Delete (press twice; moves the folder to `.trash/`) |
 | `R` | Rescan profiles from disk |
 | `q` / `ctrl+c` | Quit |
@@ -74,10 +74,12 @@ runtime needed anywhere.
     preferences from `.claude.json`. Not credentials, account ids or history.
   - **Claude Desktop:** `claude_desktop_config.json` and installed extensions
     with their settings. Not cookies or the login.
-  - **Grok Bot:** local settings, permission gates and tool approvals.
-    Grok Bot's agents live on your account's cloud box, not on disk, so no
-    copy can move them — use **Share with team** on an agent in Grok Bot to
-    give a second account the same agents.
+  - **Grok Bot** is called **Copy settings**, not overflow: it copies local
+    settings, permission gates and tool approvals only. Grok Bot's agents live
+    on your account, not on disk, so no copy can move them. To bring an agent
+    across: in the source profile open it → **Create Template** → **Share a
+    template link** → **Copy the share link**, then paste the link into a chat
+    in the new profile (paste, don't click, so it opens in that profile).
 - Window counts are intentionally absent: there is no honest cross-platform
   way to count another app's windows from a terminal (notably on Wayland).
 - Deleting never `rm -rf`s: folders move to a `.trash/` inside their own app

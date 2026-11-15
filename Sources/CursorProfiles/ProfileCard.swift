@@ -371,7 +371,7 @@ struct ProfileCard: View {
         }
         .disabled(store.duplicating.contains(profile.folderName))
         if clonesWholeProfile {
-            Button("New Overflow Account from This") {
+            Button(CursorProfile.copyMenuTitle(for: profile.normalizedApp)) {
                 store.newOverflow(from: profile)
             }
             .disabled(store.duplicating.contains(profile.folderName))
@@ -406,7 +406,7 @@ struct ProfileCard: View {
     }
 
     private var duplicateTitle: String {
-        if !clonesWholeProfile { return "New Overflow Account from This" }
+        if !clonesWholeProfile { return CursorProfile.copyMenuTitle(for: profile.normalizedApp) }
         return profile.isSystem ? "Clone into New Profile" : "Duplicate"
     }
 
