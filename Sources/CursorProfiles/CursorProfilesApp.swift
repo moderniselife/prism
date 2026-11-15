@@ -448,6 +448,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let locInView = contentView.convert(event.locationInWindow, from: nil)
             guard locInView.y > contentView.bounds.height - 48 else { return event }
+            // Leave the top edge to the system so it can resize the window
+            // (dragging here used to move the window instead).
+            guard locInView.y < contentView.bounds.height - 6 else { return event }
 
             // Don't hijack clicks on actual controls. Walk up the view
             // chain: every AppKit control is an NSControl, and SwiftUI
@@ -473,6 +476,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let trafficLightZone = NSRect(x: 0, y: win.frame.height - 36, width: 80, height: 36)
             if NSPointInRect(NSPoint(x: locInWindow.x, y: locInWindow.y), trafficLightZone) {
                 return event
+            }
+
+            // Double-click behaves like a real title bar: follows the
+            // "Double-click a window's title bar to…" system setting.
+            if event.clickCount == 2 {
+                switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+                case "Minimize": win.performMiniaturize(nil)
+                case "None": break
+                default: win.performZoom(nil)
+                }
+                return nil
             }
 
             // Begin window drag
