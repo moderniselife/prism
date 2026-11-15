@@ -114,6 +114,9 @@ jobs:
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
+          # Authenticated: unauthenticated API calls share a per-IP limit
+          # that busy macOS runners exhaust (HTTP 403 rate limit exceeded).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VER="${TAG#v}"
