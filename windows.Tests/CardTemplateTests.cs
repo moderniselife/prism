@@ -309,6 +309,26 @@ public sealed class CardTemplateTests
         });
     }
 
+    /// <summary>The Endpoint window and its identity editor (new and existing)
+    /// build without the helper installed or running.</summary>
+    [Fact]
+    public void Endpoint_Windows_Construct()
+    {
+        OnStaThread(() =>
+        {
+            var svc = new EndpointService();
+            var identity = new EndpointIdentity
+            {
+                Name = "Work",
+                Credentials = { new EndpointCredential { Provider = "compatible", BaseUrl = "http://localhost:8080/v1" } },
+                MonthlyBudget = 20,
+            };
+            new EndpointWindow().Close();
+            new EndpointIdentityWindow(svc, identity, isNew: true).Close();
+            new EndpointIdentityWindow(svc, identity, isNew: false).Close();
+        });
+    }
+
     [Fact]
     public void ProfileEditorWindow_Constructs_For_Grok_Edit()
     {

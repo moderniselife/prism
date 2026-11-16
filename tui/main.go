@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/moderniselife/prism/tui/endpoint"
 )
 
 var (
@@ -28,6 +30,9 @@ func displayVersion() string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "endpoint" {
+		os.Exit(endpoint.RunCLI(os.Args[2:], displayVersion()))
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 		fmt.Printf("prism-tui %s (commit %s, built %s)\n", displayVersion(), commit, date)
 		return

@@ -87,7 +87,7 @@ enum ClaudeLauncher {
     /// headless spawn. First launch walks through login for the new account.
     static func launchCode(profileDir: URL, displayName: String,
                            codePath: String?, projectPath: String?,
-                           isSystem: Bool) throws {
+                           isSystem: Bool, environment: [String: String] = [:]) throws {
         guard findClaudeCode(customPath: codePath) != nil else {
             throw LaunchError.codeNotFound
         }
@@ -100,7 +100,8 @@ enum ClaudeLauncher {
         func shellQuote(_ s: String) -> String {
             "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
-        let command = "export CLAUDE_CONFIG_DIR=\(shellQuote(profileDir.path))"
+        let extra = environment.keys.sorted().map { " && export \($0)=\(shellQuote(environment[$0]!))" }.joined()
+        let command = "export CLAUDE_CONFIG_DIR=\(shellQuote(profileDir.path))" + extra
             + " && cd \(shellQuote(work)) && exec claude"
         let appleQuoted = command
             .replacingOccurrences(of: "\\", with: "\\\\")

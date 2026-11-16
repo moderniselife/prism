@@ -130,6 +130,8 @@ struct MenuBarDropdown: View {
             header
             UpdateBanner(compact: true)
                 .frame(width: MenuMetrics.width)
+            PrismSelfBanner(compact: true)
+                .frame(width: MenuMetrics.width)
             EndpointMenuRow()
             Divider().overlay(PrismTheme.Colors.border)
             searchBar
@@ -454,8 +456,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The copy being opened replaces any older Prism still running.
+        InstanceGuard.resolve()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         QuickSwitchHotkey.register()
+        PrismSelfUpdater.shared.start()
         // Start the local endpoint if it's turned on.
         _ = GatewayController.shared
         // Configure the main window for custom title bar

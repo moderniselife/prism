@@ -32,6 +32,14 @@ final class MockLog: @unchecked Sendable {
 
 let mockLog = MockLog()
 
+final class LogBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _entries: [GatewayLogEntry] = []
+    func add(_ e: GatewayLogEntry) { lock.lock(); _entries.append(e); lock.unlock() }
+    var last: GatewayLogEntry? { lock.lock(); defer { lock.unlock() }; return _entries.last }
+}
+let logBox = LogBox()
+
 func lastUserText(_ body: JSONObject, api: GatewayAPI) -> String {
     GatewayUserText.texts(in: body, api: api).last ?? ""
 }
@@ -66,7 +74,18 @@ func lastUserText(_ body: JSONObject, api: GatewayAPI) -> String {
                                                                      "message": "Invalid `signature` in `thinking` block"]])
             return
         }
-        let text = "key=\(key) said=\(lastUserText(body, api: .anthropic))"
+        let said = lastUserText(body, api: .anthropic)
+        if key == "ak-work" && said.contains("ratelimit") {
+            await w.send(status: 429, headers: [("Content-Type", "application/json"), ("Retry-After", "30")],
+                         body: GatewayJSON.data(["type": "error", "error": ["type": "rate_limit_error", "message": "Number of requests exceeded"]]))
+            return
+        }
+        if key == "ak-work" && said.contains("nocredit") {
+            await w.sendJSON(status: 400, ["type": "error", "error": ["type": "invalid_request_error",
+                                                                     "message": "Your credit balance is too low to access the Anthropic API."]])
+            return
+        }
+        let text = "key=\(key) said=\(said)"
         if stream {
             await w.startStream(status: 200, headers: [("Content-Type", "text/event-stream")])
             func ev(_ name: String, _ d: JSONObject) -> String { "event: \(name)\ndata: \(GatewayJSON.string(d))\n\n" }
@@ -296,6 +315,29 @@ struct GatewayTests {
         check(GatewayRouter.matches(schedule, latest: "", client: "", now: late), "overnight schedule matches 23:30")
         check(!GatewayRouter.matches(schedule, latest: "", client: "", now: noon), "overnight schedule skips noon")
 
+        print("Pricing")
+        check(GatewayPricing.price(for: "claude-opus-4-1-20250805", provider: .anthropic, overrides: [:])?.input == 15, "pricing: opus 4.1 by longest prefix")
+        check(GatewayPricing.price(for: "claude-opus-4-5-20251101", provider: .anthropic, overrides: [:])?.input == 5, "pricing: opus 4.5")
+        check(GatewayPricing.price(for: "gpt-5.1-codex", provider: .openai, overrides: [:])?.input == 1.25, "pricing: gpt-5.1 family")
+        check(GatewayPricing.price(for: "gpt-5.4-mini-2026-03-17", provider: .openai, overrides: [:])?.output == 4.5, "pricing: dated id")
+        check(GatewayPricing.price(for: "llama-3.3-70b", provider: .compatible, overrides: [:])?.input == 0, "pricing: local is free")
+        check(GatewayPricing.price(for: "grok-9", provider: .xai, overrides: [:]) == nil, "pricing: unknown model has no price")
+        check(GatewayPricing.price(for: "grok-9", provider: .xai, overrides: ["grok": GatewayPrice(input: 3, output: 15)])?.output == 15, "pricing: override")
+        let cost = GatewayPrice(input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5).cost(CanonUsage(input: 1000, output: 500, cacheRead: 10000, cacheWrite: 0))
+        check(abs(cost - 0.009) < 1e-9, "pricing: cost includes cache reads", "\(cost)")
+        let sniff = UsageSniffer(api: .anthropic)
+        sniff.feed(Data("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":12,\"cache_read_input_tokens\":100,\"output_tokens\":1}}}\n".utf8))
+        sniff.feed(Data("data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":40}}\n".utf8))
+        check(sniff.usage.input == 12 && sniff.usage.cacheRead == 100 && sniff.usage.output == 40, "usage sniffer: anthropic stream")
+        let rs = UsageSniffer(api: .responses)
+        rs.feed(Data("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"input_tokens_details\":{\"cached_tokens\":20},\"output_tokens\":9}}}\n".utf8))
+        check(rs.usage.input == 30 && rs.usage.cacheRead == 20 && rs.usage.output == 9, "usage sniffer: responses")
+        check(GatewayEngine.limitCooldown(status: 429, data: Data(), retryAfter: "30") == 30, "429 cools down for Retry-After")
+        check(GatewayEngine.limitCooldown(status: 400, data: Data("{\"error\":{\"message\":\"Your credit balance is too low\"}}".utf8), retryAfter: nil) == 900,
+              "out of credit cools down 15 min")
+        check(GatewayEngine.limitCooldown(status: 400, data: Data("{\"error\":{\"message\":\"bad field\"}}".utf8), retryAfter: nil) == nil,
+              "ordinary 400 is not a limit")
+
         print("Translation")
         let chat: JSONObject = [
             "model": "x", "stream": true, "max_tokens": 100, "temperature": 1.5,
@@ -426,6 +468,7 @@ struct GatewayTests {
         engine.setKey("ok-work", for: "work-openai")
         engine.setKey("ak-personal", for: "personal-anthropic")
         engine.setKey("ok-personal", for: "personal-openai")
+        engine.onLog = { logBox.add($0) }
         let (gateway, port) = await startServer { req, w in await engine.handle(req, w) }
         let token = "prism-test-token"
         _ = mock; _ = gateway
@@ -536,6 +579,78 @@ struct GatewayTests {
         r = await call(port, "POST", "/v1/chat/completions",
                        ["model": "personal/grok-4", "messages": [["role": "user", "content": "hi"]]], token: token)
         check(r.status == 401 && r.body.contains("No xAI key saved for Personal"), "missing key explains itself", "\(r.status) \(r.body)")
+
+        print("Limits and usage")
+        cfg = sampleConfig(mockPort: mockPort)
+        cfg.identities[0].fallbackIdentityID = "personal-id"
+        cfg.priceOverrides = ["claude-test": GatewayPrice(input: 1000, output: 2000)]
+        cfg.identities[0].token = "prism-work-token"
+        engine.update(cfg)
+
+        // Usage + cost recorded from a streamed passthrough reply.
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "stream": true,
+                        "messages": [["role": "user", "content": "count me"]]], token: token, anthropicStyle: true)
+        let entry = logBox.last
+        check(r.status == 200 && entry?.inputTokens == 11 && entry?.outputTokens == 7, "stream usage captured", "\(String(describing: entry))")
+        check(abs((entry?.cost ?? 0) - (11 * 1000.0 + 7 * 2000.0) / 1_000_000) < 1e-9, "stream cost estimated")
+        check(engine.usage.month("work-id").requests >= 1, "usage stored per identity")
+
+        // Identity token pins Work even though Personal is active.
+        r = await call(port, "POST", "/v1/chat/completions",
+                       ["model": "claude-test-sonnet", "messages": [["role": "user", "content": "pinned"]]], token: "prism-work-token")
+        check(r.headers["x-prism-identity"] == "Work", "identity token pins its identity", "\(r.headers["x-prism-identity"] ?? "") \(r.body.prefix(200))")
+        r = await call(port, "GET", "/v1/models", token: "prism-work-token")
+        let pinnedIDs = (r.json?["data"] as? [JSONObject] ?? []).compactMap { $0["id"] as? String }
+        check(!pinnedIDs.contains { $0.hasPrefix("personal") }, "identity token lists only its models", "\(pinnedIDs)")
+
+        // 429 → fallback, then Work cools down.
+        r = await call(port, "POST", "/v1/chat/completions",
+                       ["model": "work/claude-test-sonnet", "messages": [["role": "user", "content": "ratelimit please"]]], token: token)
+        let fc = ((r.json?["choices"] as? [JSONObject])?.first?["message"] as? JSONObject)?["content"] as? String
+        check(r.status == 200 && fc == "key=ak-personal said=ratelimit please", "429 fails over to the fallback identity", "\(r.status) \(r.body.prefix(200))")
+        check(logBox.last?.note?.contains("Work rate-limited (429) → Personal") == true, "failover is noted in the log", logBox.last?.note ?? "nil")
+        check(engine.cooldown("work-id", .anthropic) != nil, "Work is cooling down")
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "messages": [["role": "user", "content": "while cooling"]]],
+                       token: token, anthropicStyle: true)
+        check(((r.json?["content"] as? [JSONObject])?.first?["text"] as? String) == "key=ak-personal said=while cooling",
+              "cooling identity goes straight to the fallback", "\(r.body.prefix(200))")
+        engine.coolDown("work-id", .anthropic, for: -1)
+
+        // Out of credit → fallback too.
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "stream": true, "messages": [["role": "user", "content": "nocredit"]]],
+                       token: token, anthropicStyle: true)
+        check(r.status == 200 && r.body.contains("key=ak-personal"), "out of credit fails over (streamed)", "\(r.status) \(r.body.prefix(200))")
+        engine.coolDown("work-id", .anthropic, for: -1)
+
+        // No fallback: the 429 reaches the client.
+        cfg.identities[0].fallbackIdentityID = nil
+        engine.update(cfg)
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "messages": [["role": "user", "content": "ratelimit again"]]],
+                       token: token, anthropicStyle: true)
+        check(r.status == 429, "without a fallback the rate limit is returned", "\(r.status)")
+        engine.coolDown("work-id", .anthropic, for: -1)
+
+        // Budget reached: block.
+        cfg.identities[0].monthlyBudget = 0.0000001
+        cfg.identities[0].budgetAction = .block
+        engine.update(cfg)
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "messages": [["role": "user", "content": "over budget"]]],
+                       token: token, anthropicStyle: true)
+        check(r.status == 429 && r.body.contains("monthly budget"), "budget block stops requests", "\(r.status) \(r.body.prefix(200))")
+        // Budget reached: fallback.
+        cfg.identities[0].budgetAction = .fallback
+        cfg.identities[0].fallbackIdentityID = "personal-id"
+        engine.update(cfg)
+        r = await call(port, "POST", "/v1/messages",
+                       ["model": "work/claude-test-sonnet", "max_tokens": 10, "messages": [["role": "user", "content": "over budget"]]],
+                       token: token, anthropicStyle: true)
+        check(((r.json?["content"] as? [JSONObject])?.first?["text"] as? String) == "key=ak-personal said=over budget",
+              "budget fallback moves to the fallback identity", "\(r.body.prefix(200))")
     }
 }
 

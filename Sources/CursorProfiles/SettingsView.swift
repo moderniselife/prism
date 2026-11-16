@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct SettingsView: View {
     @EnvironmentObject var store: ProfileStore
+    @ObservedObject private var updater = PrismSelfUpdater.shared
 
     var body: some View {
         TabView {
@@ -94,6 +95,16 @@ struct SettingsView: View {
                         Text("MB").foregroundStyle(PrismTheme.Colors.textTertiary)
                     }
                 }
+            }
+
+            Section("Prism") {
+                LabeledContent("Version") {
+                    Text(BuildInfo.description)
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
+                        .textSelection(.enabled)
+                }
+                Toggle("Check for Prism updates automatically", isOn: $updater.autoCheck)
+                Button("Check Now") { Task { await updater.checkForRelease(force: true) } }
             }
 
             Section("Storage") {

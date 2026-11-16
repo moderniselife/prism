@@ -25,6 +25,8 @@ struct ProfileEditorSheet: View {
     @State private var colorHex = AccentPalette.all[0].hex
     @State private var memoryMB = 16384
     @State private var projectPath = ""
+    @State private var endpointIdentity = ""
+    @ObservedObject private var gateway = GatewayController.shared
     /// Start empty, or carry another same-app profile's config over into a
     /// second account ("overflow"). Never its sign-in.
     @State private var accountSetup: AccountSetup = .fresh
@@ -76,6 +78,9 @@ struct ProfileEditorSheet: View {
                     }
                     if opensProjectFolder {
                         projectSection
+                    }
+                    if app == CursorProfile.appClaudeCode && !gateway.config.identities.isEmpty && !isOverflow {
+                        endpointSection
                     }
                 }
                 // Pin the form to the sheet's width. Without a fixed width
@@ -348,6 +353,30 @@ struct ProfileEditorSheet: View {
         }
     }
 
+    private var endpointSection: some View {
+        field("API account") {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("", selection: $endpointIdentity) {
+                    Text("This profile's own sign-in").tag("")
+                    Text("Prism endpoint · whichever identity is active").tag("*")
+                    ForEach(gateway.config.identities) { identity in
+                        Text("Prism endpoint · always \(identity.name)").tag(identity.id)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                Text(endpointIdentity.isEmpty
+                     ? "Claude Code uses the account you sign in with."
+                     : (gateway.config.enabled
+                        ? "Claude Code sends requests through Prism with your API keys, so you can switch accounts mid-session."
+                        : "Turn the endpoint on in Settings → Endpoint first; until then this profile uses its own sign-in."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -419,6 +448,7 @@ struct ProfileEditorSheet: View {
             colorHex = profile.colorHex
             memoryMB = profile.defaultMemoryMB
             projectPath = profile.defaultProjectPath ?? ""
+            endpointIdentity = profile.endpointIdentity ?? ""
         }
     }
 
@@ -440,13 +470,20 @@ struct ProfileEditorSheet: View {
                 memoryMB: max(512, memoryMB),
                 defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject
             )
-            if created != nil { close() }
+            if var created {
+                if app == CursorProfile.appClaudeCode, !endpointIdentity.isEmpty {
+                    created.endpointIdentity = endpointIdentity
+                    store.update(created)
+                }
+                close()
+            }
         case .edit(let original):
             var updated = original
             updated.displayName = trimmedName
             updated.colorHex = colorHex
             updated.defaultMemoryMB = max(512, memoryMB)
             updated.defaultProjectPath = trimmedProject.isEmpty ? nil : trimmedProject
+            updated.endpointIdentity = app == CursorProfile.appClaudeCode && !endpointIdentity.isEmpty ? endpointIdentity : nil
             store.update(updated)
             close()
         }

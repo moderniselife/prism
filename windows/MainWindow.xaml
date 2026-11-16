@@ -151,6 +151,33 @@
                                        TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}"/>
                         </StackPanel>
                     </Button>
+                    <Button x:Name="EndpointCard" Style="{StaticResource SecondaryButton}" Background="{DynamicResource WindowBrush}"
+                            BorderBrush="{DynamicResource CardBorderBrush}" Padding="12,9" Margin="0,8,0,0"
+                            HorizontalContentAlignment="Stretch" FontWeight="Normal" Click="EndpointCard_Click"
+                            ToolTip="Endpoint: a local API that switches accounts (Ctrl+I switches identity)">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Viewbox Width="14" Height="14" Margin="0,0,8,0" VerticalAlignment="Center">
+                                    <Path Style="{StaticResource LineIcon}" Stroke="{DynamicResource SubTextBrush}"
+                                          Data="M3,6 H13 M10,3 L13,6 L10,9 M17,14 H7 M10,11 L7,14 L10,17"/>
+                                </Viewbox>
+                                <TextBlock Grid.Column="1" Text="Endpoint" FontSize="12" FontWeight="Medium"
+                                           VerticalAlignment="Center"/>
+                                <Ellipse x:Name="EndpointDot" Grid.Column="2" Width="6" Height="6" Margin="0,0,6,0"
+                                         VerticalAlignment="Center" Fill="{DynamicResource MutedBrush}"/>
+                                <TextBlock x:Name="EndpointState" Grid.Column="3" Text="Off" FontSize="11"
+                                           VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
+                            </Grid>
+                            <TextBlock x:Name="EndpointDetail" Text="Not set up" FontSize="11" Margin="0,4,0,0"
+                                       TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}"/>
+                        </StackPanel>
+                    </Button>
                     <Grid Margin="4,10,0,0">
                         <StackPanel VerticalAlignment="Bottom"
                                     ToolTip="Live memory of running profiles · system CPU · installed RAM">
@@ -307,6 +334,19 @@
 
             <!-- Banners -->
             <StackPanel DockPanel.Dock="Top" Margin="16,0,16,0">
+                <Border x:Name="PrismUpdateBanner" Visibility="Collapsed" Margin="0,12,0,0" Padding="12,8"
+                        CornerRadius="10" BorderThickness="1" BorderBrush="{DynamicResource AccentRingBrush}"
+                        Background="{DynamicResource AccentSoftBrush}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Later" Style="{StaticResource QuietButton}" Margin="0,0,6,0" Click="UpdateLater_Click"/>
+                            <Button x:Name="PrismUpdateButton" Content="Update" Style="{StaticResource PrimaryButton}" MinHeight="26"
+                                    Click="UpdatePrism_Click"/>
+                        </StackPanel>
+                        <TextBlock x:Name="PrismUpdateText" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextBrush}"/>
+                    </DockPanel>
+                </Border>
                 <Border x:Name="CursorMissingBanner" Visibility="Collapsed" Margin="0,12,0,0" Padding="12,8"
                         CornerRadius="10" BorderThickness="1" BorderBrush="{DynamicResource CardBorderBrush}">
                     <DockPanel>

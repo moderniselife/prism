@@ -9,6 +9,12 @@ BUNDLE_ID="com.mojolayers.prism"
 VERSION="1.5.0"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
+# Stamp which source this is, so Prism can tell builds apart.
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+if [ -n "$(git status --porcelain -- Sources 2>/dev/null)" ]; then COMMIT="$COMMIT+"; fi
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+INSTALL=0
+[ "${1:-}" = "--install" ] && INSTALL=1
 
 echo "▸ Compiling Swift sources…"
 mkdir -p "$BUILD_DIR"
@@ -54,6 +60,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundleIconName</key><string>Prism</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>PrismCommit</key><string>$COMMIT</string>
+    <key>PrismBuildDate</key><string>$BUILD_DATE</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>© $(date +%Y)</string>
@@ -65,5 +73,22 @@ PLIST
 echo "▸ Signing (ad-hoc)…"
 codesign --force --sign - "$APP_DIR"
 
-echo "✓ Built: $APP_DIR"
-echo "  Run it with:  open \"$APP_DIR\""
+echo "✓ Built: $APP_DIR ($VERSION, $COMMIT)"
+
+if [ "$INSTALL" = 1 ]; then
+    DEST="/Applications/$APP_NAME.app"
+    echo "▸ Quitting the running Prism…"
+    osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
+    for _ in $(seq 1 40); do
+        pgrep -f "$APP_NAME.app/Contents/MacOS/" >/dev/null || break
+        sleep 0.25
+    done
+    pkill -f "$APP_NAME.app/Contents/MacOS/" 2>/dev/null || true
+    echo "▸ Installing to $DEST…"
+    rm -rf "$DEST"
+    ditto "$APP_DIR" "$DEST"
+    open "$DEST"
+    echo "✓ Installed and opened $DEST"
+else
+    echo "  Run it with:  open \"$APP_DIR\"   (or ./build.sh --install)"
+fi

@@ -116,6 +116,16 @@
                         </Grid>
                     </DockPanel>
                 </StackPanel>
+
+                <!-- API account through the Prism endpoint (Claude Code) -->
+                <StackPanel x:Name="ApiSection">
+                    <TextBlock Text="API account" FontSize="12" FontWeight="Medium" Margin="0,22,0,8"
+                               Foreground="{DynamicResource SubTextBrush}"/>
+                    <ComboBox x:Name="ApiBox" Style="{StaticResource ThemeComboBox}"/>
+                    <TextBlock x:Name="ApiHint" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Foreground="{DynamicResource MutedBrush}"
+                               Text="Through the endpoint, Claude Code uses an identity's API keys instead of this profile's sign-in. Set identities up under Endpoint."/>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>
