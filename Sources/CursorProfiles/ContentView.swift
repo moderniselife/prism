@@ -223,6 +223,7 @@ struct ContentView: View {
                     cursorMissingBanner
                 }
                 UpdateBanner()
+                PrismSelfBanner()
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -556,11 +557,13 @@ struct HubSidebar: View {
                      ? "\(running) running · \(Format.bytes(Int64(store.liveMemoryTotal)))"
                      : "Nothing running")
                 Text("CPU \(store.systemCPU.map { String(format: "%.0f%%", $0) } ?? "—") · \(Format.bytes(Int64(store.physicalMemory))) RAM")
+                Text("Prism \(BuildInfo.version) · \(BuildInfo.commit)")
+                    .foregroundStyle(PrismTheme.Colors.textMuted)
             }
             .font(.system(size: 11))
             .monospacedDigit()
             .foregroundStyle(PrismTheme.Colors.textTertiary)
-            .help("Live memory of running profiles · system CPU · installed RAM")
+            .help("Live memory of running profiles · system CPU · installed RAM · Prism \(BuildInfo.description)")
 
             Spacer(minLength: 4)
 
