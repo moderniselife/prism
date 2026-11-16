@@ -116,7 +116,7 @@ struct SettingsRoot: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Room for the traffic lights; drags the window.
-            WindowDragArea().frame(height: 52)
+            Color.clear.frame(height: 52).windowDragRegion()
 
             Text("Settings")
                 .font(.system(size: 11, weight: .semibold))
@@ -187,7 +187,7 @@ struct SettingsRoot: View {
         }
         .padding(.horizontal, 28)
         .frame(height: 52)
-        .background(WindowDragArea())
+        .windowDragRegion()
         .overlay(alignment: .bottom) {
             Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
         }

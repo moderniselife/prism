@@ -477,6 +477,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // macOS 15+: the top bars carry SwiftUI's WindowDragGesture
+        // (windowDragRegion()), which works everywhere. This monitor is the
+        // macOS 14 fallback.
+        if #available(macOS 15.0, *) { return }
+
         // Window dragging: intercept clicks in the top 48px of the MAIN
         // window only — never sheets, popovers or panels, so their
         // buttons (Cancel, X, …) always receive clicks.

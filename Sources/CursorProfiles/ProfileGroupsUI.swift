@@ -29,6 +29,43 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
+/// Makes a plain area drag its window.
+///
+/// macOS 15+: SwiftUI's own WindowDragGesture. It goes through SwiftUI's
+/// event handling, so it works even where an AppKit view sits underneath
+/// (the profile list's scroll view reaches up under the header, and the
+/// window server refused drags started over it). macOS 14: an AppKit drag
+/// view, backed by the click monitor in AppDelegate.
+struct WindowDragRegion: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { WindowDragRegion.titleBarDoubleClick() })
+        } else {
+            content.background(WindowDragArea())
+        }
+    }
+
+    /// What double-clicking a title bar does (System Settings → Desktop & Dock).
+    @MainActor
+    static func titleBarDoubleClick() {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window.performMiniaturize(nil)
+        case "None": break
+        default: window.performZoom(nil)
+        }
+    }
+}
+
+extension View {
+    /// Drag the window from this view's empty space (see WindowDragRegion).
+    func windowDragRegion() -> some View { modifier(WindowDragRegion()) }
+}
+
 // MARK: - How the hub arranges its list
 
 enum HubGrouping: String, CaseIterable, Identifiable {

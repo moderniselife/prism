@@ -65,6 +65,7 @@ struct ProfileInspector: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 52)
+        .windowDragRegion()
         .overlay(alignment: .bottom) {
             Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
         }

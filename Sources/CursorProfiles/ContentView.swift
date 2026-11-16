@@ -357,12 +357,8 @@ struct ContentView: View {
         .padding(.leading, 24)
         .padding(.trailing, 16)
         .frame(height: 52)
-        .background {
-            ZStack {
-                PrismTheme.Colors.bg
-                WindowDragArea()
-            }
-        }
+        .background(PrismTheme.Colors.bg)
+        .windowDragRegion()
         .overlay(alignment: .bottom) {
             Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
         }
@@ -466,7 +462,7 @@ struct HubSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Room for the window's traffic lights; drags the window.
-            WindowDragArea().frame(height: 52)
+            Color.clear.frame(height: 52).windowDragRegion()
 
             searchField
 
