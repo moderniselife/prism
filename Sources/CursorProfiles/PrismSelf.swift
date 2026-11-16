@@ -267,8 +267,7 @@ final class PrismSelfUpdater: ObservableObject {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
-        try p.run()
-        p.waitUntilExit()
+        try p.launchForBlockingWait()()
         guard p.terminationStatus == 0 else { throw UpdateError("\(tool) failed (\(p.terminationStatus)).") }
     }
 }

@@ -111,10 +111,18 @@ struct BrainiumBridge: Sendable {
         let err = Pipe()
         process.standardOutput = out
         process.standardError = err
-        try process.run()
+        let waitForExit = try process.launchForBlockingWait()
+        // Drain stderr on its own thread so a chatty CLI can't fill that pipe
+        // while we're still reading stdout.
+        var errData = Data()
+        let errDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+            errDone.signal()
+        }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        errDone.wait()
+        waitForExit()
         guard process.terminationStatus == 0 else {
             let message = String(decoding: errData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw BridgeError.failed(message.isEmpty ? "brainium exited with \(process.terminationStatus)" : message)
