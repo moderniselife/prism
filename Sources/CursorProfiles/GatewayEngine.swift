@@ -112,13 +112,23 @@ final class GatewayEngine: @unchecked Sendable {
         }.sorted()
     }
 
-    func refreshStaleModels(timeout: TimeInterval = 6) async {
-        let creds = config.identities.flatMap(\.credentials).filter { isStale($0) }
+    /// Re-list models for providers whose list is old. Providers without
+    /// a key are skipped, and a failure is remembered for the same ten
+    /// minutes, so apps aren't kept waiting on every /v1/models call.
+    func refreshStaleModels(timeout: TimeInterval = 3) async {
+        let creds = config.identities.flatMap(\.credentials).filter { c in
+            isStale(c) && (!c.provider.keyRequired || !(key(for: c) ?? "").isEmpty)
+                && !(c.provider == .compatible && c.baseURL.isEmpty)
+        }
         guard !creds.isEmpty else { return }
         await withTaskGroup(of: Void.self) { group in
             for c in creds {
                 group.addTask { [self] in
-                    _ = try? await withThrowingTimeout(timeout) { try await self.fetchModels(c) }
+                    do {
+                        _ = try await withThrowingTimeout(timeout) { try await self.fetchModels(c) }
+                    } catch {
+                        setModels(knownModels(c), for: c.id)
+                    }
                 }
             }
         }

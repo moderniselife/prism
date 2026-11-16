@@ -694,13 +694,15 @@ struct IdentityEditorSheet: View {
                 .help("Remove \(c.provider.label)")
             }
             if c.provider == .compatible {
-                TextField("Server URL", text: cred.baseURL, prompt: Text("http://bonsai.local:8080/v1"))
+                TextField("Server URL", text: cred.baseURL, prompt: Text("Server URL, e.g. http://bonsai.local:8080/v1"))
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
             }
             HStack(spacing: 6) {
                 SecureField("API key", text: Binding(get: { keys[c.id] ?? "" }, set: { keys[c.id] = $0 }),
                             prompt: Text(stored ? "Saved in Keychain — type to replace" : (c.provider.keyRequired ? "API key" : "API key (optional)")))
                     .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
                 Button {
                     check(c)
                 } label: {

@@ -22,6 +22,7 @@
   <a href="#supported-apps">Apps</a> ·
   <a href="#features">Features</a> ·
   <a href="#second-brain-brainium">Second brain</a> ·
+  <a href="#one-endpoint-for-every-account-macos">Endpoint</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#terminal-tui">Terminal</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -81,6 +82,17 @@ Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium]
 - **Grok Bot** — its agents run in the cloud, so Prism copies an instructions snippet that points them at your personal brain's GitHub repo
 - **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
 - Set it up in **Settings → Second brain**: click **Install** for Brainium (and Node.js if you need it) or **Use existing…**, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available on every platform
+
+### One endpoint for every account (macOS)
+Point any AI app at Prism and switch between **work and personal mid-chat** — same app, same conversation, different account paying for it.
+
+- **OpenAI- and Anthropic-compatible** — serves `/v1/chat/completions`, `/v1/messages` and `/v1/responses` (with streaming and tool calls) plus `/v1/models` on `http://127.0.0.1:4848`. Any client works with any provider: Codex can run on Claude, Claude Code on GPT, a chat app on your local Bonsai models
+- **Identities** — *Work*, *Personal*, or as many as you like. Each holds API keys for **Anthropic**, **OpenAI**, **xAI** and any **OpenAI-compatible** server (Bonsai, Ollama, LM Studio, vLLM). Keys live in the macOS Keychain
+- **Switch three ways** — the **Work | Personal** switch in the hub sidebar, the menu bar or `⌥⌘I`; pick `work/claude-…` or `personal/gpt-…` in your app's model list; or type **`@work` / `@personal`** in a message (it sticks for the rest of that chat and is removed before sending)
+- **Auto-switch rules** — by words in your message, a regex, the app making the request (e.g. everything from Codex goes to Work) or time of day
+- **Built for switching** — reasoning that one account signed and another can't verify is dropped and the request retried, so a chat never breaks when you change identity
+- Set it up in **Settings → Endpoint**; it shows copy-ready setup for Open WebUI, LibreChat, TypingMind, Claude Code, Codex, Claude Desktop (Developer → Configure Third-Party Inference → Gateway) and the SDKs, plus a live log of which identity answered each request
+- Uses **API keys only**: Claude Pro/Max and ChatGPT subscription sign-ins are only allowed in their providers' own apps
 
 ### Launching & switching
 - **One-click launch** — double-click a profile or use its row action, or open launch options for per-launch overrides (memory, project folder, force a new window)
@@ -195,6 +207,9 @@ Sources/CursorProfiles/
   BrainiumBridge.swift      # Second brain: find node + Brainium, run its CLI
   ProfileStore+Brain.swift  # Second brain actions (wire, capture, summarizer)
   SecondBrainSettingsView.swift # Settings → Second brain tab
+  Gateway*.swift            # Endpoint: config, Keychain, HTTP server, routing, API translation
+  GatewayController.swift   # Endpoint state for the UI (server, identities, request log)
+  EndpointSettingsView.swift # Settings → Endpoint, identity/rule editors, sidebar card
   TitleBarColorizer.swift   # Merges per-profile title bar colors into User/settings.json
   PrismTheme.swift          # Adaptive light/dark palette, one accent, button styles
   MeshBackgroundView.swift  # Ambient background
