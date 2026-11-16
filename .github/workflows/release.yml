@@ -191,11 +191,14 @@ jobs:
         shell: bash
         run: |
           python -m pip install -U setuptools wheel
-          cd wheelbuild && python setup.py -q bdist_wheel --plat-name "${{ matrix.plat }}" -d /tmp/wheeldist
+          # Write into the workspace: on Windows, Git Bash's /tmp and the
+          # /tmp that upload-artifact resolves are different folders.
+          cd wheelbuild && python setup.py -q bdist_wheel --plat-name "${{ matrix.plat }}" -d ../wheeldist
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.plat }}
-          path: /tmp/wheeldist/*.whl
+          path: wheeldist/*.whl
+          if-no-files-found: error
           retention-days: 3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
