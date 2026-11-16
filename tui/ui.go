@@ -1,12 +1,13 @@
 package main
 
-// Bubble Tea interface: filterable profile list, launch/stop/new/delete,
-// live stats, status bar. No emoji anywhere — initial-letter tiles, like
-// the apps since the great de-emojification.
+// Bubble Tea interface: a searchable profile list grouped into Running /
+// Not running (one line per profile, like the apps' hub), launch / stop /
+// new / delete, live stats and a status line. No emoji.
 
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,19 +16,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Palette mirrors PrismTheme (foregrounds only — no background fills, so
-// the TUI stays legible on any terminal theme).
+// Palette mirrors the apps' quiet theme: neutral text, one accent, green
+// for running. Foregrounds only (no background fills), so the TUI stays
+// legible on any terminal theme.
 var (
-	colText = lipgloss.AdaptiveColor{Light: "#10151F", Dark: "#F2F4F8"}
-	colDim  = lipgloss.AdaptiveColor{Light: "#646D7D", Dark: "#8E97A8"}
-	colMute = lipgloss.AdaptiveColor{Light: "#8B94A4", Dark: "#6E7789"}
+	colText = lipgloss.AdaptiveColor{Light: "#18181B", Dark: "#EDEDF0"}
+	colSub  = lipgloss.AdaptiveColor{Light: "#52525C", Dark: "#A9A9B3"}
+	colDim  = lipgloss.AdaptiveColor{Light: "#6B6B75", Dark: "#8C8C97"}
+	colMute = lipgloss.AdaptiveColor{Light: "#8E8E98", Dark: "#6A6A74"}
 
-	colCyan   = lipgloss.Color("#22D3EE")
-	colPurple = lipgloss.Color("#A78BFA")
-	colPink   = lipgloss.Color("#F472B6")
-	colGreen  = lipgloss.Color("#34D399")
-	colAmber  = lipgloss.Color("#FBBF24")
-	colRed    = lipgloss.Color("#F87171")
+	colAccent = lipgloss.AdaptiveColor{Light: "#5B5BD6", Dark: "#A5A5F3"}
+	colGreen  = lipgloss.AdaptiveColor{Light: "#15803D", Dark: "#4ADE80"}
+	colAmber  = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}
+	colRed    = lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"}
 )
 
 func fg(c lipgloss.TerminalColor, bold bool) lipgloss.Style {
@@ -173,6 +174,10 @@ func (m *model) visible() []Profile {
 		}
 		out = append(out, p)
 	}
+	// Running profiles first, as the list shows them in two groups.
+	sort.SliceStable(out, func(i, j int) bool {
+		return len(m.running[out[i].FolderName]) > 0 && len(m.running[out[j].FolderName]) == 0
+	})
 	return out
 }
 
@@ -240,8 +245,17 @@ func (m *model) maxRows() int {
 	return rows
 }
 
+// listRows is how many profile lines fit beside the group headings.
+func (m *model) listRows() int {
+	rows := m.maxRows() - 4
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
+}
+
 func (m *model) clampScroll(idx, total int) {
-	rows := m.maxRows()
+	rows := m.listRows()
 	if idx < m.offset {
 		m.offset = idx
 	}
@@ -669,17 +683,30 @@ func formatBytes(b uint64) string {
 	return strings.TrimSuffix(s, ".0") + " " + u
 }
 
-func memBar(frac float64, width int) string {
-	if width < 2 {
+// padRight pads a (possibly styled) string to a visible width.
+func padRight(s string, width int) string {
+	if gap := width - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
+}
+
+func relativeTime(t *time.Time) string {
+	if t == nil {
 		return ""
 	}
-	full := int(frac*float64(width) + 0.5)
-	if full > width {
-		full = width
+	d := time.Since(*t)
+	switch {
+	case d < 90*time.Second:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
-	filled := fg(colCyan, false).Render(strings.Repeat("█", full))
-	empty := fg(colMute, false).Render(strings.Repeat("░", width-full))
-	return filled + empty
+	return t.Local().Format("2 Jan 2006")
 }
 
 func (m model) headerView() string {
@@ -691,14 +718,13 @@ func (m model) headerView() string {
 			live += m.rss[p.FolderName]
 		}
 	}
-	left := fg(colText, true).Render("▲ Prism") + " " +
-		fg(colCyan, false).Render("v"+displayVersion())
+	left := fg(colText, true).Render("Prism") + " " + fg(colMute, false).Render("v"+displayVersion())
 	var right string
 	if running > 0 {
-		right = fg(colGreen, false).Render(
-			fmt.Sprintf("● %d running · %s live", running, formatBytes(live)))
+		right = fg(colGreen, false).Render("●") + " " +
+			fg(colSub, false).Render(fmt.Sprintf("%d running · %s", running, formatBytes(live)))
 	} else {
-		right = fg(colDim, false).Render("Idle")
+		right = fg(colDim, false).Render("Nothing running")
 	}
 	w := m.width
 	if w < 20 {
@@ -713,93 +739,77 @@ func (m model) headerView() string {
 
 func (m model) filterView() string {
 	if m.filtering {
-		return " " + fg(colDim, false).Render("Filter: ") + m.filter +
-			fg(colCyan, true).Render("█")
+		return " " + fg(colDim, false).Render("Search ") + m.filter + fg(colAccent, true).Render("█")
 	}
-	active := 0
-	for _, p := range m.profiles {
-		if len(m.running[p.FolderName]) > 0 {
-			active++
-		}
+	if m.filter != "" {
+		return " " + fg(colDim, false).Render("Search ") + fg(colText, false).Render(m.filter) +
+			fg(colMute, false).Render("  · esc clears")
 	}
-	info := fmt.Sprintf("%d profiles · %d running · / to filter", len(m.profiles), active)
-	return " " + fg(colMute, false).Render(info)
+	return " " + fg(colMute, false).Render(fmt.Sprintf("%d profiles · / to search", len(m.profiles)))
+}
+
+// Column widths of the one-line profile rows.
+const (
+	colAppW    = 16
+	colStatusW = 24
+)
+
+func (m model) nameWidth() int {
+	w := m.width - 2 - 2 - colAppW - colStatusW - 2
+	if w < 14 {
+		w = 14
+	}
+	if w > 40 {
+		w = 40
+	}
+	return w
 }
 
 func profileRow(m model, p Profile, selected bool) string {
-	pids := m.running[p.FolderName]
-	running := len(pids) > 0
+	running := len(m.running[p.FolderName]) > 0
 	live := m.rss[p.FolderName]
-	limit := p.LimitBytes()
 
 	marker := "  "
-	nameStyle := fg(colText, selected)
 	if selected {
-		marker = fg(colCyan, true).Render("▸ ")
+		marker = fg(colAccent, true).Render("▸ ")
 	}
-	tile := fg(lipgloss.Color(p.ColorHex), true).Render(" " + p.Initial() + " ")
-	name := nameStyle.Render(truncate(p.DisplayName, 28))
+	dot := fg(lipgloss.Color(p.ColorHex), false).Render("●") + " "
 
-	tags := ""
-	if p.App != AppCursor {
-		tags += fg(colDim, false).Render(" [" + p.AppLabel() + "]")
-	}
+	tag := ""
 	if p.IsSystem {
-		tags += fg(colDim, false).Render(" [BUILT-IN]")
+		tag = " " + fg(colMute, false).Render("default")
+	} else if p.IsPinned {
+		tag = " " + fg(colMute, false).Render("pinned")
 	}
-	if p.IsPinned && !p.IsSystem {
-		tags += fg(colDim, false).Render(" [PINNED]")
-	}
+	nameW := m.nameWidth()
+	name := truncate(p.DisplayName, nameW-lipgloss.Width(tag))
+	nameCell := padRight(fg(colText, selected).Render(name)+tag, nameW)
+
+	appCell := padRight(fg(colSub, false).Render(p.AppLabel()), colAppW)
 
 	var status string
-	if running {
-		status = fg(colGreen, false).Render("● Running") + " " +
-			fg(colDim, false).Render(fmt.Sprintf("PID %d", pids[0]))
-	} else {
-		status = fg(colDim, false).Render("○ Idle")
-	}
-
-	path := ""
-	if p.DefaultProjectPath != nil && *p.DefaultProjectPath != "" {
-		path = " " + fg(colDim, false).Render(truncate(*p.DefaultProjectPath, 32))
-	}
-
-	var meminfo string
-	var frac float64
 	switch {
-	case p.App != AppCursor && running:
-		// Claude apps have no --max-memory cap: show live use only.
-		meminfo = fg(lipgloss.Color(p.ColorHex), true).Render(formatBytes(live))
-	case p.App != AppCursor:
-		meminfo = fg(colDim, false).Render("no memory cap")
+	case running && live > 0:
+		status = fg(colGreen, false).Render("● Running") + " " + fg(colDim, false).Render(formatBytes(live))
 	case running:
-		meminfo = fg(lipgloss.Color(p.ColorHex), true).Render(formatBytes(live)) + " " +
-			fg(colDim, false).Render("/ "+formatBytes(limit)+" limit")
-		if limit > 0 {
-			frac = float64(live) / float64(limit)
-			if frac > 1 {
-				frac = 1
-			}
-		}
+		status = fg(colGreen, false).Render("● Running")
+	case p.LastLaunchedAt != nil:
+		status = fg(colDim, false).Render("Idle · " + relativeTime(p.LastLaunchedAt))
 	default:
-		meminfo = fg(colDim, false).Render(formatBytes(limit) + " limit")
+		status = fg(colDim, false).Render("Idle")
 	}
-
-	line1 := marker + tile + " " + name + tags
-	line2 := "    " + status + path
-	line3 := "    " + fg(colDim, false).Render("Memory ") + meminfo + "  " + memBar(frac, 10)
-	return line1 + "\n" + line2 + "\n" + line3
+	return marker + dot + nameCell + "  " + appCell + status
 }
 
 func (m model) listView() string {
 	vis := m.visible()
 	if len(vis) == 0 {
+		if len(m.profiles) == 0 {
+			return "\n  " + fg(colDim, false).Render("No profiles yet. Press n to create one.") + "\n"
+		}
 		return "\n  " + fg(colDim, false).Render("No profiles match.") + "\n"
 	}
-	rows := m.maxRows() / 3
-	if rows < 1 {
-		rows = 1
-	}
+	rows := m.listRows()
 	start, end := m.offset, m.offset+rows
 	if start > len(vis) {
 		start = len(vis)
@@ -807,18 +817,35 @@ func (m model) listView() string {
 	if end > len(vis) {
 		end = len(vis)
 	}
-	blocks := make([]string, 0, end-start)
-	for _, p := range vis[start:end] {
-		blocks = append(blocks, profileRow(m, p, p.FolderName == m.sel))
-	}
-	more := ""
-	if end < len(vis) {
-		more = "\n  " + fg(colDim, false).Render(fmt.Sprintf("… %d more", len(vis)-end))
-	}
+	var b strings.Builder
 	if start > 0 {
-		blocks = append([]string{"  " + fg(colDim, false).Render(fmt.Sprintf("… %d above", start))}, blocks...)
+		b.WriteString("  " + fg(colMute, false).Render(fmt.Sprintf("… %d above", start)) + "\n")
 	}
-	return "\n" + strings.Join(blocks, "\n\n") + more + "\n"
+	group := ""
+	for _, p := range vis[start:end] {
+		g := "Not running"
+		if len(m.running[p.FolderName]) > 0 {
+			g = "Running"
+		}
+		if g != group {
+			count := 0
+			for _, q := range vis {
+				if (len(m.running[q.FolderName]) > 0) == (g == "Running") {
+					count++
+				}
+			}
+			if group != "" {
+				b.WriteString("\n")
+			}
+			b.WriteString("  " + fg(colText, true).Render(g) + " " + fg(colMute, false).Render(fmt.Sprint(count)) + "\n")
+			group = g
+		}
+		b.WriteString(profileRow(m, p, p.FolderName == m.sel) + "\n")
+	}
+	if end < len(vis) {
+		b.WriteString("  " + fg(colMute, false).Render(fmt.Sprintf("… %d more", len(vis)-end)) + "\n")
+	}
+	return "\n" + b.String()
 }
 
 func (m model) formView() string {
@@ -836,7 +863,7 @@ func (m model) formView() string {
 		t := titles[i]
 		head := fg(colDim, false).Render("  " + t)
 		if i == m.formFocus {
-			head = fg(colCyan, true).Render("▸ " + t)
+			head = fg(colAccent, true).Render("▸ " + t)
 		}
 		val := m.formVals[i]
 		switch i {
@@ -846,7 +873,7 @@ func (m model) formView() string {
 			val = m.sourceLabel(val)
 		}
 		if i == m.formFocus {
-			val += fg(colCyan, true).Render("█")
+			val += fg(colAccent, true).Render("█")
 		}
 		if val == "" && i != m.formFocus {
 			val = fg(colMute, false).Render("—")
@@ -858,12 +885,6 @@ func (m model) formView() string {
 }
 
 func (m model) footerView() string {
-	var live uint64
-	for _, p := range m.profiles {
-		if len(m.running[p.FolderName]) > 0 {
-			live += m.rss[p.FolderName]
-		}
-	}
 	cpu := "—"
 	if m.cpuOK {
 		cpu = fmt.Sprintf("%.0f%%", m.cpu)
@@ -872,11 +893,10 @@ func (m model) footerView() string {
 	if m.totalMem > 0 {
 		total = formatBytes(m.totalMem)
 	}
-	stats := fmt.Sprintf("CPU %s · RAM %s / %s · %d profiles",
-		cpu, formatBytes(live), total, len(m.profiles))
-	hints := "/ filter · enter launch · x stop · n new · d delete · W wire brain · R rescan · q quit"
-	out := " " + fg(colDim, false).Render(stats) + "\n" +
-		" " + fg(colMute, false).Render(hints)
+	stats := fmt.Sprintf("CPU %s · %s RAM", cpu, total)
+	hints := "enter launch · x stop · n new · d delete · W wire brain · R rescan · / search · q quit"
+	out := " " + fg(colMute, false).Render(hints) + "\n" +
+		" " + fg(colMute, false).Render(stats)
 	if m.status != "" && time.Since(m.statusAt) < 6*time.Second {
 		out += "\n " + fg(colAmber, false).Render(m.status)
 	}
