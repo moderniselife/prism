@@ -254,6 +254,9 @@ struct GatewayConfig: Codable, Equatable, Sendable {
     // MARK: Persistence
 
     static var fileURL: URL {
+        if let override = ProcessInfo.processInfo.environment["PRISM_ENDPOINT_CONFIG"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("Prism", isDirectory: true).appendingPathComponent("endpoint.json")
