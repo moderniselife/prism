@@ -1,24 +1,20 @@
 cask "prism-tui" do
-  version "__VERSION__"
+  arch arm: "arm64", intel: "amd64"
 
-  on_arm do
-    sha256 "__SHA_ARM__"
-    url "https://github.com/moderniselife/prism/releases/download/v#{version}/prism-tui-darwin-arm64.tar.gz"
-  end
-  on_intel do
-    sha256 "__SHA_INTEL__"
-    url "https://github.com/moderniselife/prism/releases/download/v#{version}/prism-tui-darwin-amd64.tar.gz"
-  end
+  version "__VERSION__"
+  sha256 arm:   "__SHA_ARM__",
+         intel: "__SHA_INTEL__"
+  url "https://github.com/moderniselife/prism/releases/download/v#{version}/prism-tui-darwin-#{arch}.tar.gz"
 
   name "Prism TUI"
-  desc "Manage isolated Cursor profiles from the terminal"
-  homepage "https://github.com/moderniselife/prism"
+  desc "Terminal app for running AI apps and accounts in isolated profiles"
+  homepage "https://prism.mojolayers.com/"
 
   binary "prism-tui"
 
+  # The binary is unsigned: clear quarantine so Gatekeeper
+  # doesn't block the first run.
   postflight do
-    # Binaries are unsigned; clear quarantine so Gatekeeper
-    # doesn't block first run on macOS.
     system_command "/usr/bin/xattr",
                    args: ["-dr", "com.apple.quarantine", "#{staged_path}/prism-tui"]
   end

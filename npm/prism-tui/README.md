@@ -1,8 +1,5 @@
 # prism-tui (npm)
 
-> **Coming soon** — publishes with the first `v*` release. Until then,
-> run from source (`go run ./tui`).
-
 Prism for the terminal, via npm. Installs the prebuilt static binary for
 your platform — no Go toolchain, no runtime.
 

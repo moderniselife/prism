@@ -19,6 +19,10 @@
 </p>
 
 <p align="center">
+  <a href="https://prism.mojolayers.com"><strong>prism.mojolayers.com</strong></a> · <a href="https://github.com/moderniselife/prism/releases/latest">Download</a>
+</p>
+
+<p align="center">
   <a href="#supported-apps">Apps</a> ·
   <a href="#features">Features</a> ·
   <a href="#second-brain-brainium">Second brain</a> ·
@@ -128,6 +132,16 @@ Point any AI app at Prism and switch between **work and personal mid-chat** — 
 
 ## Quick start
 
+**Install** — prebuilt, from the [latest release](https://github.com/moderniselife/prism/releases/latest):
+
+```bash
+brew install --cask moderniselife/prism/prism   # macOS 14+
+```
+
+Or download [`Prism.app.zip`](https://github.com/moderniselife/prism/releases/latest/download/Prism.app.zip) (macOS), [`Prism.exe`](https://github.com/moderniselife/prism/releases/latest/download/Prism.exe) (Windows 10/11, no installer) or [`prism-linux.tar.gz`](https://github.com/moderniselife/prism/releases/latest/download/prism-linux.tar.gz) (Linux: `tar -xzf prism-linux.tar.gz && python3 linux/prism.py`). Prism isn't notarised yet, so a downloaded `.app` needs right-click → Open once; the Homebrew cask clears that for you.
+
+**Build from source**
+
 **macOS** — requires macOS 14+ and the Xcode Command Line Tools (no full Xcode):
 
 ```bash
@@ -164,14 +178,10 @@ launch, stop, create and delete profiles with live RSS and system stats.
 See [`tui/README.md`](tui/README.md) for keys.
 
 ```bash
-npm i -g prism-tui            # Node users
-pipx install prism-tui        # Python users
-brew install --cask moderniselife/prism/prism-tui
-winget install ModerniseLife.PrismTUI
+brew install --cask moderniselife/prism/prism-tui   # macOS
+npm i -g prism-tui                                  # anywhere with Node 18+
+pipx install prism-tui                              # anywhere with Python 3.9+
 ```
-
-> **Package registries go live with the first `v*` release** — until
-> then, run it from source (below). Binaries are already on the way.
 
 Or grab a static binary from
 [GitHub releases](https://github.com/moderniselife/prism/releases) — no
@@ -244,20 +254,22 @@ packaging/homebrew-cask/    # Prism.app cask template for the tap
 ## Releasing
 
 Push a tag like `v1.2.3` and [`.github/workflows/release.yml`](.github/workflows/release.yml)
-ships everything: GoReleaser binaries + checksums + the Homebrew TUI cask,
-the signed `Prism.app.zip`, five platform wheels on PyPI, the npm package,
-a Winget submission PR, and the tap's `Prism.app` cask update.
+builds and uploads everything to the GitHub release: the TUI binaries and
+checksums, the `prism-endpoint` helper, `Prism.app.zip`, `Prism.exe` and
+`prism-linux.tar.gz`. The same run publishes the npm package and the PyPI
+wheels with **trusted publishing** (GitHub's OIDC token, so no registry
+tokens are stored anywhere).
 
-One-time setup before the first release:
+The Homebrew tap, [`moderniselife/homebrew-prism`](https://github.com/moderniselife/homebrew-prism),
+updates itself: its sync workflow reads the latest release every hour and
+renders the casks from [`packaging/homebrew-cask`](packaging/homebrew-cask).
 
-1. Create the empty **`moderniselife/homebrew-prism`** tap repo.
-2. Repo secrets: **`TAP_GITHUB_TOKEN`** (classic PAT, `repo` scope),
-   **`NPM_TOKEN`** (publish rights), **`PYPI_API_TOKEN`**,
-   **`WINGET_TOKEN`** (classic PAT, `public_repo` scope), plus a fork of
-   `microsoft/winget-pkgs` under `moderniselife`.
-3. **Winget's first version must be submitted by hand** — the automation
-   refuses brand-new packages. Run `komac update ModerniseLife.PrismTUI`
-   once against a published release, then automation takes over.
+To republish the packages for a release that already exists, run the
+Release workflow by hand (Actions → Release → Run workflow) with that tag.
+
+Winget is wired up but off: it needs a `WINGET_TOKEN` secret (classic PAT,
+`public_repo`), a fork of `microsoft/winget-pkgs` under `moderniselife`,
+and a first version submitted by hand (`komac update ModerniseLife.PrismTUI`).
 
 ## FAQ
 

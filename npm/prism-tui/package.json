@@ -5,7 +5,7 @@
   "homepage": "https://github.com/moderniselife/prism",
   "repository": {
     "type": "git",
-    "url": "https://github.com/moderniselife/prism.git",
+    "url": "git+https://github.com/moderniselife/prism.git",
     "directory": "npm/prism-tui"
   },
   "license": "UNLICENSED",
