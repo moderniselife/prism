@@ -74,6 +74,15 @@ public class CursorProfile
 
     [JsonPropertyName("isPinned")] public bool IsPinned { get; set; }
     [JsonPropertyName("isSystem")] public bool IsSystem { get; set; }
+    /// <summary>Claude Code only: send requests through the Prism endpoint.
+    /// null = the profile's own sign-in, "*" = the active identity, otherwise an identity id.</summary>
+    [JsonPropertyName("endpointIdentity")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EndpointIdentity { get; set; }
+    /// <summary>The profile's group (projects/clients, made in the macOS app); kept as-is.</summary>
+    [JsonPropertyName("groupID")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? GroupID { get; set; }
 
     public CursorProfile Copy() => (CursorProfile)MemberwiseClone();
 
@@ -241,6 +250,8 @@ public class LauncherSettings
     [JsonPropertyName("defaultMemoryMB")] public int DefaultMemoryMB { get; set; } = 16384;
     /// <summary>App theme: "system" (follow Windows), "light" or "dark".</summary>
     [JsonPropertyName("theme")] public string Theme { get; set; } = "system";
+    /// <summary>A Prism release the user chose not to install ("Later").</summary>
+    [JsonPropertyName("skippedPrismVersion")] public string SkippedPrismVersion { get; set; } = "";
 
     public static string PathFor(string profilesDir) => Path.Combine(profilesDir, ".launcher-settings.json");
 

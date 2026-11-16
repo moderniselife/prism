@@ -22,7 +22,7 @@
   <a href="#supported-apps">Apps</a> ·
   <a href="#features">Features</a> ·
   <a href="#second-brain-brainium">Second brain</a> ·
-  <a href="#one-endpoint-for-every-account-macos">Endpoint</a> ·
+  <a href="#one-endpoint-for-every-account">Endpoint</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#terminal-tui">Terminal</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -83,21 +83,32 @@ Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium]
 - **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
 - Set it up in **Settings → Second brain**: click **Install** for Brainium (and Node.js if you need it) or **Use existing…**, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available on every platform
 
-### One endpoint for every account (macOS)
+### One endpoint for every account
 Point any AI app at Prism and switch between **work and personal mid-chat** — same app, same conversation, different account paying for it.
 
 - **OpenAI- and Anthropic-compatible** — serves `/v1/chat/completions`, `/v1/messages` and `/v1/responses` (with streaming and tool calls) plus `/v1/models` on `http://127.0.0.1:4848`. Any client works with any provider: Codex can run on Claude, Claude Code on GPT, a chat app on your local Bonsai models
-- **Identities** — *Work*, *Personal*, or as many as you like. Each holds API keys for **Anthropic**, **OpenAI**, **xAI** and any **OpenAI-compatible** server (Bonsai, Ollama, LM Studio, vLLM). Keys live in the macOS Keychain
+- **Identities** — *Work*, *Personal*, or as many as you like. Each holds API keys for **Anthropic**, **OpenAI**, **xAI** and any **OpenAI-compatible** server (Bonsai, Ollama, LM Studio, vLLM). Keys live in the macOS Keychain, Windows Credential Manager or the Linux keyring (Secret Service)
 - **Switch three ways** — the **Work | Personal** switch in the hub sidebar, the menu bar or `⌥⌘I`; pick `work/claude-…` or `personal/gpt-…` in your app's model list; or type **`@work` / `@personal`** in a message (it sticks for the rest of that chat and is removed before sending)
 - **Auto-switch rules** — by words in your message, a regex, the app making the request (e.g. everything from Codex goes to Work) or time of day
 - **Built for switching** — reasoning that one account signed and another can't verify is dropped and the request retried, so a chat never breaks when you change identity
-- Set it up in **Settings → Endpoint**; it shows copy-ready setup for Open WebUI, LibreChat, TypingMind, Claude Code, Codex, Claude Desktop (Developer → Configure Third-Party Inference → Gateway) and the SDKs, plus a live log of which identity answered each request
+- **Overflow** — give an identity a fallback: when it's rate-limited (429) or out of credit, requests go to the fallback until it recovers, and the log says so
+- **Spend and budgets** — tokens and cost per identity, per model, per day (built-in prices, editable); set a monthly budget that warns you, switches to the fallback or blocks requests
+- **One token per identity** — give an app an identity's own token and it always uses that identity; Claude Code profiles can pick an **API account** to run through the endpoint instead of their own sign-in
+- **Everywhere** — built into the macOS app; on Windows and Linux the app runs the small `prism-endpoint` helper (installed with one click, also on the release page) and in the terminal it's `prism-tui endpoint` or the TUI's `E` screen. All of them share the same settings format
+- Set it up in **Settings → Endpoint** (Windows: the **Endpoint** card; Linux: **Preferences → Endpoint**); it shows copy-ready setup for Open WebUI, LibreChat, TypingMind, Claude Code, Codex, Claude Desktop (Developer → Configure Third-Party Inference → Gateway) and the SDKs, plus a live log of which identity answered each request
 - Uses **API keys only**: Claude Pro/Max and ChatGPT subscription sign-ins are only allowed in their providers' own apps
+
+### Groups
+- **Sort profiles into groups** — a project, a client, a kind of work. A group can hold profiles from any app, so one *Acme* group can have its Cursor, Claude Code and Claude Desktop profiles together
+- Make one with **+** next to *Groups* in the sidebar, then file profiles by dragging them onto it, from **Group** in their menu, the detail panel or the profile editor
+- Pick a group in the sidebar to see only its profiles, or arrange the whole list **by group** (sort menu, or Settings → General). Rename, recolour, reorder and delete groups from their menu or **Settings → Groups**; deleting a group keeps its profiles
+- Groups are made in the macOS app; the TUI, Windows and Linux apps keep each profile's group as it is
 
 ### Launching & switching
 - **One-click launch** — double-click a profile or use its row action, or open launch options for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a Cursor or Claude Code profile to open it there
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
+- **Settings** (`⌘,` or the gear in the sidebar) — General, Apps, Groups, Second brain, Endpoint and **About & updates**, which shows the version and build and checks GitHub for a new Prism (also **Prism → Check for Updates…**)
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
 - **Restart & Update** — Cursor, Claude Desktop and Grok Bot only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
 - **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
@@ -197,7 +208,8 @@ Sources/CursorProfiles/
   HubComponents.swift       # App glyphs, shared profile actions and menus
   ProfileEditorSheet.swift  # Create/edit sheet
   SpotlightCommandBar.swift # ⌥Space quick-switch palette
-  SettingsView.swift        # App paths, defaults, storage
+  SettingsWindow.swift      # Settings window: General, Apps, Groups, About & updates
+  ProfileGroupsUI.swift     # Groups: sidebar, menus, pickers; window drag regions
   ProfileStore.swift        # Metadata, CRUD, live RSS/CPU/window polling
   SystemStats.swift         # Real CPU/RAM/window measurement + global hotkey helpers
   CursorLauncher.swift      # Find/launch/quit Cursor processes
@@ -221,6 +233,9 @@ tui/
   stats.go, colorize.go, ui.go
   grokbot.go, carryover.go  # Grok Bot support, overflow carry-over rules (+ tests)
   brainium.go               # Second brain wiring (+ integration test with the real CLI)
+  endpoint/                 # Endpoint engine for Windows/Linux/terminal (+ tests)
+  cmd/prism-endpoint/       # The prism-endpoint helper
+  endpointview.go           # TUI Endpoint screen (E)
 npm/prism-tui/              # npm wrapper (downloads the release binary)
 pypi/prism-tui/             # PyPI wrapper (platform wheels bundle it)
 packaging/homebrew-cask/    # Prism.app cask template for the tap

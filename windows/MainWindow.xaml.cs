@@ -52,6 +52,15 @@ public partial class MainWindow : Window
         Refilter();
         UpdateBrainUi();
         _store.Brain.RefreshStatus();
+
+        _endpointTimer.Tick += async (_, _) => await UpdateEndpointUi();
+        Loaded += async (_, _) =>
+        {
+            await UpdateEndpointUi();
+            _endpointTimer.Start();
+            PrismUpdater.CleanUp();
+            await CheckForPrismUpdate();
+        };
     }
 
     // MARK: Filtering & grouping
@@ -329,6 +338,91 @@ public partial class MainWindow : Window
             NewProfile_Click(this, new RoutedEventArgs());
             e.Handled = true;
         }
+        else if (e.Key == Key.I)
+        {
+            _ = SwitchEndpointIdentity();
+            e.Handled = true;
+        }
+    }
+
+    // MARK: Endpoint
+
+    private readonly System.Windows.Threading.DispatcherTimer _endpointTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly EndpointService _endpoint = new();
+
+    private void EndpointCard_Click(object sender, RoutedEventArgs e)
+    {
+        new EndpointWindow { Owner = this }.ShowDialog();
+        _ = UpdateEndpointUi();
+    }
+
+    private async Task UpdateEndpointUi()
+    {
+        _endpoint.Reload();
+        var cfg = _endpoint.Config;
+        var status = cfg.Identities.Count == 0 && !cfg.Enabled ? null : await _endpoint.StatusAsync();
+        var active = cfg.Active;
+        if (status != null)
+        {
+            EndpointState.Text = "On";
+            EndpointDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "LiveBrush");
+            var st = status.Identities.FirstOrDefault(i => i.Active) ?? status.Identities.FirstOrDefault();
+            EndpointDetail.Text = st == null ? "No identities yet"
+                : $"{st.Name} · ${st.MonthCost:0.00} this month" + (st.CooldownUntil is DateTime t && t > DateTime.UtcNow ? " · rate-limited" : "");
+        }
+        else
+        {
+            EndpointState.Text = cfg.Enabled ? "Stopped" : "Off";
+            EndpointDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, cfg.Enabled ? "WarningBrush" : "MutedBrush");
+            EndpointDetail.Text = cfg.Identities.Count == 0 ? "Not set up" : $"{active?.Name} · not running";
+        }
+    }
+
+    /// Ctrl+I: make the next identity active.
+    private async Task SwitchEndpointIdentity()
+    {
+        _endpoint.Reload();
+        var ids = _endpoint.Config.Identities;
+        if (ids.Count < 2) { EndpointCard_Click(this, new RoutedEventArgs()); return; }
+        var i = ids.IndexOf(_endpoint.Config.Active!);
+        await _endpoint.SetActiveAsync(ids[(i + 1) % ids.Count].Id);
+        await UpdateEndpointUi();
+    }
+
+    // MARK: Prism updates
+
+    private PrismUpdater.Release? _release;
+
+    private async Task CheckForPrismUpdate()
+    {
+        _release = await PrismUpdater.CheckAsync();
+        if (_release == null || _store.Settings.SkippedPrismVersion == _release.Tag) return;
+        PrismUpdateText.Text = $"Prism {_release.Tag.TrimStart('v')} is available. You have {PrismUpdater.CurrentText}.";
+        PrismUpdateButton.Content = PrismUpdater.CanInstall(_release) ? "Update and relaunch" : "Download";
+        PrismUpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdatePrism_Click(object sender, RoutedEventArgs e)
+    {
+        if (_release == null) return;
+        PrismUpdateButton.IsEnabled = false;
+        PrismUpdateText.Text = "Downloading…";
+        try { await PrismUpdater.InstallAsync(_release); }
+        catch (Exception ex)
+        {
+            PrismUpdateText.Text = "Couldn't update: " + ex.Message;
+            PrismUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void UpdateLater_Click(object sender, RoutedEventArgs e)
+    {
+        if (_release != null)
+        {
+            _store.Settings.SkippedPrismVersion = _release.Tag;
+            _store.Settings.Save(_store.ProfilesDir);
+        }
+        PrismUpdateBanner.Visibility = Visibility.Collapsed;
     }
 
     private void NewProfile_Click(object sender, RoutedEventArgs e) =>

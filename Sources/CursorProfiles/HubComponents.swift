@@ -159,6 +159,7 @@ struct ProfileMenuItems: View {
         }
         Divider()
         Button(profile.isPinned ? "Unpin" : "Pin to Top") { store.togglePin(profile) }
+        GroupMenu(profile: profile)
         Button("Edit…") { onEdit() }
         Button(profile.duplicateTitle) { store.duplicate(profile) }
             .disabled(busy)

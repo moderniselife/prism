@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/moderniselife/prism/tui/endpoint"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,11 @@ type Profile struct {
 	LastLaunchedAt     *time.Time `json:"-"`
 	IsPinned           bool       `json:"isPinned"`
 	IsSystem           bool       `json:"isSystem"`
+	// Claude Code only: run through the Prism endpoint with this identity's
+	// API keys ("" = own sign-in, "*" = the active identity).
+	EndpointIdentity string `json:"-"`
+	// The profile's group (made in the macOS app; kept as-is here).
+	GroupID string `json:"-"`
 }
 
 // NOTE: older .profiles.json files may carry an "emoji" key. It has no field
@@ -70,6 +76,8 @@ type profileJSON struct {
 	LastLaunchedAt     *float64 `json:"lastLaunchedAt"`
 	IsPinned           bool     `json:"isPinned"`
 	IsSystem           bool     `json:"isSystem"`
+	EndpointIdentity   string   `json:"endpointIdentity,omitempty"`
+	GroupID            string   `json:"groupID,omitempty"`
 }
 
 func appleToTime(sec float64) time.Time {
@@ -90,6 +98,8 @@ func (p Profile) toJSON() profileJSON {
 		DefaultProjectPath: p.DefaultProjectPath,
 		IsPinned:           p.IsPinned,
 		IsSystem:           p.IsSystem,
+		EndpointIdentity:   p.EndpointIdentity,
+		GroupID:            p.GroupID,
 	}
 	if j.App == "" {
 		j.App = AppCursor
@@ -113,6 +123,8 @@ func profileFromJSON(j profileJSON) Profile {
 		DefaultProjectPath: j.DefaultProjectPath,
 		IsPinned:           j.IsPinned,
 		IsSystem:           j.IsSystem,
+		EndpointIdentity:   j.EndpointIdentity,
+		GroupID:            j.GroupID,
 	}
 	// Absent or unknown: files predating multi-app support are Cursor.
 	p.App = normalizeApp(p.App)
@@ -718,8 +730,14 @@ func (s *Store) launchCode(p Profile) error {
 
 // CodeCommand returns the shell command that opens this profile's account:
 // portable across sh, bash, zsh and PowerShell callers copy-paste it.
+// A profile set to use the endpoint also gets ANTHROPIC_BASE_URL and
+// ANTHROPIC_AUTH_TOKEN, so Claude Code runs on that identity's API keys.
 func (s *Store) CodeCommand(p Profile) string {
-	return fmt.Sprintf("CLAUDE_CONFIG_DIR=%q claude", s.dirFor(p))
+	cmd := fmt.Sprintf("CLAUDE_CONFIG_DIR=%q", s.dirFor(p))
+	for _, kv := range endpoint.ClaudeCodeEnv(p.EndpointIdentity) {
+		cmd += fmt.Sprintf(" %s=%q", kv[0], kv[1])
+	}
+	return cmd + " claude"
 }
 
 // launchDesktop starts Claude Desktop. Managed profiles pass the Chromium

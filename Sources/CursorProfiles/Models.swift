@@ -33,6 +33,13 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     var colorHex: String
     var defaultMemoryMB: Int
     var defaultProjectPath: String?
+    /// Claude Code: send requests through Prism's endpoint instead of the
+    /// profile's own sign-in. nil = own sign-in, "*" = whichever identity
+    /// is active, otherwise an identity id.
+    var endpointIdentity: String?
+    /// The group (project, client, category…) this profile is filed under;
+    /// nil = ungrouped. See ProfileGroup.
+    var groupID: String?
     var createdAt: Date
     var lastLaunchedAt: Date?
     var isPinned: Bool
@@ -45,7 +52,8 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     // so old files still load and new files simply omit it.
     enum CodingKeys: String, CodingKey {
         case folderName, displayName, app, colorHex, defaultMemoryMB,
-             defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem
+             defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem,
+             endpointIdentity, groupID
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +68,8 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         lastLaunchedAt = try c.decodeIfPresent(Date.self, forKey: .lastLaunchedAt)
         isPinned = try c.decode(Bool.self, forKey: .isPinned)
         isSystem = try c.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
+        endpointIdentity = try c.decodeIfPresent(String.self, forKey: .endpointIdentity)
+        groupID = try c.decodeIfPresent(String.self, forKey: .groupID)
     }
 
     init(folderName: String,
@@ -237,4 +247,16 @@ enum ProfileNaming {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
         return String(raw.unicodeScalars.filter { allowed.contains($0) })
     }
+}
+
+// MARK: - Profile groups
+
+/// A user-made group of profiles — a project, a client, a category.
+/// Groups span apps: one "Acme" group can hold Cursor, Claude Code and
+/// Claude Desktop profiles. Stored in ~/.cursor_profiles/.groups.json
+/// (shared with the TUI); each profile names its group by id.
+struct ProfileGroup: Codable, Identifiable, Equatable, Hashable {
+    var id: String = UUID().uuidString
+    var name: String
+    var colorHex: String
 }

@@ -5,8 +5,9 @@ import Foundation
 // In order:
 //   1. An identity-prefixed model ("work/claude-sonnet-4-5", or just "work")
 //   2. The latest @tag in the conversation ("@personal what's for dinner")
-//   3. The first matching auto-switch rule
-//   4. The active identity (Prism's toggle)
+//   3. An identity's own access token (the app is pinned to it)
+//   4. The first matching auto-switch rule
+//   5. The active identity (Prism's toggle)
 // Then the identity's provider that serves the model is chosen.
 
 struct GatewayRoute {
@@ -30,6 +31,7 @@ enum GatewayRouter {
                       userTexts: [String],
                       client: String,
                       now: Date = Date(),
+                      pinnedIdentityID: String? = nil,
                       knownModels: (GatewayCredential) -> [String]) throws -> GatewayRoute {
         guard !config.identities.isEmpty else {
             throw GatewayRouteError(status: 503, message: "Prism has no identities yet. Add one in Prism → Settings → Endpoint.")
@@ -74,7 +76,13 @@ enum GatewayRouter {
             }
         }
 
-        // 3. Rules
+        // 3. Identity token
+        if chosen == nil, let pinned = pinnedIdentityID, let identity = config.identity(id: pinned) {
+            chosen = identity
+            reason = "\(identity.name) token"
+        }
+
+        // 4. Rules
         if chosen == nil {
             let latest = userTexts.last ?? ""
             for rule in config.rules where rule.enabled {
@@ -87,7 +95,7 @@ enum GatewayRouter {
             }
         }
 
-        // 4. Active
+        // 5. Active
         if chosen == nil {
             chosen = config.activeIdentity
             reason = "active"

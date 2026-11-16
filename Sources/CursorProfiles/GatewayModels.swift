@@ -88,6 +88,23 @@ struct GatewayCredential: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// What happens once an identity has spent its monthly budget.
+enum GatewayBudgetAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case warn
+    case fallback
+    case block
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .warn: return "Just warn me"
+        case .fallback: return "Use the fallback identity"
+        case .block: return "Stop sending requests"
+        }
+    }
+}
+
 struct GatewayIdentity: Codable, Identifiable, Hashable, Sendable {
     var id: String = UUID().uuidString
     var name: String
@@ -95,6 +112,15 @@ struct GatewayIdentity: Codable, Identifiable, Hashable, Sendable {
     var credentials: [GatewayCredential] = []
     /// Used when a client asks for "prism", "work" or similar without a model.
     var defaultModel: String = ""
+    /// An access token that always uses this identity (for apps that hold
+    /// one fixed setting, like Claude Desktop or a Claude Code profile).
+    var token: String = GatewayConfig.newToken()
+    /// Where requests go while this identity is rate-limited, out of
+    /// credit or over budget.
+    var fallbackIdentityID: String?
+    /// Monthly spending limit in US dollars (estimated); nil for none.
+    var monthlyBudget: Double?
+    var budgetAction: GatewayBudgetAction = .fallback
 
     init(name: String, colorHex: String, credentials: [GatewayCredential] = [], defaultModel: String = "") {
         self.name = name
@@ -110,6 +136,10 @@ struct GatewayIdentity: Codable, Identifiable, Hashable, Sendable {
         colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#6366F1"
         credentials = try c.decodeIfPresent([GatewayCredential].self, forKey: .credentials) ?? []
         defaultModel = try c.decodeIfPresent(String.self, forKey: .defaultModel) ?? ""
+        token = try c.decodeIfPresent(String.self, forKey: .token) ?? GatewayConfig.newToken()
+        fallbackIdentityID = try c.decodeIfPresent(String.self, forKey: .fallbackIdentityID)
+        monthlyBudget = try c.decodeIfPresent(Double.self, forKey: .monthlyBudget)
+        budgetAction = try c.decodeIfPresent(GatewayBudgetAction.self, forKey: .budgetAction) ?? .fallback
     }
 
     /// "Work Stuff" → "work-stuff": the model prefix and @tag.
@@ -220,6 +250,8 @@ struct GatewayConfig: Codable, Equatable, Sendable {
     var tagsEnabled = true
     var rules: [GatewayRule] = []
     var modelList: GatewayModelList = .both
+    /// Your own prices per model prefix, over the built-in list.
+    var priceOverrides: [String: GatewayPrice] = [:]
 
     init() {}
 
@@ -235,6 +267,7 @@ struct GatewayConfig: Codable, Equatable, Sendable {
         tagsEnabled = try c.decodeIfPresent(Bool.self, forKey: .tagsEnabled) ?? true
         rules = try c.decodeIfPresent([GatewayRule].self, forKey: .rules) ?? []
         modelList = try c.decodeIfPresent(GatewayModelList.self, forKey: .modelList) ?? .both
+        priceOverrides = try c.decodeIfPresent([String: GatewayPrice].self, forKey: .priceOverrides) ?? [:]
     }
 
     static func newToken() -> String {
@@ -282,6 +315,12 @@ struct GatewayConfig: Codable, Equatable, Sendable {
 
 /// One line in the endpoint's recent-requests list. No message content.
 struct GatewayLogEntry: Identifiable, Sendable {
+    var inputTokens = 0
+    var outputTokens = 0
+    /// Estimated US dollars; nil when the model's price is unknown.
+    var cost: Double?
+    /// "Work rate-limited → Personal" when a request moved to a fallback.
+    var note: String?
     let id = UUID()
     let date: Date
     let client: String

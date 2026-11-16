@@ -446,6 +446,316 @@ PALETTE = [
     ("Blue", "#3B82F6"), ("Slate", "#64748B"), ("Lime", "#84CC16"),
 ]
 
+# -- Endpoint (prism-endpoint helper) -------------------------------------------
+# A local OpenAI/Anthropic-compatible API that sends each request with the API
+# keys of an identity (Work, Personal…). The Go helper does the work; Prism
+# finds or installs it, starts and stops it, edits its settings and talks to
+# its admin API. Keys go to the system keyring through the helper, never into
+# the settings file.
+
+PRISM_VERSION = "1.5.0"  # stamped by the release workflow
+GITHUB_REPO = "moderniselife/prism"
+ENDPOINT_DEFAULT_PORT = 4848
+ENDPOINT_PROVIDERS = [("anthropic", "Anthropic"), ("openai", "OpenAI"), ("xai", "xAI"),
+                      ("compatible", "OpenAI-compatible")]
+ENDPOINT_RULE_KINDS = [("keyword", "Message mentions"), ("regex", "Message matches regex"),
+                       ("client", "Request comes from app"), ("schedule", "Time of day")]
+ENDPOINT_BUDGET_ACTIONS = [("warn", "Warn me"), ("fallback", "Use the fallback"),
+                           ("block", "Block requests")]
+ENDPOINT_COLORS = ["#3B82F6", "#22C55E", "#F59E0B", "#EF4444", "#EC4899", "#8B5CF6", "#14B8A6", "#64748B"]
+_TOKEN_ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def endpoint_provider_label(provider: str) -> str:
+    return dict(ENDPOINT_PROVIDERS).get(provider, "OpenAI-compatible")
+
+
+def endpoint_new_token() -> str:
+    import secrets
+    return "prism-" + "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(32))
+
+
+def endpoint_new_id() -> str:
+    import uuid
+    return str(uuid.uuid4()).upper()
+
+
+def endpoint_slug(name: str) -> str:
+    out, dash = [], False
+    for ch in (name or "").lower():
+        if ch.isalnum():
+            out.append(ch)
+            dash = False
+        elif not dash and out:
+            out.append("-")
+            dash = True
+    return "".join(out).strip("-")
+
+
+def endpoint_dir() -> Path:
+    if os.environ.get("PRISM_ENDPOINT_DIR"):
+        return Path(os.environ["PRISM_ENDPOINT_DIR"])
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "prism"
+
+
+def endpoint_config_path() -> Path:
+    if os.environ.get("PRISM_ENDPOINT_CONFIG"):
+        return Path(os.environ["PRISM_ENDPOINT_CONFIG"])
+    return endpoint_dir() / "endpoint.json"
+
+
+def _arch() -> str:
+    import platform
+    m = platform.machine().lower()
+    return "arm64" if m in ("aarch64", "arm64") else "amd64"
+
+
+def github_latest_release(timeout=15):
+    import urllib.request
+    req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                                 headers={"User-Agent": f"Prism-Linux/{PRISM_VERSION}",
+                                          "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def version_tuple(text: str):
+    parts = re.findall(r"\d+", (text or "").lstrip("v"))[:3]
+    return tuple(int(p) for p in parts) + (0,) * (3 - len(parts))
+
+
+class Endpoint:
+    HELPER = "prism-endpoint"
+
+    def __init__(self):
+        self.config = {}
+        self.reload()
+
+    # -- settings
+
+    @staticmethod
+    def defaults():
+        return {"enabled": False, "port": ENDPOINT_DEFAULT_PORT, "allowLAN": False, "requireToken": True,
+                "token": endpoint_new_token(), "identities": [], "tagsEnabled": True, "rules": [],
+                "modelList": "both"}
+
+    def reload(self):
+        cfg = self.defaults()
+        try:
+            data = json.loads(endpoint_config_path().read_text())
+            if isinstance(data, dict):
+                cfg.update({k: v for k, v in data.items() if v is not None})
+        except (OSError, ValueError):
+            pass
+        for ident in cfg["identities"]:
+            ident.setdefault("id", endpoint_new_id())
+            ident.setdefault("credentials", [])
+            ident.setdefault("token", endpoint_new_token())
+            ident.setdefault("colorHex", ENDPOINT_COLORS[0])
+            ident.setdefault("defaultModel", "")
+        self.config = cfg
+
+    def save(self):
+        path = endpoint_config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(self.config, f, indent=2)
+        os.replace(tmp, path)
+        try:
+            self.admin("POST", "/prism/reload", {}, timeout=2)
+        except OSError:
+            pass  # not running: it reads the file when it starts
+
+    @property
+    def identities(self) -> list:
+        return self.config["identities"]
+
+    def identity(self, ident_id):
+        return next((i for i in self.identities if i.get("id") == ident_id), None)
+
+    @property
+    def active(self):
+        return self.identity(self.config.get("activeIdentityID")) or (self.identities[0] if self.identities else None)
+
+    @property
+    def port(self) -> int:
+        return int(self.config.get("port") or ENDPOINT_DEFAULT_PORT)
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    # -- helper
+
+    @classmethod
+    def find_helper(cls):
+        here = Path(__file__).resolve().parent
+        for candidate in (here / cls.HELPER, Path.home() / ".local" / "bin" / cls.HELPER):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+        found = shutil.which(cls.HELPER)
+        if found:
+            return found
+        # prism-tui runs the same endpoint as "prism-tui endpoint".
+        return None
+
+    @classmethod
+    def install_helper(cls) -> str:
+        """Download the helper for this machine from the latest release (blocking)."""
+        import urllib.request
+        asset = f"prism-endpoint-linux-{_arch()}"
+        release = github_latest_release()
+        url = next((a.get("browser_download_url") for a in release.get("assets", [])
+                    if a.get("name") == asset), None)
+        if not url:
+            raise RuntimeError("The latest Prism release has no endpoint helper for Linux yet.")
+        dest = Path.home() / ".local" / "bin" / cls.HELPER
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".download")
+        req = urllib.request.Request(url, headers={"User-Agent": f"Prism-Linux/{PRISM_VERSION}"})
+        with urllib.request.urlopen(req, timeout=300) as resp, open(tmp, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, dest)
+        return str(dest)
+
+    # -- admin API (main token)
+
+    def admin(self, method, route, body=None, timeout=20):
+        """Returns the decoded JSON reply. Raises OSError when not running."""
+        import urllib.error
+        import urllib.request
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base_url + route, data=data, method=method, headers={
+            "Authorization": f"Bearer {self.config.get('token', '')}",
+            "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode() or "{}")
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode() or "{}")
+            except ValueError:
+                return {"error": f"HTTP {e.code}"}
+
+    @staticmethod
+    def error_text(reply) -> str | None:
+        err = (reply or {}).get("error")
+        if isinstance(err, dict):
+            return err.get("message")
+        return err
+
+    def status(self):
+        try:
+            reply = self.admin("GET", "/prism/status", timeout=3)
+            return reply if "identities" in reply else None
+        except (OSError, ValueError):
+            return None
+
+    def start(self) -> str | None:
+        """Start the helper in the background (blocking up to 5s)."""
+        import time
+        helper = self.find_helper()
+        if not helper:
+            return "The endpoint helper isn't installed."
+        if not self.config.get("enabled"):
+            self.config["enabled"] = True
+            self.save()
+        try:
+            subprocess.Popen([helper, "serve"], start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            return str(e)
+        for _ in range(20):
+            time.sleep(0.25)
+            if self.status() is not None:
+                return None
+        return f"The endpoint didn't start. Is port {self.port} in use?"
+
+    def stop(self):
+        self.config["enabled"] = False
+        self.save()
+        try:
+            self.admin("POST", "/prism/stop", {}, timeout=3)
+        except OSError:
+            pass
+
+    def set_active(self, ident_id) -> str | None:
+        self.config["activeIdentityID"] = ident_id
+        self.save()
+        return None
+
+    def set_key(self, cred_id, key) -> str | None:
+        try:
+            reply = self.admin("POST", "/prism/key", {"credentialID": cred_id, "key": key})
+            return None if reply.get("ok") else (self.error_text(reply) or "Couldn't save the key.")
+        except OSError:
+            pass
+        helper = self.find_helper()
+        if not helper:
+            return "Install the endpoint helper first."
+        try:
+            done = subprocess.run([helper, "key", cred_id], input=key, text=True,
+                                  capture_output=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return str(e)
+        return None if done.returncode == 0 else (done.stderr.strip() or "Couldn't save the key.")
+
+    def check(self, cred_id):
+        """(error, models) for a saved credential."""
+        try:
+            reply = self.admin("POST", "/prism/check", {"credentialID": cred_id}, timeout=20)
+        except OSError:
+            return "The endpoint isn't running.", []
+        if reply.get("ok"):
+            return None, reply.get("models") or []
+        return self.error_text(reply) or "Check failed.", []
+
+    def claude_code_env(self, ident_id) -> dict:
+        """Environment for a Claude Code profile that goes through the endpoint
+        (None = the profile's own sign-in, "*" = whichever identity is active)."""
+        if not ident_id:
+            return {}
+        token = self.config.get("token") if ident_id == "*" else (self.identity(ident_id) or {}).get("token")
+        if not token:
+            return {}
+        return {"ANTHROPIC_BASE_URL": self.base_url, "ANTHROPIC_AUTH_TOKEN": token}
+
+    # -- setup snippets
+
+    def snippet(self, kind: str, token: str) -> str:
+        base = self.base_url
+        if kind == "code":
+            return f'export ANTHROPIC_BASE_URL="{base}"\nexport ANTHROPIC_AUTH_TOKEN="{token}"'
+        if kind == "codex":
+            model = (self.active or {}).get("defaultModel") or "gpt-5-codex"
+            return (f'# ~/.codex/config.toml\nmodel = "{model}"\nmodel_provider = "prism"\n\n'
+                    f'[model_providers.prism]\nname = "Prism"\nbase_url = "{base}/v1"\n'
+                    f'env_key = "PRISM_API_KEY"\nwire_api = "responses"\n\n'
+                    f'# and in your shell profile:\nexport PRISM_API_KEY="{token}"')
+        if kind == "desktop":
+            return (f"Developer → Configure Third-Party Inference…\nInference provider   Gateway\n"
+                    f"Gateway base URL     {base}\nGateway API key      {token}\nGateway auth scheme  Bearer")
+        return (f"Base URL   {base}/v1\nAPI key    {token}\nModel      prism  (follows the active identity)\n"
+                f"           or work/…, personal/… to pin one\n\n"
+                f"Open WebUI in Docker: http://host.docker.internal:{self.port}/v1")
+
+
+def run_in_background(work, done=None):
+    """Run work() on a thread, then done(result, error) on the GTK main loop."""
+    def run():
+        try:
+            result, error = work(), None
+        except Exception as e:  # noqa: BLE001 — shown to the user
+            result, error = None, e
+        if done:
+            GLib.idle_add(lambda: (done(result, error), False)[1])
+    threading.Thread(target=run, daemon=True).start()
+
+
 def apple_seconds(dt):
     return (dt - APPLE_EPOCH).total_seconds() if dt else None
 
@@ -510,6 +820,11 @@ class Profile:
     lastLaunchedAt: datetime | None = None
     isPinned: bool = False
     isSystem: bool = False
+    # Claude Code only: go through the Prism endpoint. None = the profile's own
+    # sign-in, "*" = the active identity, otherwise an endpoint identity id.
+    endpointIdentity: str | None = None
+    # The profile's group (projects/clients, made in the macOS app); kept as-is.
+    groupID: str | None = None
 
     @property
     def initial(self) -> str:
@@ -529,6 +844,8 @@ class Profile:
             "lastLaunchedAt": apple_seconds(self.lastLaunchedAt),
             "isPinned": self.isPinned,
             "isSystem": self.isSystem,
+            **({"endpointIdentity": self.endpointIdentity} if self.endpointIdentity else {}),
+            **({"groupID": self.groupID} if self.groupID else {}),
         }
 
     @classmethod
@@ -544,6 +861,8 @@ class Profile:
             lastLaunchedAt=from_apple_seconds(data.get("lastLaunchedAt")),
             isPinned=data.get("isPinned", False),
             isSystem=data.get("isSystem", False),
+            endpointIdentity=data.get("endpointIdentity"),
+            groupID=data.get("groupID"),
         )
 
 
@@ -1541,7 +1860,8 @@ class Store:
                 "No terminal emulator found. Run this yourself: "
                 f'CLAUDE_CONFIG_DIR="{profile_dir}" {exe}')
             return
-        cmd = (f'CLAUDE_CONFIG_DIR="{profile_dir}" exec "{exe}"; '
+        env = "".join(f'{k}="{v}" ' for k, v in Endpoint().claude_code_env(profile.endpointIdentity).items())
+        cmd = (f'CLAUDE_CONFIG_DIR="{profile_dir}" {env}exec "{exe}"; '
                f'echo; echo "[Prism] session ended - press Enter to close."; read _')
         try:
             subprocess.Popen([*terminal, "sh", "-c", cmd], cwd=work,
@@ -1786,6 +2106,7 @@ ICON_PATHS = {
                "A1.5,1.5 0 0 1 15.5,16 H4.5 A1.5,1.5 0 0 1 3,14.5 Z"),
     "pin": "M10,13 V17.5 M6,13 H14 L12.5,9 V4.5 H7.5 V9 Z",
     "plus": "M10,4.5 V15.5 M4.5,10 H15.5",
+    "endpoint": "M3,6 H13 M10,3 L13,6 L10,9 M17,14 H7 M10,11 L7,14 L10,17",
 }
 
 _PATH_TOKEN = re.compile(r"[MLHVCAZmlhvcaz]|-?\d*\.?\d+(?:e-?\d+)?")
@@ -2019,6 +2340,30 @@ class MainWindow(Adw.ApplicationWindow):
         self.brain_card.connect("clicked", lambda *_: self.open_preferences(brain=True))
         side.append(self.brain_card)
 
+        self.endpoint = Endpoint()
+        self.endpoint_card = Gtk.Button(margin_start=12, margin_end=12, margin_top=8,
+                                        tooltip_text="Endpoint: a local API that switches accounts (Ctrl+I switches identity)")
+        self.endpoint_card.add_css_class("prism-brain-card")
+        ecard = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        etop = Gtk.Box(spacing=8)
+        self.endpoint_icon_slot = etop
+        elbl = Gtk.Label(label="Endpoint", xalign=0, hexpand=True)
+        elbl.add_css_class("prism-strong")
+        etop.append(elbl)
+        self.endpoint_dot = Gtk.Box(valign=Gtk.Align.CENTER)
+        self.endpoint_dot.add_css_class("prism-off")
+        etop.append(self.endpoint_dot)
+        self.endpoint_state = Gtk.Label(label="Off")
+        self.endpoint_state.add_css_class("prism-small")
+        etop.append(self.endpoint_state)
+        ecard.append(etop)
+        self.endpoint_detail = Gtk.Label(label="Not set up", xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        self.endpoint_detail.add_css_class("prism-small")
+        ecard.append(self.endpoint_detail)
+        self.endpoint_card.set_child(ecard)
+        self.endpoint_card.connect("clicked", lambda *_: self.open_preferences(endpoint=True))
+        side.append(self.endpoint_card)
+
         foot = Gtk.Box(margin_top=10, margin_bottom=12, margin_start=16, margin_end=8)
         totals = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         self.running_lbl = Gtk.Label(xalign=0)
@@ -2049,6 +2394,22 @@ class MainWindow(Adw.ApplicationWindow):
         banner_btn.connect("clicked", lambda *_: self.open_preferences())
         self.banner.append(banner_btn)
         main.append(self.banner)
+
+        # New Prism release (checked once at startup).
+        self.update_banner = Gtk.Box(spacing=10, margin_top=12, margin_start=16, margin_end=16, visible=False)
+        self.update_banner.add_css_class("prism-banner")
+        self.update_label = Gtk.Label(xalign=0, wrap=True, hexpand=True)
+        self.update_banner.append(self.update_label)
+        later = Gtk.Button(label="Later", valign=Gtk.Align.CENTER)
+        later.add_css_class("prism-quiet")
+        later.connect("clicked", self.on_update_later)
+        self.update_banner.append(later)
+        get = Gtk.Button(label="Download", valign=Gtk.Align.CENTER)
+        get.add_css_class("prism-secondary")
+        get.connect("clicked", self.on_update_download)
+        self.update_banner.append(get)
+        main.append(self.update_banner)
+        self._release = None
 
         self.columns = Gtk.Box(spacing=12, margin_top=14, margin_bottom=2, margin_start=46, margin_end=46)
         for text, width in (("Name", -1), ("App", 130), ("Status", 160), ("", 104)):
@@ -2095,6 +2456,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         store.refresh_brain_status()
         self.rebuild()
+        self.refresh_endpoint()
+        GLib.timeout_add_seconds(5, self._endpoint_tick)
+        self.check_for_update()
 
     # -- helpers
 
@@ -2107,10 +2471,12 @@ class MainWindow(Adw.ApplicationWindow):
     def new_profile(self):
         EditorDialog(self, self.store, None).present()
 
-    def open_preferences(self, brain=False):
+    def open_preferences(self, brain=False, endpoint=False):
         dialog = PreferencesDialog(self, self.store)
         if brain:
             dialog.set_visible_page(dialog.brain_page)
+        elif endpoint:
+            dialog.set_visible_page(dialog.endpoint_page)
         dialog.present()
 
     def on_key(self, _ctrl, keyval, _code, state):
@@ -2121,7 +2487,84 @@ class MainWindow(Adw.ApplicationWindow):
             if keyval in (Gdk.KEY_n, Gdk.KEY_N):
                 self.new_profile()
                 return True
+            if keyval in (Gdk.KEY_i, Gdk.KEY_I):
+                self.switch_endpoint_identity()
+                return True
         return False
+
+    # -- endpoint
+
+    def refresh_endpoint(self):
+        def done(status, _err):
+            ep = self.endpoint
+            if status is not None:
+                on, label = True, "On"
+                ids = status.get("identities") or []
+                st = next((i for i in ids if i.get("active")), ids[0] if ids else None)
+                if st is None:
+                    detail = "No identities yet"
+                else:
+                    detail = f"{st.get('name', '')} · ${st.get('monthCost', 0):.2f} this month"
+                    if st.get("cooldownUntil"):
+                        detail += " · rate-limited"
+            else:
+                on = False
+                label = "Stopped" if ep.config.get("enabled") else "Off"
+                detail = "Not set up" if not ep.identities else f"{(ep.active or {}).get('name', '')} · not running"
+            self.endpoint_state.set_label(label)
+            for css, active in (("prism-live", on), ("prism-off", not on)):
+                (self.endpoint_dot.add_css_class if active else self.endpoint_dot.remove_css_class)(css)
+            self.endpoint_detail.set_label(detail)
+
+        def work():
+            self.endpoint.reload()
+            return self.endpoint.status() if (self.endpoint.identities or self.endpoint.config.get("enabled")) else None
+        run_in_background(work, done)
+
+    def _endpoint_tick(self):
+        self.refresh_endpoint()
+        return True
+
+    def switch_endpoint_identity(self):
+        ep = self.endpoint
+        ep.reload()
+        if len(ep.identities) < 2:
+            self.open_preferences(endpoint=True)
+            return
+        nxt = ep.identities[(ep.identities.index(ep.active) + 1) % len(ep.identities)]
+        run_in_background(lambda: ep.set_active(nxt["id"]),
+                          lambda *_: (self.refresh_endpoint(), self.toasts.add_toast(
+                              Adw.Toast(title=f"Endpoint now uses {nxt.get('name', '')}", timeout=2))))
+
+    # -- Prism updates
+
+    def check_for_update(self):
+        def work():
+            release = github_latest_release()
+            tag = release.get("tag_name") or ""
+            if version_tuple(tag) > version_tuple(PRISM_VERSION):
+                return release
+            return None
+
+        def done(release, _err):
+            if not release or self.store.settings.get("skippedPrismVersion") == release.get("tag_name"):
+                return
+            self._release = release
+            self.update_label.set_label(
+                f"Prism {release['tag_name'].lstrip('v')} is available. You have {PRISM_VERSION}.")
+            self.update_banner.set_visible(True)
+        run_in_background(work, done)
+
+    def on_update_download(self, *_):
+        if self._release:
+            Gio.AppInfo.launch_default_for_uri(
+                self._release.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases/latest", None)
+
+    def on_update_later(self, *_):
+        if self._release:
+            self.store.settings["skippedPrismVersion"] = self._release.get("tag_name")
+            self.store.save_settings()
+        self.update_banner.set_visible(False)
 
     def on_search(self, entry):
         self.search_text = entry.get_text().strip().lower()
@@ -2228,7 +2671,9 @@ class MainWindow(Adw.ApplicationWindow):
             f".prism-heading {{ font-size: 16px; font-weight: 600; color: {c['text']}; }}",
             ".swatch-selected { outline: 2px solid alpha(currentColor, 0.6); outline-offset: 2px; }",
         ]
-        for hex_color in {p.colorHex for p in self.store.profiles} | {h for _, h in PALETTE}:
+        ep = getattr(self, "endpoint", None)
+        endpoint_colors = {i.get("colorHex", "#64748B") for i in (ep.identities if ep else [])} | set(ENDPOINT_COLORS)
+        for hex_color in {p.colorHex for p in self.store.profiles} | {h for _, h in PALETTE} | endpoint_colors:
             tag = hex_color.lstrip("#")
             rules.append(f".dot-{tag} {{ background: {hex_color}; min-width: 8px; min-height: 8px; "
                          "border-radius: 999px; }")
@@ -2261,6 +2706,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         set_lead(self.search_icon_slot, line_icon("search", c["text3"], 13))
         set_lead(self.brain_icon_slot, line_icon("brain", c["text2"], 14))
+        set_lead(self.endpoint_icon_slot, line_icon("endpoint", c["text2"], 14))
         set_lead(self.new_icon_slot, line_icon("plus", "#FFFFFF", 12, 2.2))
 
     # -- list
@@ -2811,6 +3257,25 @@ class EditorDialog(Adw.Window):
         project_row.append(browse)
         self.project_row = self._labeled("Default project folder", project_row)
         form.append(self.project_row)
+
+        # Claude Code through the Prism endpoint, with an identity's API keys.
+        endpoint = Endpoint()
+        self.api_choices = [None] + (["*"] + [i["id"] for i in endpoint.identities] if endpoint.identities else [])
+        api_labels = ["This profile's own sign-in"] + (
+            ["Endpoint: the active identity"] + [f"Endpoint: always {i.get('name', '')}" for i in endpoint.identities]
+            if endpoint.identities else [])
+        self.api_drop = Gtk.DropDown(model=Gtk.StringList.new(api_labels))
+        current_api = profile.endpointIdentity if profile else None
+        self.api_drop.set_selected(self.api_choices.index(current_api) if current_api in self.api_choices else 0)
+        api_hint = Gtk.Label(xalign=0, wrap=True, label=(
+            "Through the endpoint, Claude Code uses an identity's API keys instead of this profile's sign-in. "
+            "Set identities up in Preferences → Endpoint."))
+        api_hint.add_css_class("caption")
+        api_hint.add_css_class("dim-label")
+        self.api_row = self._labeled("API account", self.api_drop)
+        self.api_row.append(api_hint)
+        form.append(self.api_row)
+        self.account_drop.connect("notify::selected", lambda *_: self._update_api_row())
         self.on_app_changed()
 
         if profile:
@@ -2851,6 +3316,17 @@ class EditorDialog(Adw.Window):
                                   + [copy_source_label(p) for p in self.account_sources])
         self.account_drop.set_selected(0)
         self._update_account_hint()
+        self._update_api_row()
+
+    def _update_api_row(self):
+        if hasattr(self, "api_row"):
+            self.api_row.set_visible(self.selected_app() == APP_CODE
+                                     and (self.profile is not None or self.account_drop.get_selected() == 0))
+
+    @property
+    def api_choice(self):
+        i = self.api_drop.get_selected()
+        return self.api_choices[i] if i < len(self.api_choices) else None
 
     def _update_account_hint(self):
         if self.account_drop.get_selected() == 0:
@@ -2893,6 +3369,8 @@ class EditorDialog(Adw.Window):
             p = self.profile
             p.displayName, p.colorHex = name, self.color_hex
             p.defaultMemoryMB, p.defaultProjectPath = memory, project
+            if normalize_app(p.app) == APP_CODE:
+                p.endpointIdentity = self.api_choice
             self.store.update(p)
             self.close()
         elif self.account_drop.get_selected() > 0:
@@ -2902,8 +3380,11 @@ class EditorDialog(Adw.Window):
                                        source)
             self.close()
         else:
-            if self.store.create(name, self.color_hex, memory, project,
-                                 app=self.selected_app()):
+            made = self.store.create(name, self.color_hex, memory, project, app=self.selected_app())
+            if made:
+                if self.selected_app() == APP_CODE and self.api_choice and isinstance(made, Profile):
+                    made.endpointIdentity = self.api_choice
+                    self.store.update(made)
                 self.close()
 
 
@@ -3050,8 +3531,11 @@ class PreferencesDialog(Adw.PreferencesWindow):
         rescan_row.add_suffix(rescan_btn)
         storage_group.add(rescan_row)
 
-        self.add(self._brain_page())
-        self.connect("close-request", lambda *_: (store.refresh_brain_status(), False)[1])
+        self.brain_page = self._brain_page()
+        self.add(self.brain_page)
+        self.endpoint_page = EndpointPage(self)
+        self.add(self.endpoint_page)
+        self.connect("close-request", lambda *_: (store.refresh_brain_status(), parent.refresh_endpoint(), False)[2])
 
     # -- Second brain page
 
@@ -3200,6 +3684,737 @@ class PreferencesDialog(Adw.PreferencesWindow):
     def _set(self, key, value):
         self.store.settings[key] = value
         self.store.save_settings()
+
+
+class EndpointPage(Adw.PreferencesPage):
+    """Preferences → Endpoint: server, identities, automatic switching,
+    setup snippets and recent requests. Refreshes every 3 s while open."""
+
+    SNIPPETS = [("chat", "Chat apps (Open WebUI…)"), ("code", "Claude Code"), ("codex", "Codex"),
+                ("desktop", "Claude Desktop")]
+
+    def __init__(self, window: Adw.PreferencesWindow):
+        super().__init__(title="Endpoint", icon_name="network-server-symbolic")
+        self.window = window
+        self.ep = Endpoint()
+        self.status = None
+        self._rows = {"identities": [], "rules": [], "log": []}
+        self._alive = True
+
+        # -- Server
+        server = Adw.PreferencesGroup(
+            title="Server",
+            description="A local OpenAI- and Anthropic-compatible API. Point chat apps, Claude Code, Codex or "
+                        "Claude Desktop at it, and every request goes out with the API keys of the identity "
+                        "you pick: switch mid-chat with @work or @personal.")
+        self.add(server)
+        self.state_row = Adw.ActionRow(title="Status")
+        self.state_button = Gtk.Button(valign=Gtk.Align.CENTER)
+        self.state_button.connect("clicked", self.on_state_button)
+        self.state_row.add_suffix(self.state_button)
+        server.add(self.state_row)
+
+        self.address_row = Adw.ActionRow(title="Address", subtitle_selectable=True)
+        self.port_spin = Gtk.SpinButton.new_with_range(1024, 65535, 1)
+        self.port_spin.set_valign(Gtk.Align.CENTER)
+        self.port_spin.set_value(self.ep.port)
+        self.port_spin.connect("value-changed", self.on_port)
+        self.address_row.add_suffix(self.port_spin)
+        self.address_row.add_suffix(self._copy_button(lambda: self.ep.base_url + "/v1"))
+        server.add(self.address_row)
+
+        self.token_row = Adw.ActionRow(title="Token", subtitle_selectable=True)
+        self.token_row.add_suffix(self._copy_button(lambda: self.ep.config["token"]))
+        new_token = Gtk.Button(label="New", valign=Gtk.Align.CENTER,
+                               tooltip_text="Make a new main token. Apps using the old one stop working.")
+        new_token.add_css_class("flat")
+        new_token.connect("clicked", self.on_new_token)
+        self.token_row.add_suffix(new_token)
+        server.add(self.token_row)
+
+        lan = Adw.SwitchRow(title="Allow other devices on my network",
+                            subtitle="Takes effect when the endpoint restarts")
+        lan.set_active(bool(self.ep.config.get("allowLAN")))
+        lan.connect("notify::active", lambda r, _p: self._set("allowLAN", r.get_active()))
+        server.add(lan)
+        tags = Adw.SwitchRow(title="Switch with @tags in messages", subtitle="@work, @personal… (removed before sending)")
+        tags.set_active(bool(self.ep.config.get("tagsEnabled", True)))
+        tags.connect("notify::active", lambda r, _p: self._set("tagsEnabled", r.get_active()))
+        server.add(tags)
+
+        # -- Identities
+        self.identity_group = Adw.PreferencesGroup(title="Identities")
+        add_identity = Gtk.Button(label="Add identity", valign=Gtk.Align.CENTER)
+        add_identity.add_css_class("flat")
+        add_identity.connect("clicked", lambda *_: self.edit_identity(None))
+        self.identity_group.set_header_suffix(add_identity)
+        self.add(self.identity_group)
+
+        # -- Rules
+        self.rule_group = Adw.PreferencesGroup(
+            title="Automatic switching",
+            description="Order: a model prefix (work/…) wins, then the latest @tag in the chat, then an "
+                        "identity's own token, then these rules, then the active identity.")
+        add_rule = Gtk.Button(label="Add rule", valign=Gtk.Align.CENTER)
+        add_rule.add_css_class("flat")
+        add_rule.connect("clicked", self.on_add_rule)
+        self.rule_group.set_header_suffix(add_rule)
+        self.add(self.rule_group)
+
+        # -- Connect an app
+        connect = Adw.PreferencesGroup(title="Connect an app")
+        self.add(connect)
+        self.snippet_kind = Adw.ComboRow(title="App", model=Gtk.StringList.new([t for _, t in self.SNIPPETS]))
+        self.snippet_kind.connect("notify::selected", lambda *_: self.render_snippet())
+        connect.add(self.snippet_kind)
+        self.snippet_token = Adw.ComboRow(
+            title="Token", subtitle="The main token follows the active identity; an identity's token always uses it")
+        self.snippet_token.connect("notify::selected", lambda *_: self.render_snippet())
+        connect.add(self.snippet_token)
+        self.snippet_view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                                         top_margin=10, bottom_margin=10, left_margin=12, right_margin=12)
+        frame = Gtk.Frame(margin_top=10)
+        frame.set_child(self.snippet_view)
+        connect.add(frame)
+        copy = Gtk.Button(label="Copy", halign=Gtk.Align.END, margin_top=8)
+        copy.connect("clicked", lambda *_: self._copy(self._snippet_text(), "Copied"))
+        connect.add(copy)
+
+        # -- Log
+        self.log_group = Adw.PreferencesGroup(title="Recent requests")
+        self.add(self.log_group)
+
+        self.render_all()
+        self.refresh()
+        GLib.timeout_add_seconds(3, self._tick)
+        window.connect("close-request", self._on_close)
+
+    # -- plumbing
+
+    def _on_close(self, *_):
+        self._alive = False
+        return False
+
+    def _tick(self):
+        if not self._alive:
+            return False
+        self.refresh()
+        return True
+
+    def refresh(self):
+        def done(status, _err):
+            if not self._alive:
+                return
+            self.status = status
+            self.render_state()
+            self.render_identities()
+            self.render_log()
+        run_in_background(self.ep.status, done)
+
+    def toast(self, text):
+        self.window.add_toast(Adw.Toast(title=text, timeout=3))
+
+    def _set(self, key, value):
+        self.ep.config[key] = value
+        self.ep.save()
+
+    def _copy(self, text, message="Copied"):
+        Gdk.Display.get_default().get_clipboard().set(text)
+        self.toast(message)
+
+    def _copy_button(self, value):
+        btn = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Copy")
+        btn.add_css_class("flat")
+        btn.connect("clicked", lambda *_: self._copy(value()))
+        return btn
+
+    def _replace_rows(self, key, group, rows):
+        for row in self._rows[key]:
+            group.remove(row)
+        self._rows[key] = rows
+        for row in rows:
+            group.add(row)
+
+    def render_all(self):
+        self.address_row.set_subtitle(self.ep.base_url + "/v1")
+        self.token_row.set_subtitle(self.ep.config.get("token", ""))
+        self.render_state()
+        self.render_identities()
+        self.render_rules()
+        self.render_snippet_tokens()
+        self.render_log()
+
+    # -- server
+
+    def render_state(self):
+        if not Endpoint.find_helper():
+            self.state_row.set_subtitle("The endpoint helper isn't installed")
+            self.state_button.set_label("Install")
+            self.state_button.add_css_class("suggested-action")
+        elif self.status is not None:
+            self.state_row.set_subtitle(f"Running · prism-endpoint {self.status.get('version', '')}"
+                                        + (" · keys in a private file (no keyring found)"
+                                           if self.status.get("keysInFile") else ""))
+            self.state_button.set_label("Stop")
+            self.state_button.remove_css_class("suggested-action")
+        else:
+            self.state_row.set_subtitle("Not running" if self.ep.config.get("enabled") else "Off")
+            self.state_button.set_label("Start")
+            self.state_button.add_css_class("suggested-action")
+
+    def on_state_button(self, button):
+        button.set_sensitive(False)
+        label = button.get_label()
+
+        def done(result, error):
+            button.set_sensitive(True)
+            if error:
+                self.toast(str(error))
+            elif isinstance(result, str):
+                self.toast(result)
+            self.refresh()
+
+        if label == "Install":
+            self.state_row.set_subtitle("Downloading the endpoint helper…")
+            run_in_background(lambda: f"Installed {Endpoint.install_helper()}", done)
+        elif label == "Stop":
+            run_in_background(lambda: (self.ep.stop(), None)[1], done)
+        else:
+            self.state_row.set_subtitle("Starting…")
+            run_in_background(lambda: self.ep.start() or "Running. It keeps going after Prism closes.", done)
+
+    def on_port(self, spin):
+        port = int(spin.get_value())
+        if port != self.ep.port:
+            self._set("port", port)
+            self.address_row.set_subtitle(self.ep.base_url + "/v1")
+            self.render_snippet()
+
+    def on_new_token(self, *_):
+        dialog = Adw.MessageDialog(transient_for=self.window, heading="Make a new token?",
+                                   body="Apps using the current main token stop working until you give them the new one.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("new", "New token")
+        dialog.set_response_appearance("new", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def respond(_d, response):
+            if response == "new":
+                self._set("token", endpoint_new_token())
+                self.token_row.set_subtitle(self.ep.config["token"])
+                self.render_snippet()
+        dialog.connect("response", respond)
+        dialog.present()
+
+    # -- identities
+
+    def render_identities(self):
+        rows = []
+        if not self.ep.identities:
+            rows.append(Adw.ActionRow(title="No identities yet",
+                                      subtitle="Add one for each account (Work, Personal…) with its API keys."))
+        by_id = {s.get("id"): s for s in (self.status or {}).get("identities") or []}
+        active = self.ep.active
+        for ident in self.ep.identities:
+            st = by_id.get(ident["id"])
+            providers = []
+            for cred in ident.get("credentials", []):
+                label = endpoint_provider_label(cred.get("provider"))
+                if st and cred.get("provider") != "compatible" and not (st.get("keys") or {}).get(cred.get("id")):
+                    label += " (no key)"
+                providers.append(label)
+            subtitle = f"@{endpoint_slug(ident.get('name', ''))} · {', '.join(providers) or 'no providers'}"
+            if st:
+                subtitle += f"\n${st.get('monthCost', 0):.2f} this month · {st.get('monthRequests', 0)} requests"
+                if st.get("budget"):
+                    subtitle += f" · budget ${st['budget']:.2f}"
+                if st.get("cooldownUntil"):
+                    fallback = self.ep.identity(ident.get("fallbackIdentityID"))
+                    subtitle += " · rate-limited" + (f": using {fallback['name']}" if fallback else "")
+            row = Adw.ActionRow(title=GLib.markup_escape_text(ident.get("name", "")), subtitle=subtitle)
+            dot = Gtk.Box(valign=Gtk.Align.CENTER)
+            dot.add_css_class("dot-" + ident.get("colorHex", "#64748B").lstrip("#"))
+            row.add_prefix(dot)
+            if ident is active:
+                badge = Gtk.Label(label="Active", valign=Gtk.Align.CENTER)
+                badge.add_css_class("accent")
+                row.add_suffix(badge)
+            else:
+                use = Gtk.Button(label="Use", valign=Gtk.Align.CENTER)
+                use.add_css_class("flat")
+                use.connect("clicked", lambda *_, i=ident: (self.ep.set_active(i["id"]), self.render_identities(),
+                                                            self.render_snippet()))
+                row.add_suffix(use)
+            edit = Gtk.Button(label="Edit", valign=Gtk.Align.CENTER)
+            edit.add_css_class("flat")
+            edit.connect("clicked", lambda *_, i=ident: self.edit_identity(i))
+            row.add_suffix(edit)
+            rows.append(row)
+        self._replace_rows("identities", self.identity_group, rows)
+
+    def edit_identity(self, ident):
+        def saved(message):
+            self.ep.reload()
+            self.render_all()
+            self.refresh()
+            if message:
+                self.toast(message)
+        EndpointIdentityDialog(self.window, self.ep, ident, saved).present()
+
+    # -- rules
+
+    def render_rules(self):
+        rows = []
+        if not self.ep.config["rules"]:
+            rows.append(Adw.ActionRow(title="No rules",
+                                      subtitle="Switch identity when a message mentions a word, a request comes "
+                                               "from a particular app, or at certain times."))
+        names = [i.get("name", "") for i in self.ep.identities]
+        kinds = [k for k, _ in ENDPOINT_RULE_KINDS]
+        for rule in self.ep.config["rules"]:
+            row = Adw.ActionRow()
+            # add_prefix puts each new widget first: kind, then the switch to its left.
+            kind = Gtk.DropDown(model=Gtk.StringList.new([t for _, t in ENDPOINT_RULE_KINDS]), valign=Gtk.Align.CENTER)
+            kind.set_selected(kinds.index(rule.get("kind")) if rule.get("kind") in kinds else 0)
+            kind.connect("notify::selected", lambda d, _p, r=rule: self._rule_kind(r, kinds[d.get_selected()]))
+            row.add_prefix(kind)
+            on = Gtk.Switch(active=rule.get("enabled", True), valign=Gtk.Align.CENTER, tooltip_text="On")
+            on.connect("notify::active", lambda s, _p, r=rule: (r.__setitem__("enabled", s.get_active()), self.ep.save()))
+            row.add_prefix(on)
+            entry = Gtk.Entry(hexpand=True, valign=Gtk.Align.CENTER)
+            if rule.get("kind") == "schedule":
+                entry.set_text(f"{_hm(rule.get('startMinute', 540))}-{_hm(rule.get('endMinute', 1020))}")
+                entry.set_tooltip_text("Weekdays, from-to (24-hour), e.g. 09:00-17:00")
+                entry.connect("activate", lambda e, r=rule: self._rule_schedule(r, e))
+                focus = Gtk.EventControllerFocus()
+                focus.connect("leave", lambda _c, e=entry, r=rule: self._rule_schedule(r, e))
+            else:
+                entry.set_text(rule.get("pattern", ""))
+                entry.set_placeholder_text({"keyword": "words, comma separated", "regex": "regular expression"}
+                                           .get(rule.get("kind"), "app name, e.g. claude-cli, codex"))
+                entry.connect("changed", lambda e, r=rule: (r.__setitem__("pattern", e.get_text().strip()),
+                                                            self.ep.save()))
+                focus = None
+            if focus:
+                entry.add_controller(focus)
+            row.add_suffix(entry)
+            target = Gtk.DropDown(model=Gtk.StringList.new([f"→ {n}" for n in names]), valign=Gtk.Align.CENTER)
+            ids = [i["id"] for i in self.ep.identities]
+            if rule.get("identityID") in ids:
+                target.set_selected(ids.index(rule["identityID"]))
+            target.connect("notify::selected", lambda d, _p, r=rule: (
+                r.__setitem__("identityID", ids[d.get_selected()]) if d.get_selected() < len(ids) else None,
+                self.ep.save()))
+            row.add_suffix(target)
+            remove = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Remove")
+            remove.add_css_class("flat")
+            remove.connect("clicked", lambda *_, r=rule: (self.ep.config["rules"].remove(r), self.ep.save(),
+                                                          self.render_rules()))
+            row.add_suffix(remove)
+            rows.append(row)
+        self._replace_rows("rules", self.rule_group, rows)
+
+    def _rule_kind(self, rule, kind):
+        if rule.get("kind") != kind:
+            rule["kind"] = kind
+            self.ep.save()
+            GLib.idle_add(lambda: (self.render_rules(), False)[1])
+
+    def _rule_schedule(self, rule, entry):
+        parts = [p.strip() for p in entry.get_text().split("-")]
+        if len(parts) == 2 and _minutes(parts[0]) is not None and _minutes(parts[1]) is not None:
+            rule["startMinute"], rule["endMinute"] = _minutes(parts[0]), _minutes(parts[1])
+            rule.setdefault("days", [2, 3, 4, 5, 6])
+            self.ep.save()
+        entry.set_text(f"{_hm(rule.get('startMinute', 540))}-{_hm(rule.get('endMinute', 1020))}")
+
+    def on_add_rule(self, *_):
+        if not self.ep.identities:
+            self.toast("Add an identity first")
+            return
+        self.ep.config["rules"].append({
+            "id": endpoint_new_id(), "enabled": True, "kind": "keyword", "pattern": "",
+            "days": [2, 3, 4, 5, 6], "startMinute": 540, "endMinute": 1020,
+            "identityID": self.ep.identities[0]["id"]})
+        self.ep.save()
+        self.render_rules()
+
+    # -- snippets
+
+    def render_snippet_tokens(self):
+        keep = self.snippet_token.get_selected()
+        self.snippet_token.set_model(Gtk.StringList.new(
+            ["Main token (follows active)"] + [f"Always {i.get('name', '')}" for i in self.ep.identities]))
+        self.snippet_token.set_selected(keep if 0 < keep <= len(self.ep.identities) else 0)
+        self.render_snippet()
+
+    def _snippet_text(self):
+        idx = self.snippet_token.get_selected()
+        token = (self.ep.identities[idx - 1]["token"] if 0 < idx <= len(self.ep.identities)
+                 else self.ep.config["token"])
+        kind = self.SNIPPETS[min(self.snippet_kind.get_selected(), len(self.SNIPPETS) - 1)][0]
+        return self.ep.snippet(kind, token)
+
+    def render_snippet(self):
+        self.snippet_view.get_buffer().set_text(self._snippet_text())
+
+    # -- log
+
+    def render_log(self):
+        log = (self.status or {}).get("log") or []
+        rows = []
+        if not log:
+            rows.append(Adw.ActionRow(title="No requests yet" if self.status else
+                                      "Start the endpoint to see requests here."))
+        for entry in log[:30]:
+            parts = [entry.get("client", ""), entry.get("reason", "")]
+            if entry.get("inputTokens") or entry.get("outputTokens"):
+                parts.append(f"{entry.get('inputTokens', 0):,} in / {entry.get('outputTokens', 0):,} out")
+            if entry.get("cost") is not None:
+                parts.append(f"${entry['cost']:.4f}")
+            parts.append(f"{entry.get('ms', 0)} ms")
+            parts += [entry.get("note") or "", entry.get("error") or ""]
+            when = entry.get("date", "")[11:19]
+            row = Adw.ActionRow(
+                title=GLib.markup_escape_text(
+                    f"{entry.get('identity', '')} · {entry.get('model', '')} · {entry.get('status', '')}"),
+                subtitle=GLib.markup_escape_text(" · ".join(p for p in parts if p)),
+                subtitle_lines=2)
+            if int(entry.get("status") or 0) >= 400:
+                row.add_css_class("error")
+            row.add_suffix(Gtk.Label(label=_local_time(entry.get("date")) or when, css_classes=["dim-label"]))
+            rows.append(row)
+        self._replace_rows("log", self.log_group, rows)
+
+
+def _hm(minutes) -> str:
+    minutes = int(minutes)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _minutes(text: str):
+    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?", text.strip())
+    if not m:
+        return None
+    h, mins = int(m.group(1)), int(m.group(2) or 0)
+    if h > 24 or mins > 59:
+        return None
+    return min(h * 60 + mins, 1440)
+
+
+def _local_time(stamp) -> str:
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).astimezone().strftime("%H:%M:%S")
+    except ValueError:
+        return ""
+
+
+class EndpointIdentityDialog(Adw.Window):
+    """Create or edit an endpoint identity: name, colour, API keys, limits, token."""
+
+    def __init__(self, parent, ep: Endpoint, ident, on_saved):
+        super().__init__(transient_for=parent, modal=True, default_width=520, default_height=700,
+                         title="New identity" if ident is None else ident.get("name", "Identity"))
+        self.ep = ep
+        self.on_saved = on_saved
+        self.is_new = ident is None
+        n = len(ep.identities)
+        self.ident = ident if ident is not None else {
+            "id": endpoint_new_id(),
+            "name": {0: "Work", 1: "Personal"}.get(n, f"Identity {n + 1}"),
+            "colorHex": ENDPOINT_COLORS[n % len(ENDPOINT_COLORS)],
+            "credentials": [{"id": endpoint_new_id(), "provider": "anthropic", "baseURL": ""}],
+            "defaultModel": "", "token": endpoint_new_token(), "budgetAction": "fallback"}
+        self.color = self.ident.get("colorHex", ENDPOINT_COLORS[0])
+        self.token = self.ident.get("token") or endpoint_new_token()
+        self.creds = []  # [{cred, group, provider, key, url, status}]
+
+        toasts = Adw.ToastOverlay()
+        self.toasts = toasts
+        self.set_content(toasts)
+        root = Adw.ToolbarView()
+        toasts.set_child(root)
+        header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda *_: self.close())
+        header.pack_start(cancel)
+        save = Gtk.Button(label="Save")
+        save.add_css_class("suggested-action")
+        save.connect("clicked", self.on_save)
+        header.pack_end(save)
+        if not self.is_new:
+            delete = Gtk.Button(label="Delete")
+            delete.add_css_class("destructive-action")
+            delete.connect("clicked", self.on_delete)
+            header.pack_end(delete)
+        root.add_top_bar(header)
+
+        page = Adw.PreferencesPage()
+        root.set_content(page)
+        self.page = page
+
+        basics = Adw.PreferencesGroup(title="Identity")
+        page.add(basics)
+        self.name_row = Adw.EntryRow(title="Name")
+        self.name_row.set_text(self.ident.get("name", ""))
+        self.name_row.connect("changed", lambda *_: self._update_slug())
+        basics.add(self.name_row)
+        self.slug_row = Adw.ActionRow(title="Tag")
+        basics.add(self.slug_row)
+        colors = Adw.ActionRow(title="Colour")
+        box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+        self.color_buttons = {}
+        for hex_color in ENDPOINT_COLORS:
+            btn = Gtk.Button(has_frame=False, width_request=22, height_request=22)
+            btn.add_css_class("circular")
+            btn.add_css_class("swatch-" + hex_color.lstrip("#"))
+            btn.connect("clicked", lambda *_, h=hex_color: self._set_color(h))
+            self.color_buttons[hex_color] = btn
+            box.append(btn)
+        colors.add_suffix(box)
+        basics.add(colors)
+        self.model_row = Adw.EntryRow(title="Default model (used for the model “prism”)")
+        self.model_row.set_text(self.ident.get("defaultModel", ""))
+        basics.add(self.model_row)
+
+        self.keys_header = Adw.PreferencesGroup(
+            title="API keys",
+            description="Use API keys from each provider's console. Keys are kept in the system keyring, never "
+                        "in the settings file. Leave a key empty to keep the saved one.")
+        add = Gtk.Button(label="Add provider", valign=Gtk.Align.CENTER)
+        add.add_css_class("flat")
+        add.connect("clicked", self.on_add_provider)
+        self.keys_header.set_header_suffix(add)
+        page.add(self.keys_header)
+        for cred in self.ident.get("credentials", []):
+            self._add_cred(dict(cred))
+
+        self.limits = Adw.PreferencesGroup(title="Limits")
+        others = [i for i in ep.identities if i.get("id") != self.ident["id"]]
+        self.fallback_ids = [None] + [i["id"] for i in others]
+        self.fallback_row = Adw.ComboRow(
+            title="Fall back to",
+            subtitle="When rate-limited, out of credit or over budget",
+            model=Gtk.StringList.new(["Nothing (show the error)"] + [i.get("name", "") for i in others]))
+        fb = self.ident.get("fallbackIdentityID")
+        self.fallback_row.set_selected(self.fallback_ids.index(fb) if fb in self.fallback_ids else 0)
+        self.limits.add(self.fallback_row)
+        self.budget_row = Adw.SpinRow.new_with_range(0, 100000, 5)
+        self.budget_row.set_title("Monthly budget ($)")
+        self.budget_row.set_subtitle("0 = no budget")
+        self.budget_row.set_digits(2)
+        self.budget_row.set_value(float(self.ident.get("monthlyBudget") or 0))
+        self.limits.add(self.budget_row)
+        actions = [a for a, _ in ENDPOINT_BUDGET_ACTIONS]
+        self.action_row = Adw.ComboRow(title="When it's reached",
+                                       model=Gtk.StringList.new([t for _, t in ENDPOINT_BUDGET_ACTIONS]))
+        act = self.ident.get("budgetAction") or "fallback"
+        self.action_row.set_selected(actions.index(act) if act in actions else 1)
+        self.limits.add(self.action_row)
+        page.add(self.limits)
+
+        tokens = self.tokens_group = Adw.PreferencesGroup(title="Token",
+                                      description="An app given this token always uses this identity, "
+                                                  "whatever is active.")
+        self.token_row = Adw.ActionRow(title="Identity token", subtitle=self.token, subtitle_selectable=True)
+        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Copy")
+        copy.add_css_class("flat")
+        copy.connect("clicked", lambda *_: (Gdk.Display.get_default().get_clipboard().set(self.token),
+                                            self.toast("Token copied")))
+        self.token_row.add_suffix(copy)
+        renew = Gtk.Button(label="New", valign=Gtk.Align.CENTER)
+        renew.add_css_class("flat")
+        renew.connect("clicked", self.on_new_token)
+        self.token_row.add_suffix(renew)
+        tokens.add(self.token_row)
+        page.add(tokens)
+
+        self._set_color(self.color)
+        self._update_slug()
+        run_in_background(ep.status, self._got_status)
+
+    def toast(self, text):
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=3))
+
+    def _update_slug(self):
+        slug = endpoint_slug(self.name_row.get_text())
+        self.slug_row.set_subtitle(f"Type @{slug} in a chat, or use the model prefix {slug}/…" if slug else "—")
+
+    def _set_color(self, hex_color):
+        self.color = hex_color
+        for h, btn in self.color_buttons.items():
+            (btn.add_css_class if h == hex_color else btn.remove_css_class)("swatch-selected")
+
+    # -- credentials
+
+    def on_add_provider(self, *_):
+        used = {c["cred"]["provider"] for c in self.creds}
+        nxt = next((p for p, _ in ENDPOINT_PROVIDERS if p not in used), "compatible")
+        self._add_cred({"id": endpoint_new_id(), "provider": nxt, "baseURL": ""})
+
+    def _add_cred(self, cred):
+        group = Adw.PreferencesGroup()
+        providers = [p for p, _ in ENDPOINT_PROVIDERS]
+        provider = Adw.ComboRow(title="Provider", model=Gtk.StringList.new([t for _, t in ENDPOINT_PROVIDERS]))
+        provider.set_selected(providers.index(cred.get("provider")) if cred.get("provider") in providers else 0)
+        group.add(provider)
+        key = Adw.PasswordEntryRow(title="API key")
+        group.add(key)
+        url = Adw.EntryRow(title="Base URL, e.g. http://localhost:8080/v1")
+        url.set_text(cred.get("baseURL", ""))
+        group.add(url)
+        status = Adw.ActionRow(title="Key", subtitle="Not checked")
+        check = Gtk.Button(label="Check", valign=Gtk.Align.CENTER, tooltip_text="Save and list the models this key can use")
+        check.add_css_class("flat")
+        status.add_suffix(check)
+        remove = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Remove")
+        remove.add_css_class("flat")
+        status.add_suffix(remove)
+        group.add(status)
+        entry = {"cred": cred, "group": group, "provider": provider, "key": key, "url": url, "status": status}
+
+        def sync(*_):
+            cred["provider"] = providers[provider.get_selected()]
+            url.set_visible(cred["provider"] == "compatible")
+            key.set_title("API key (if the server needs one)" if cred["provider"] == "compatible" else "API key")
+        provider.connect("notify::selected", sync)
+        sync()
+        check.connect("clicked", lambda *_: self.on_check(entry))
+        remove.connect("clicked", lambda *_: (self.creds.remove(entry), self.page.remove(group)))
+
+        # Keep credential groups together, right after the "API keys" header.
+        self.page.add(group)
+        self.creds.append(entry)
+        if hasattr(self, "limits"):
+            # Re-append later groups so new providers sit above Limits/Token.
+            for later in self._tail_groups():
+                self.page.remove(later)
+                self.page.add(later)
+
+    def _tail_groups(self):
+        return [g for g in (getattr(self, "limits", None), getattr(self, "tokens_group", None)) if g is not None]
+
+    def _got_status(self, status, _err):
+        st = next((s for s in (status or {}).get("identities") or [] if s.get("id") == self.ident["id"]), None)
+        if not st:
+            return
+        for c in self.creds:
+            if c["cred"].get("provider") == "compatible":
+                continue
+            has = (st.get("keys") or {}).get(c["cred"]["id"])
+            c["status"].set_subtitle("Saved" if has else "No key saved yet")
+
+    def on_check(self, entry):
+        entry["status"].set_subtitle("Checking…")
+        snap = self._capture()
+
+        def work():
+            err = self._commit(snap)
+            if err:
+                return err
+            if self.ep.status() is None:
+                return "Saved. Start the endpoint to check the key."
+            error, models = self.ep.check(entry["cred"]["id"])
+            if error:
+                return error
+            shown = ", ".join(models[:4]) + ("…" if len(models) > 4 else "")
+            return f"Works · {len(models)} models: {shown}" if models else "Works"
+
+        run_in_background(work, lambda result, error: entry["status"].set_subtitle(
+            GLib.markup_escape_text(str(error or result))))
+
+    # -- save
+
+    def _capture(self):
+        return {
+            "name": self.name_row.get_text().strip(),
+            "model": self.model_row.get_text().strip(),
+            "fallback": self.fallback_ids[self.fallback_row.get_selected()]
+            if self.fallback_row.get_selected() < len(self.fallback_ids) else None,
+            "budget": self.budget_row.get_value(),
+            "action": ENDPOINT_BUDGET_ACTIONS[self.action_row.get_selected()][0],
+            "creds": [(c["cred"], c["url"].get_text().strip(), c["key"].get_text().strip()) for c in self.creds],
+        }
+
+    def _commit(self, snap):
+        """Write the edits to the settings and keyring; returns an error or None.
+        Runs on a worker thread (saving a key may call the helper), so it only
+        uses values captured from the widgets beforehand."""
+        name = snap["name"]
+        if not name:
+            return "Give the identity a name."
+        slug = endpoint_slug(name)
+        if any(i.get("id") != self.ident["id"] and endpoint_slug(i.get("name", "")) == slug
+               for i in self.ep.identities):
+            return f"Another identity is already called @{slug}."
+        for cred, url, _key in snap["creds"]:
+            cred["baseURL"] = url
+            if cred["provider"] == "compatible" and not url:
+                return "An OpenAI-compatible provider needs a base URL."
+        ident = self.ident
+        ident.update({"name": name, "colorHex": self.color, "defaultModel": snap["model"], "token": self.token,
+                      "budgetAction": snap["action"], "credentials": [c for c, _u, _k in snap["creds"]]})
+        for key, value in (("fallbackIdentityID", snap["fallback"]),
+                           ("monthlyBudget", snap["budget"] if snap["budget"] > 0 else None)):
+            if value is None:
+                ident.pop(key, None)
+            else:
+                ident[key] = value
+        if self.is_new:
+            self.ep.identities.append(ident)
+            self.ep.config.setdefault("activeIdentityID", ident["id"])
+            self.is_new = False
+        self.ep.save()
+        for cred, _url, key in snap["creds"]:
+            if key:
+                err = self.ep.set_key(cred["id"], key)
+                if err:
+                    return f"{endpoint_provider_label(cred['provider'])} key: {err}"
+        return None
+
+    def on_save(self, button):
+        snap = self._capture()
+        button.set_sensitive(False)
+        name = snap["name"]
+
+        def done(err, exc):
+            button.set_sensitive(True)
+            if exc or err:
+                self.toast(str(exc or err))
+                return
+            self.on_saved(f"Saved {name}")
+            self.close()
+        run_in_background(lambda: self._commit(snap), done)
+
+    def on_new_token(self, *_):
+        self.token = endpoint_new_token()
+        self.token_row.set_subtitle(self.token)
+        self.toast("New token: Save to use it")
+
+    def on_delete(self, *_):
+        dialog = Adw.MessageDialog(transient_for=self, heading=f"Delete {self.ident.get('name', '')}?",
+                                   body="Apps using its token stop working. Its saved keys stay in the keyring.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def respond(_d, response):
+            if response != "delete":
+                return
+            cfg, gone = self.ep.config, self.ident["id"]
+            cfg["identities"] = [i for i in cfg["identities"] if i.get("id") != gone]
+            cfg["rules"] = [r for r in cfg["rules"] if r.get("identityID") != gone]
+            for i in cfg["identities"]:
+                if i.get("fallbackIdentityID") == gone:
+                    i.pop("fallbackIdentityID", None)
+            if cfg.get("activeIdentityID") == gone:
+                cfg["activeIdentityID"] = cfg["identities"][0]["id"] if cfg["identities"] else None
+                if cfg["activeIdentityID"] is None:
+                    cfg.pop("activeIdentityID")
+            self.ep.save()
+            self.on_saved(f"Deleted {self.ident.get('name', '')}")
+            self.close()
+        dialog.connect("response", respond)
+        dialog.present()
 
 
 class CursorProfilesApp(Adw.Application):

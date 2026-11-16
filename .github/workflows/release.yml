@@ -1,5 +1,5 @@
 # Release pipeline. Push a tag like `v1.2.3` and this ships everything
-# it can: TUI binaries + checksums, the GUI apps (mac .app zip, Windows
+# it can: TUI binaries + checksums, the prism-endpoint helper, the GUI apps (mac .app zip, Windows
 # single-file exe, Linux tarball), and — only where their secret exists —
 # PyPI wheels, the npm package, the Homebrew tap casks, and a Winget PR.
 #
@@ -54,6 +54,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  endpoint-helper:
+    # prism-endpoint: the Endpoint for Windows, Linux and the terminal. The
+    # Windows and Linux apps download these by name, so keep them stable.
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Cross-compile
+        working-directory: tui
+        env:
+          TAG: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p ../endpoint-dist
+          for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"; ext=""
+            [ "$os" = windows ] && ext=".exe"
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=${TAG#v}" \
+              -o "../endpoint-dist/prism-endpoint-$os-$arch$ext" ./cmd/prism-endpoint
+          done
+          cd ../endpoint-dist && sha256sum prism-endpoint-* > prism-endpoint-checksums.txt
+      - run: gh release upload "${{ github.ref_name }}" endpoint-dist/* --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   mac-app:
     needs: [create-release]
     runs-on: macos-15
@@ -87,6 +116,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Stamp version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: sed -i "s/^PRISM_VERSION = .*/PRISM_VERSION = \"${TAG#v}\"  # stamped by the release workflow/" linux/prism.py
       - run: python3 -m py_compile linux/prism.py
       - run: tar -czf prism-linux.tar.gz linux/
       - run: gh release upload "${{ github.ref_name }}" prism-linux.tar.gz --clobber

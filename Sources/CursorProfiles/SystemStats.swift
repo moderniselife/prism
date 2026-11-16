@@ -83,7 +83,8 @@ enum PrismUI {
     static func openHub() {
         NSApp.activate(ignoringOtherApps: true)
         for window in NSApp.windows
-        where window.canBecomeMain && window.sheetParent == nil {
+        where window.canBecomeMain && window.sheetParent == nil
+            && window.identifier != PrismSettings.windowIdentifier {
             window.makeKeyAndOrderFront(nil)
         }
     }

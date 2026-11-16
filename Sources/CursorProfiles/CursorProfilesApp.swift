@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct CursorProfilesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var store = ProfileStore()
+    @StateObject private var store = ProfileStore.shared
 
     var body: some Scene {
         WindowGroup {
@@ -15,6 +15,13 @@ struct CursorProfilesApp: App {
         // Wide enough for sidebar + list + detail panel on first launch.
         .defaultSize(width: 1240, height: 780)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { PrismSettings.open() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { PrismSettings.checkForUpdates() }
+            }
             CommandGroup(after: .newItem) {
                 Button("Rescan Profiles") { store.reload() }
                     .keyboardShortcut("r", modifiers: .command)
@@ -35,11 +42,6 @@ struct CursorProfilesApp: App {
                 Button("Switch Endpoint Identity") { GatewayController.shared.cycleActive() }
                     .keyboardShortcut("i", modifiers: [.command, .option])
             }
-        }
-
-        Settings {
-            SettingsView()
-                .environmentObject(store)
         }
 
         MenuBarExtra("Prism", systemImage: "cursorarrow.square") {
@@ -130,6 +132,8 @@ struct MenuBarDropdown: View {
             header
             UpdateBanner(compact: true)
                 .frame(width: MenuMetrics.width)
+            PrismSelfBanner(compact: true)
+                .frame(width: MenuMetrics.width)
             EndpointMenuRow()
             Divider().overlay(PrismTheme.Colors.border)
             searchBar
@@ -190,7 +194,7 @@ struct MenuBarDropdown: View {
             .help("Open full hub")
 
             Button {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                PrismSettings.open()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 11))
@@ -454,8 +458,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The copy being opened replaces any older Prism still running.
+        InstanceGuard.resolve()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         QuickSwitchHotkey.register()
+        PrismSelfUpdater.shared.start()
         // Start the local endpoint if it's turned on.
         _ = GatewayController.shared
         // Configure the main window for custom title bar
@@ -466,6 +476,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.isMovableByWindowBackground = false
             }
         }
+
+        // macOS 15+: the top bars carry SwiftUI's WindowDragGesture
+        // (windowDragRegion()), which works everywhere. This monitor is the
+        // macOS 14 fallback.
+        if #available(macOS 15.0, *) { return }
 
         // Window dragging: intercept clicks in the top 48px of the MAIN
         // window only — never sheets, popovers or panels, so their

@@ -71,6 +71,8 @@ type model struct {
 
 	confirmDelete string
 
+	ep epState
+
 	width, height int
 	status        string
 	statusAt      time.Time
@@ -142,7 +144,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
+		if m.ep.open {
+			return m, tea.Batch(m.refreshCmd(false), tickCmd, epFetch)
+		}
 		return m, tea.Batch(m.refreshCmd(false), tickCmd)
+	case epStatusMsg:
+		m.ep.running = msg.running
+		if msg.status != nil {
+			m.ep.status = msg.status
+		}
+		return m, nil
 	case snapshotMsg:
 		m.running = msg.running
 		m.rss = msg.rss
@@ -278,6 +289,9 @@ func (m *model) setStatus(s string) {
 // -- keys ------------------------------------------------------------------
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.ep.open {
+		return m.epKey(msg)
+	}
 	if m.formActive {
 		return m.formKey(msg)
 	}
@@ -312,6 +326,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshCmd(true)
 	case "W":
 		m.doWireBrain()
+	case "E":
+		m.ep.open = true
+		m.epReloadConfig()
+		return m, epFetch
 	case "esc":
 		m.confirmDelete = ""
 	}
@@ -894,7 +912,10 @@ func (m model) footerView() string {
 		total = formatBytes(m.totalMem)
 	}
 	stats := fmt.Sprintf("CPU %s · %s RAM", cpu, total)
-	hints := "enter launch · x stop · n new · d delete · W wire brain · R rescan · / search · q quit"
+	hints := "enter launch · x stop · n new · d delete · W wire brain · E endpoint · R rescan · / search · q quit"
+	if m.ep.open {
+		hints = epHints(m)
+	}
 	out := " " + fg(colMute, false).Render(hints) + "\n" +
 		" " + fg(colMute, false).Render(stats)
 	if m.status != "" && time.Since(m.statusAt) < 6*time.Second {
@@ -908,7 +929,9 @@ func (m model) footerView() string {
 
 func (m model) View() string {
 	parts := []string{"", m.headerView(), m.filterView(), ""}
-	if m.formActive {
+	if m.ep.open {
+		parts = append(parts, m.epView())
+	} else if m.formActive {
 		parts = append(parts, m.formView())
 	} else {
 		parts = append(parts, m.listView())

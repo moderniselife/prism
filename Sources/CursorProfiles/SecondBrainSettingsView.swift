@@ -156,8 +156,7 @@ struct SecondBrainSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560)
-        .fixedSize(horizontal: false, vertical: true)
+        .scrollContentBackground(.hidden)
         .onAppear {
             store.refreshBrainStatus()
             syncFromStatus()
