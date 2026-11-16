@@ -84,7 +84,7 @@ if [ "$INSTALL" = 1 ]; then
         sleep 0.25
     done
     pkill -f "$APP_NAME.app/Contents/MacOS/" 2>/dev/null || true
-    echo "▸ Installing to $DEST…"
+    echo "▸ Installing to ${DEST}…"
     rm -rf "$DEST"
     ditto "$APP_DIR" "$DEST"
     open "$DEST"

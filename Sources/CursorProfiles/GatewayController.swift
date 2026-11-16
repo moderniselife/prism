@@ -166,7 +166,10 @@ final class GatewayController: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
-            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+            // Fetch the shared centre here rather than capturing the
+            // non-Sendable one from outside the callback.
+            UNUserNotificationCenter.current()
+                .add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
     }
 
