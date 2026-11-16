@@ -20,9 +20,10 @@ struct EndpointSettingsView: View {
             identitiesSection
             if !config.identities.isEmpty {
                 switchingSection
+                // Spend stays visible with the server off.
+                usageSection
             }
             if config.enabled {
-                if !config.identities.isEmpty { usageSection }
                 connectSection
                 activitySection
             }
