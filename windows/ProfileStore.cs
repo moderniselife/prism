@@ -770,7 +770,8 @@ public class ProfileStore
                         displayName: p.DisplayName,
                         codePath: string.IsNullOrWhiteSpace(Settings.CustomCodePath) ? null : Settings.CustomCodePath,
                         projectPath: projectPath ?? p.DefaultProjectPath,
-                        isSystem: p.IsSystem);
+                        isSystem: p.IsSystem,
+                        environment: new EndpointService().ClaudeCodeEnvironment(p.EndpointIdentity));
                     break;
                 case CursorProfile.AppGrokBot:
                     GrokLauncher.Launch(

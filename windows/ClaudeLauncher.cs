@@ -91,7 +91,8 @@ public static class ClaudeLauncher
     /// through login for the new account.
     /// </summary>
     public static void LaunchCode(string profileDir, string displayName,
-                                  string? codePath, string? projectPath, bool isSystem)
+                                  string? codePath, string? projectPath, bool isSystem,
+                                  IReadOnlyDictionary<string, string>? environment = null)
     {
         var exe = FindClaudeCode(codePath)
             ?? throw new InvalidOperationException(
@@ -103,7 +104,9 @@ public static class ClaudeLauncher
             ? projectPath
             : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         // cmd /k keeps the window open so login prompts stay visible.
-        var inner = $"set \"CLAUDE_CONFIG_DIR={profileDir}\" && \"{exe}\"";
+        var env = string.Concat((environment ?? new Dictionary<string, string>())
+            .Select(kv => $"set \"{kv.Key}={kv.Value}\" && "));
+        var inner = $"set \"CLAUDE_CONFIG_DIR={profileDir}\" && {env}\"{exe}\"";
         var psi = new ProcessStartInfo("cmd.exe",
             $"/c start \"Prism - {displayName}\" /D \"{workDir}\" cmd.exe /k \"{inner}\"")
         {

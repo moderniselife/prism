@@ -51,8 +51,24 @@ public partial class ProfileEditorWindow : Window
         {
             MemoryBox.Text = _store.Settings.DefaultMemoryMB.ToString();
         }
+        BuildApiChoices(editing?.Model.EndpointIdentity);
         UpdateAll();
     }
+
+    private void BuildApiChoices(string? selected)
+    {
+        ApiBox.Items.Add(new ComboBoxItem { Content = "This profile's own sign-in", Tag = null });
+        var endpoint = new EndpointService();
+        if (endpoint.Config.Identities.Count > 0)
+        {
+            ApiBox.Items.Add(new ComboBoxItem { Content = "Endpoint: the active identity", Tag = "*" });
+            foreach (var id in endpoint.Config.Identities)
+                ApiBox.Items.Add(new ComboBoxItem { Content = "Endpoint: always " + id.Name, Tag = id.Id });
+        }
+        ApiBox.SelectedIndex = Math.Max(0, ApiBox.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => (string?)i.Tag == selected));
+    }
+
+    private string? ApiChoice => (ApiBox.SelectedItem as ComboBoxItem)?.Tag as string;
 
     private string? ProjectText => ProjectBox.Text.Trim() is { Length: > 0 } p ? p : null;
 
@@ -153,6 +169,7 @@ public partial class ProfileEditorWindow : Window
         ProjectSection.Visibility = _app is CursorProfile.AppCursor or CursorProfile.AppClaudeCode
             ? Visibility.Visible : Visibility.Collapsed;
         ProjectHint.Visibility = ProjectBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ApiSection.Visibility = _app == CursorProfile.AppClaudeCode && !_overflow ? Visibility.Visible : Visibility.Collapsed;
         int.TryParse(MemoryBox.Text.Trim(), out var memory);
         foreach (var (button, mb) in _presets)
         {
@@ -263,6 +280,7 @@ public partial class ProfileEditorWindow : Window
             m.ColorHex = _colorHex;
             m.DefaultMemoryMB = memory;
             m.DefaultProjectPath = ProjectText;
+            if (m.NormalizedApp == CursorProfile.AppClaudeCode) m.EndpointIdentity = ApiChoice;
             _store.Update(vm, m);
             DialogResult = true;
             return;
@@ -282,7 +300,15 @@ public partial class ProfileEditorWindow : Window
             return;
         }
 
-        if (_store.CreateProfile(name, _app, _colorHex, memory, ProjectText) is not null)
+        if (_store.CreateProfile(name, _app, _colorHex, memory, ProjectText) is { } made)
+        {
+            if (_app == CursorProfile.AppClaudeCode && ApiChoice is { } api)
+            {
+                var m = made.Model.Copy();
+                m.EndpointIdentity = api;
+                _store.Update(made, m);
+            }
             DialogResult = true;
+        }
     }
 }

@@ -1,0 +1,122 @@
+<Window x:Class="CursorProfiles.EndpointWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Endpoint" Width="640" Height="760" MinWidth="560" MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WindowBrush}" FontFamily="Segoe UI" FontSize="13">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Padding="24,14" Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource SubtleBorderBrush}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Done" Style="{StaticResource PrimaryButton}"
+                        IsDefault="True" IsCancel="True" Click="Done_Click"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ProgressBar x:Name="BusyBar" IsIndeterminate="True" Width="40" Height="4" Margin="0,0,10,0"
+                                 Visibility="Collapsed"/>
+                    <TextBlock x:Name="MessageText" FontSize="11" TextWrapping="Wrap" MaxWidth="440"
+                               Foreground="{DynamicResource SubTextBrush}"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,20,24,24">
+                <TextBlock Text="Endpoint" FontSize="17" FontWeight="SemiBold"/>
+                <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="{DynamicResource MutedBrush}"
+                           Text="A local OpenAI- and Anthropic-compatible API. Point chat apps, Claude Code, Codex or Claude Desktop at it, and every request goes out with the API keys of the identity you pick: switch between work and personal mid-chat with @work or @personal."/>
+
+                <!-- Server -->
+                <TextBlock Text="Server" Style="{StaticResource SectionTitle}" Margin="0,22,0,8"/>
+                <Border Style="{StaticResource Card}" Padding="14,4">
+                    <StackPanel>
+                        <DockPanel Margin="0,8">
+                            <TextBlock Text="Status" Width="90" VerticalAlignment="Center"/>
+                            <StackPanel x:Name="ServerButtons" DockPanel.Dock="Right" Orientation="Horizontal"/>
+                            <Ellipse x:Name="StatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center"
+                                     Fill="{DynamicResource MutedBrush}"/>
+                            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource SubTextBrush}"/>
+                        </DockPanel>
+                        <Border Height="1" Background="{DynamicResource SubtleBorderBrush}"/>
+                        <DockPanel Margin="0,8">
+                            <TextBlock Text="Address" Width="90" VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right" Content="Copy" Style="{StaticResource QuietButton}" Click="CopyAddress_Click"/>
+                            <TextBox x:Name="PortBox" DockPanel.Dock="Right" Width="64" Margin="8,0" Style="{StaticResource DarkField}"
+                                     ToolTip="Port" LostFocus="Port_LostFocus"/>
+                            <TextBlock x:Name="AddressText" VerticalAlignment="Center" FontFamily="Consolas"
+                                       Foreground="{DynamicResource SubTextBrush}"/>
+                        </DockPanel>
+                        <Border Height="1" Background="{DynamicResource SubtleBorderBrush}"/>
+                        <DockPanel Margin="0,8">
+                            <TextBlock Text="Token" Width="90" VerticalAlignment="Center"/>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="Copy" Style="{StaticResource QuietButton}" Click="CopyToken_Click"/>
+                                <Button Content="New" Style="{StaticResource QuietButton}" Click="NewToken_Click"
+                                        ToolTip="Make a new main token. Apps using the old one stop working."/>
+                            </StackPanel>
+                            <TextBlock x:Name="TokenText" VerticalAlignment="Center" FontFamily="Consolas"
+                                       TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SubTextBrush}"/>
+                        </DockPanel>
+                        <Border Height="1" Background="{DynamicResource SubtleBorderBrush}"/>
+                        <StackPanel Margin="0,8">
+                            <CheckBox x:Name="LanBox" Content="Allow other devices on my network" Foreground="{DynamicResource TextBrush}"
+                                      Click="Lan_Click"/>
+                            <CheckBox x:Name="TagsBox" Content="Switch with @tags in messages (@work, @personal…)" Margin="0,8,0,0"
+                                      Foreground="{DynamicResource TextBrush}" Click="Tags_Click"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                <TextBlock x:Name="KeysHint" FontSize="11" TextWrapping="Wrap" Margin="2,8,0,0" Visibility="Collapsed"
+                           Foreground="{DynamicResource WarningBrush}"
+                           Text="No system keyring was found, so keys are stored in a private file next to the settings."/>
+
+                <!-- Identities -->
+                <DockPanel Margin="0,22,0,8">
+                    <Button DockPanel.Dock="Right" Content="Add identity" Style="{StaticResource QuietButton}" Click="AddIdentity_Click"/>
+                    <TextBlock Text="Identities" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                </DockPanel>
+                <Border Style="{StaticResource Card}" Padding="14,4">
+                    <StackPanel x:Name="IdentityList"/>
+                </Border>
+
+                <!-- Rules -->
+                <DockPanel Margin="0,22,0,8">
+                    <Button DockPanel.Dock="Right" Content="Add rule" Style="{StaticResource QuietButton}" Click="AddRule_Click"/>
+                    <TextBlock Text="Automatic switching" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                </DockPanel>
+                <Border Style="{StaticResource Card}" Padding="14,4">
+                    <StackPanel x:Name="RuleList"/>
+                </Border>
+                <TextBlock FontSize="11" TextWrapping="Wrap" Margin="2,8,0,0" Foreground="{DynamicResource MutedBrush}"
+                           Text="Order: a model prefix (work/…) wins, then the latest @tag in the chat, then an identity's own token, then these rules, then the active identity."/>
+
+                <!-- Setup -->
+                <TextBlock Text="Connect an app" Style="{StaticResource SectionTitle}" Margin="0,22,0,8"/>
+                <Border Style="{StaticResource Card}" Padding="14,10">
+                    <StackPanel>
+                        <DockPanel>
+                            <ComboBox x:Name="SnippetTokenBox" DockPanel.Dock="Right" Width="170" Style="{StaticResource ThemeComboBox}"
+                                      SelectionChanged="SnippetChanged" ToolTip="Which token goes in the snippet: the main token follows the active identity, an identity's token always uses that identity."/>
+                            <ComboBox x:Name="SnippetBox" Width="190" Style="{StaticResource ThemeComboBox}" SelectionChanged="SnippetChanged">
+                                <ComboBoxItem Content="Chat apps (Open WebUI…)"/>
+                                <ComboBoxItem Content="Claude Code"/>
+                                <ComboBoxItem Content="Codex"/>
+                                <ComboBoxItem Content="Claude Desktop"/>
+                            </ComboBox>
+                        </DockPanel>
+                        <TextBox x:Name="SnippetText" Margin="0,10,0,0" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas"
+                                 FontSize="12" Style="{StaticResource DarkField}" MinHeight="90"/>
+                        <Button Content="Copy" HorizontalAlignment="Right" Margin="0,8,0,0" Style="{StaticResource SecondaryButton}"
+                                Click="CopySnippet_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Log -->
+                <TextBlock Text="Recent requests" Style="{StaticResource SectionTitle}" Margin="0,22,0,8"/>
+                <Border Style="{StaticResource Card}" Padding="14,6">
+                    <StackPanel x:Name="LogList"/>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
