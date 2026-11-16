@@ -222,6 +222,11 @@ func startServer(_ handler: @escaping GatewayServer.Handler) async -> (GatewaySe
 @main
 struct GatewayTests {
     static func main() async {
+        setvbuf(stdout, nil, _IONBF, 0)
+        if CommandLine.arguments.contains("serve") {
+            await serve()
+            return
+        }
         unitTests()
         await endToEnd()
         print("\n\(passes) passed, \(failures) failed")
@@ -390,6 +395,23 @@ struct GatewayTests {
               "anthropic → responses stream: custom_tool_call input", "\(outItems)")
         let seqs = payloads.compactMap { $0["sequence_number"] as? Int }
         check(seqs == Array(0..<seqs.count), "responses stream: sequence numbers")
+    }
+
+    /// Mock provider on :47001, gateway on :47002 (token prism-test-token).
+    static func serve() async {
+        let mock = GatewayServer(handler: mockHandler)
+        try? mock.start(port: 47001, allowLAN: false) { print("mock", $0) }
+        let engine = GatewayEngine()
+        engine.useKeychain = false
+        engine.update(sampleConfig(mockPort: 47001))
+        engine.setKey("ak-work", for: "work-anthropic")
+        engine.setKey("ok-work", for: "work-openai")
+        engine.setKey("ak-personal", for: "personal-anthropic")
+        engine.setKey("ok-personal", for: "personal-openai")
+        let gw = GatewayServer { req, w in await engine.handle(req, w) }
+        try? gw.start(port: 47002, allowLAN: false) { print("gateway", $0) }
+        try? await Task.sleep(nanoseconds: 60_000_000_000)
+        _ = mock; _ = gw
     }
 
     // MARK: End to end
