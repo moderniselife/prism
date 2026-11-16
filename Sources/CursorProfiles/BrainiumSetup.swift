@@ -46,9 +46,9 @@ enum BrainiumSetup {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        try process.run()
+        let waitForExit = try process.launchForBlockingWait()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        waitForExit()
         let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard process.terminationStatus == 0 else {
             let tail = output.split(separator: "\n").suffix(3).joined(separator: " ")
@@ -57,9 +57,24 @@ enum BrainiumSetup {
         return output
     }
 
-    /// git without the "install developer tools?" prompt the /usr/bin/git
-    /// shim shows when the Command Line Tools are missing.
-    static let hasGit: Bool = (try? run("/usr/bin/xcode-select", ["-p"])) != nil
+    /// Whether /usr/bin/git will run a real git rather than the shim's
+    /// "install developer tools?" prompt: some developer folder (the one
+    /// xcode-select points at, the Command Line Tools or Xcode) has git.
+    /// Checked on disk, never by running a tool: views read this while they
+    /// draw, and running a process there let SwiftUI re-enter this
+    /// initialiser and crash (dispatch_once "trying to lock recursively").
+    static let hasGit: Bool = {
+        let fm = FileManager.default
+        var developerDirs: [String] = []
+        if let env = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !env.isEmpty {
+            developerDirs.append(env)
+        }
+        if let selected = try? fm.destinationOfSymbolicLink(atPath: "/var/db/xcode_select_link") {
+            developerDirs.append(selected)
+        }
+        developerDirs += ["/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer"]
+        return developerDirs.contains { fm.isExecutableFile(atPath: $0 + "/usr/bin/git") }
+    }()
 
     // MARK: Brainium
 

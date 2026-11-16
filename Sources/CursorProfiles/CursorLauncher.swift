@@ -138,9 +138,9 @@ enum CursorLauncher {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return [] }
+        guard let waitForExit = try? process.launchForBlockingWait() else { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        waitForExit()
         guard let output = String(data: data, encoding: .utf8) else { return [] }
 
         return output.split(separator: "\n").compactMap { line in
