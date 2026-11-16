@@ -62,7 +62,9 @@ final class GatewayResponseWriter: @unchecked Sendable {
     private func raw(_ data: Data, last: Bool = false) async -> Bool {
         guard !failed else { return false }
         return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
-            connection.send(content: data, contentContext: last ? .finalMessage : .defaultMessage,
+            // TCP is a byte stream: .defaultStream sends at once;
+            // isComplete closes our side after the last bytes.
+            connection.send(content: data, contentContext: .defaultStream,
                             isComplete: last, completion: .contentProcessed { [weak self] error in
                 if error != nil { self?.failed = true }
                 c.resume(returning: error == nil)
