@@ -1,24 +1,33 @@
 #!/usr/bin/env node
-// Launcher: execs the platform binary downloaded by postinstall.
+// Launcher: runs the platform binary, downloading it first if the
+// postinstall script didn't (npm can be set to skip install scripts).
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
-const path = require("node:path");
+const { install, findBinary } = require("../install.js");
 
-function binaryPath() {
-  const exe = process.platform === "win32" ? "prism-tui.exe" : "prism-tui";
-  return path.join(__dirname, "..", "binaries", exe);
+async function main() {
+  let bin = findBinary();
+  if (!bin) {
+    try {
+      bin = await install();
+    } catch (err) {
+      console.error("prism-tui: couldn't download the binary:", err.message);
+      console.error("prism-tui: check your connection and run prism-tui again.");
+      process.exit(1);
+    }
+  }
+  if (!bin) {
+    console.error(
+      "prism-tui: no binary. In a source checkout, place one in npm/prism-tui/binaries/ " +
+        "or unset PRISM_TUI_SKIP_DOWNLOAD."
+    );
+    process.exit(1);
+  }
+  const res = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
+  if (res.error) {
+    console.error("prism-tui:", res.error.message);
+    process.exit(1);
+  }
+  process.exit(res.status ?? 1);
 }
 
-const bin = binaryPath();
-if (!existsSync(bin)) {
-  console.error(
-    "prism-tui: binary not found. Reinstall the package " +
-      "(postinstall downloads it from GitHub releases), or set " +
-      "PRISM_TUI_SKIP_DOWNLOAD=1 only for source checkouts where you " +
-      "place a binary in npm/prism-tui/binaries/ yourself."
-  );
-  process.exit(1);
-}
-
-const res = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
-process.exit(res.status ?? 1);
+main();

@@ -1,8 +1,5 @@
 # prism-tui (PyPI)
 
-> **Coming soon** — publishes with the first `v*` release. Until then,
-> run from source (`go run ./tui`).
-
 Prism for the terminal, via pip. Wheels are platform-specific and bundle the
 prebuilt static binary — no Go toolchain, no runtime.
 
