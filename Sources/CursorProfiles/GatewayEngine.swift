@@ -101,12 +101,13 @@ final class GatewayEngine: @unchecked Sendable {
         return models
     }
 
-    /// OpenAI lists embeddings, audio, image and moderation models too.
+    /// Providers list embeddings, audio, image and moderation models too.
     static func chatModels(_ ids: [String], provider: GatewayProvider) -> [String] {
-        guard provider == .openai else { return ids.sorted() }
-        let skip = ["embedding", "tts", "whisper", "dall-e", "moderation", "transcribe", "realtime", "audio",
-                    "image", "search", "davinci", "babbage", "sora", "computer-use"]
-        return ids.filter { id in
+        let notChat = ["embed", "tts", "whisper", "dall-e", "moderation", "transcribe", "rerank"]
+        let chat = ids.filter { id in !notChat.contains { id.lowercased().contains($0) } }
+        guard provider == .openai else { return chat.sorted() }
+        let skip = ["realtime", "audio", "image", "search", "davinci", "babbage", "sora", "computer-use"]
+        return chat.filter { id in
             let l = id.lowercased()
             return GatewayRouter.family(of: l) == .openai && !skip.contains { l.contains($0) }
         }.sorted()
