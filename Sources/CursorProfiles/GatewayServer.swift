@@ -84,17 +84,26 @@ final class GatewayResponseWriter: @unchecked Sendable {
         await send(status: status, headers: [("Content-Type", "application/json")] + headers, body: GatewayJSON.data(object))
     }
 
-    /// Start a streamed (close-delimited) response.
+    private var chunked = false
+
+    /// Start a streamed response (chunked transfer encoding).
     func startStream(status: Int, headers: [(String, String)]) async {
         guard !started else { return }
         started = true
-        _ = await raw(head(status, headers + [("Cache-Control", "no-cache"), ("X-Accel-Buffering", "no")]))
+        chunked = true
+        _ = await raw(head(status, headers + [("Cache-Control", "no-cache"), ("X-Accel-Buffering", "no"),
+                                              ("Transfer-Encoding", "chunked")]))
     }
 
     /// False once the client has gone away.
     func write(_ data: Data) async -> Bool {
         guard !data.isEmpty else { return !failed }
-        return await raw(data)
+        guard chunked else { return await raw(data) }
+        var framed = Data(String(data.count, radix: 16).utf8)
+        framed.append(contentsOf: [0x0D, 0x0A])
+        framed.append(data)
+        framed.append(contentsOf: [0x0D, 0x0A])
+        return await raw(framed)
     }
 
     func write(_ text: String) async -> Bool {
@@ -102,7 +111,7 @@ final class GatewayResponseWriter: @unchecked Sendable {
     }
 
     func finish() async {
-        _ = await raw(Data(), last: true)
+        _ = await raw(chunked ? Data("0\r\n\r\n".utf8) : Data(), last: true)
         connection.cancel()
     }
 }
