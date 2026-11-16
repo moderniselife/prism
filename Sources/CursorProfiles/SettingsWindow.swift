@@ -291,6 +291,7 @@ struct SettingsRow<Trailing: View>: View {
             }
             Spacer(minLength: 12)
             trailing()
+                .layoutPriority(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -419,9 +420,11 @@ struct AppsSettingsPane: View {
                     SettingsRow(title: "Custom path") {
                         HStack(spacing: 6) {
                             TextField("Find automatically", text: customBinding(app))
-                                .prismField(width: 260)
+                                .prismField()
+                                .frame(minWidth: 160, maxWidth: 300)
                             Button("Choose…") { pick(app) }
                                 .buttonStyle(PrismButtonStyle(kind: .secondary, height: 28))
+                                .fixedSize()
                         }
                     }
                 }

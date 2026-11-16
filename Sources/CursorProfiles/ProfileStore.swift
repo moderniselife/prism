@@ -254,9 +254,12 @@ final class ProfileStore: ObservableObject {
 
     @discardableResult
     func addGroup(name: String, colorHex: String? = nil) -> ProfileGroup {
+        // Neighbouring groups get clearly different colours.
+        let order = ["#F97316", "#10B981", "#0EA5E9", "#F43F5E", "#8B5CF6", "#F59E0B",
+                     "#14B8A6", "#6366F1", "#D946EF", "#84CC16", "#3B82F6", "#64748B"]
         let used = Set(groups.map(\.colorHex))
         let color = colorHex
-            ?? AccentPalette.all.first(where: { !used.contains($0.hex) })?.hex
+            ?? order.first(where: { !used.contains($0) })
             ?? AccentPalette.random().hex
         let group = ProfileGroup(name: uniqueGroupName(name), colorHex: color)
         groups.append(group)

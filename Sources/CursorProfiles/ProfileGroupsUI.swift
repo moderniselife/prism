@@ -114,17 +114,9 @@ struct GroupColorMenu: View {
 
     var body: some View {
         Menu {
-            ForEach(AccentPalette.all) { option in
-                Button {
-                    var g = group
-                    g.colorHex = option.hex
-                    store.updateGroup(g)
-                } label: {
-                    Text(option.name + (option.hex == group.colorHex ? "  ✓" : ""))
-                }
-            }
+            GroupColorItems(group: group)
         } label: {
-            GroupSwatch(colorHex: group.colorHex, size: 12)
+            GroupSwatch.image(group.colorHex, size: 14)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -133,9 +125,43 @@ struct GroupColorMenu: View {
     }
 }
 
+/// The palette as menu items, each with its colour.
+@MainActor
+struct GroupColorItems: View {
+    @EnvironmentObject var store: ProfileStore
+    let group: ProfileGroup
+
+    var body: some View {
+        ForEach(AccentPalette.all) { option in
+            Button {
+                var g = group
+                g.colorHex = option.hex
+                store.updateGroup(g)
+            } label: {
+                Label {
+                    Text(option.name + (option.hex == group.colorHex ? "  ✓" : ""))
+                } icon: {
+                    GroupSwatch.image(option.hex)
+                }
+            }
+        }
+    }
+}
+
 struct GroupSwatch: View {
     let colorHex: String
     var size: CGFloat = 10
+
+    /// The swatch as an image, for menus (they only draw text and images).
+    static func image(_ hex: String, size: CGFloat = 12) -> Image {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            (NSColor(hex: hex) ?? .controlAccentColor).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                         xRadius: size * 0.3, yRadius: size * 0.3).fill()
+            return true
+        }
+        return Image(nsImage: image)
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
@@ -158,7 +184,11 @@ struct GroupMenu: View {
                 Button {
                     store.setGroup(group.id, for: [profile.id])
                 } label: {
-                    Text(group.name + (profile.groupID == group.id ? "  ✓" : ""))
+                    Label {
+                        Text(group.name + (profile.groupID == group.id ? "  ✓" : ""))
+                    } icon: {
+                        GroupSwatch.image(group.colorHex)
+                    }
                 }
             }
             if !store.groups.isEmpty { Divider() }
@@ -182,37 +212,38 @@ struct GroupPicker: View {
     @Binding var groupID: String?
 
     var body: some View {
-        Menu {
-            Button("No group") { groupID = nil }
-            if !store.groups.isEmpty { Divider() }
-            ForEach(store.groups) { group in
-                Button(group.name) { groupID = group.id }
+        let current = store.group(groupID)
+        HStack(spacing: 6) {
+            if let current {
+                GroupSwatch(colorHex: current.colorHex, size: 9)
             }
-            Divider()
-            Button("New Group…") {
-                if let name = GroupPrompt.ask(title: "New group") {
-                    groupID = store.addGroup(name: name).id
+            Menu {
+                Button("No group") { groupID = nil }
+                if !store.groups.isEmpty { Divider() }
+                ForEach(store.groups) { group in
+                    Button {
+                        groupID = group.id
+                    } label: {
+                        Label { Text(group.name) } icon: { GroupSwatch.image(group.colorHex) }
+                    }
                 }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                if let group = store.group(groupID) {
-                    GroupSwatch(colorHex: group.colorHex, size: 9)
-                    Text(group.name)
-                        .foregroundStyle(PrismTheme.Colors.textPrimary)
-                } else {
-                    Text("No group")
-                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                Divider()
+                Button("New Group…") {
+                    if let name = GroupPrompt.ask(title: "New group") {
+                        groupID = store.addGroup(name: name).id
+                    }
                 }
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+            } label: {
+                (Text(current?.name ?? "No group")
+                    + Text("  ")
+                    + Text(Image(systemName: "chevron.up.chevron.down")).font(.system(size: 8, weight: .semibold)))
+                    .font(.system(size: 12))
+                    .foregroundStyle(current == nil ? PrismTheme.Colors.textTertiary : PrismTheme.Colors.textPrimary)
             }
-            .font(.system(size: 12))
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
     }
 }
 
@@ -346,13 +377,7 @@ private struct SidebarGroupRow: View {
                 }
             }
             Menu("Colour") {
-                ForEach(AccentPalette.all) { option in
-                    Button(option.name + (option.hex == group.colorHex ? "  ✓" : "")) {
-                        var g = group
-                        g.colorHex = option.hex
-                        store.updateGroup(g)
-                    }
-                }
+                GroupColorItems(group: group)
             }
             Divider()
             Button("Move Up") { store.moveGroup(group.id, by: -1) }
