@@ -148,6 +148,7 @@ final class PrismSelfUpdater: ObservableObject {
         if (!diskBuild.isEmpty && diskBuild != launchedBuildDate)
             || (binaryDate != nil && launchedBinaryDate != nil && binaryDate != launchedBinaryDate) {
             replacedOnDisk = true
+            NSLog("Prism: a different build is now installed at \(Bundle.main.bundlePath); offering to relaunch")
         }
     }
 
