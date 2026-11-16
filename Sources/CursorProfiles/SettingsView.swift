@@ -10,6 +10,8 @@ struct SettingsView: View {
                 .tabItem { Label("Apps", systemImage: "square.grid.2x2") }
             SecondBrainSettingsView()
                 .tabItem { Label("Second brain", systemImage: "brain") }
+            EndpointSettingsView()
+                .tabItem { Label("Endpoint", systemImage: "point.3.connected.trianglepath.dotted") }
         }
     }
 

@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Prism.app
         run: ./build.sh
+      - name: Endpoint tests
+        run: ./tests/gateway/run.sh
       - name: Upload Prism.app
         uses: actions/upload-artifact@v4
         with:
