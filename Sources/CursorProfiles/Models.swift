@@ -33,6 +33,10 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     var colorHex: String
     var defaultMemoryMB: Int
     var defaultProjectPath: String?
+    /// Claude Code: send requests through Prism's endpoint instead of the
+    /// profile's own sign-in. nil = own sign-in, "*" = whichever identity
+    /// is active, otherwise an identity id.
+    var endpointIdentity: String?
     var createdAt: Date
     var lastLaunchedAt: Date?
     var isPinned: Bool
@@ -45,7 +49,8 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     // so old files still load and new files simply omit it.
     enum CodingKeys: String, CodingKey {
         case folderName, displayName, app, colorHex, defaultMemoryMB,
-             defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem
+             defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem,
+             endpointIdentity
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +65,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         lastLaunchedAt = try c.decodeIfPresent(Date.self, forKey: .lastLaunchedAt)
         isPinned = try c.decode(Bool.self, forKey: .isPinned)
         isSystem = try c.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
+        endpointIdentity = try c.decodeIfPresent(String.self, forKey: .endpointIdentity)
     }
 
     init(folderName: String,

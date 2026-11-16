@@ -15,6 +15,13 @@ final class GatewayEngine: @unchecked Sendable {
     /// Read keys from the Keychain on first use (tests turn this off).
     var useKeychain = true
 
+    /// Token counts and estimated spend per identity.
+    let usage: GatewayUsageStore
+
+    init(usage: GatewayUsageStore = GatewayUsageStore(fileURL: nil)) {
+        self.usage = usage
+    }
+
     let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 600
@@ -135,6 +142,106 @@ final class GatewayEngine: @unchecked Sendable {
         }
     }
 
+    // MARK: Limits (rate limits, credit, budgets)
+
+    /// Identity + provider pairs that recently said "slow down" or "out of
+    /// credit", until when.
+    private var cooldowns: [String: Date] = [:]
+
+    private static func cooldownKey(_ identityID: String, _ provider: GatewayProvider) -> String {
+        "\(identityID)|\(provider.rawValue)"
+    }
+
+    func coolDown(_ identityID: String, _ provider: GatewayProvider, for seconds: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        cooldowns[Self.cooldownKey(identityID, provider)] = Date().addingTimeInterval(seconds)
+    }
+
+    /// Until when this identity's provider is cooling down, if it is.
+    func cooldown(_ identityID: String, _ provider: GatewayProvider) -> Date? {
+        lock.lock(); defer { lock.unlock() }
+        guard let until = cooldowns[Self.cooldownKey(identityID, provider)], until > Date() else { return nil }
+        return until
+    }
+
+    /// Every identity id that is cooling down for any provider, with the time.
+    func cooldownSnapshot() -> [String: Date] {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        var out: [String: Date] = [:]
+        for (key, until) in cooldowns where until > now {
+            let id = String(key.split(separator: "|").first ?? "")
+            out[id] = max(out[id] ?? until, until)
+        }
+        return out
+    }
+
+    func monthSpend(_ identityID: String) -> Double {
+        usage.month(identityID).cost
+    }
+
+    private func overBudget(_ identity: GatewayIdentity) -> Bool {
+        guard let budget = identity.monthlyBudget, budget > 0 else { return false }
+        return monthSpend(identity.id) >= budget
+    }
+
+    /// Why this route shouldn't be used right now, if anything.
+    private func limitReason(_ route: GatewayRoute) -> String? {
+        if overBudget(route.identity), route.identity.budgetAction != .warn {
+            return "is over its $\(Self.money(route.identity.monthlyBudget ?? 0)) monthly budget"
+        }
+        if let until = cooldown(route.identity.id, route.credential.provider) {
+            return "is rate-limited until \(Self.clock(until))"
+        }
+        return nil
+    }
+
+    /// Move to the fallback identity while the chosen one is limited.
+    /// Returns nil (with an error) when a budget blocks the request.
+    private func applyLimits(_ route: GatewayRoute, _ cfg: GatewayConfig, visited: inout Set<String>,
+                             notes: inout [String]) -> Result<GatewayRoute, GatewayRouteError> {
+        var r = route
+        while let reason = limitReason(r) {
+            if let fbID = r.identity.fallbackIdentityID, !visited.contains(fbID),
+               let fb = cfg.identity(id: fbID),
+               let cred = GatewayRouter.credential(for: r.model, in: fb, knownModels: knownModels) {
+                notes.append("\(r.identity.name) \(reason) → \(fb.name)")
+                visited.insert(fb.id)
+                r = GatewayRoute(identity: fb, credential: cred, model: r.model, reason: r.reason)
+                continue
+            }
+            if overBudget(r.identity), r.identity.budgetAction != .warn {
+                return .failure(GatewayRouteError(status: 429,
+                    message: "\(r.identity.name) \(reason)\(r.identity.fallbackIdentityID == nil ? "" : " and its fallback can't take this model"). Raise the budget in Prism → Settings → Endpoint."))
+            }
+            break // rate-limited with nowhere to go: try anyway
+        }
+        return .success(r)
+    }
+
+    /// Whether a failed reply means "this account can't right now" — so
+    /// another identity could answer — and for how long to stay away.
+    static func limitCooldown(status: Int, data: Data, retryAfter: String?) -> TimeInterval? {
+        let message = GatewayErrorBody.message(from: data).lowercased()
+        let credit = ["credit", "billing", "quota", "insufficient", "balance", "payment"].contains { message.contains($0) }
+        if status == 402 || ((status == 400 || status == 403 || status == 429) && credit) { return 15 * 60 }
+        if status == 429 {
+            if let s = retryAfter.flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }) { return min(max(s, 5), 3600) }
+            return 60
+        }
+        return nil
+    }
+
+    static func money(_ v: Double) -> String {
+        v >= 100 ? String(format: "%.0f", v) : String(format: "%.2f", v)
+    }
+
+    static func clock(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: d)
+    }
+
     // MARK: Handling
 
     private static func normalize(_ path: String) -> String {
@@ -145,13 +252,22 @@ final class GatewayEngine: @unchecked Sendable {
         return p
     }
 
-    private func authorized(_ req: GatewayHTTPRequest, _ cfg: GatewayConfig) -> Bool {
-        guard cfg.requireToken || cfg.allowLAN else { return true }
+    private enum Caller {
+        case denied
+        case anyIdentity
+        case pinned(String)
+    }
+
+    private func caller(_ req: GatewayHTTPRequest, _ cfg: GatewayConfig) -> Caller {
         var presented = req.headers["x-api-key"] ?? req.headers["api-key"] ?? ""
         if let auth = req.headers["authorization"], auth.lowercased().hasPrefix("bearer ") {
             presented = String(auth.dropFirst(7)).trimmingCharacters(in: .whitespaces)
         }
-        return !presented.isEmpty && presented == cfg.token
+        if !presented.isEmpty, let identity = cfg.identities.first(where: { $0.token == presented }) {
+            return .pinned(identity.id)
+        }
+        if !presented.isEmpty && presented == cfg.token { return .anyIdentity }
+        return (cfg.requireToken || cfg.allowLAN) ? .denied : .anyIdentity
     }
 
     /// Anthropic-style clients identify themselves with these headers.
@@ -170,17 +286,22 @@ final class GatewayEngine: @unchecked Sendable {
             return
         }
         let cfg = config
-        guard authorized(req, cfg) else {
+        let who = caller(req, cfg)
+        if case .denied = who {
             let api: GatewayAPI = Self.prefersAnthropic(req) ? .anthropic : .chat
             await w.sendJSON(status: 401, GatewayErrorBody.make(api, status: 401,
                 message: "Use your Prism endpoint token as the API key (Prism → Settings → Endpoint)."))
             return
         }
+        var pinned: String?
+        if case .pinned(let id) = who { pinned = id }
 
         switch (req.method, path) {
         case ("GET", "/v1/models"):
             await refreshStaleModels()
-            await w.sendJSON(status: 200, GatewayRouter.modelList(config: cfg, knownModels: knownModels))
+            var listCfg = cfg
+            if let pinned { listCfg.identities = cfg.identities.filter { $0.id == pinned }; listCfg.activeIdentityID = pinned }
+            await w.sendJSON(status: 200, GatewayRouter.modelList(config: listCfg, knownModels: knownModels))
         case ("GET", _) where path.hasPrefix("/v1/models/"):
             let id = String(path.dropFirst("/v1/models/".count)).removingPercentEncoding ?? ""
             let list = GatewayRouter.modelList(config: cfg, knownModels: knownModels)["data"] as? [JSONObject] ?? []
@@ -191,13 +312,13 @@ final class GatewayEngine: @unchecked Sendable {
                                                                       status: 404, message: "Unknown model \(id)"))
             }
         case ("POST", "/v1/messages"):
-            await proxy(.anthropic, req, w, cfg)
+            await proxy(.anthropic, req, w, cfg, pinned: pinned)
         case ("POST", "/v1/messages/count_tokens"):
-            await countTokens(req, w, cfg)
+            await countTokens(req, w, cfg, pinned: pinned)
         case ("POST", "/v1/chat/completions"):
-            await proxy(.chat, req, w, cfg)
+            await proxy(.chat, req, w, cfg, pinned: pinned)
         case ("POST", "/v1/responses"):
-            await proxy(.responses, req, w, cfg)
+            await proxy(.responses, req, w, cfg, pinned: pinned)
         default:
             await w.sendJSON(status: 404, GatewayErrorBody.make(Self.prefersAnthropic(req) ? .anthropic : .chat,
                                                                   status: 404, message: "Prism doesn't serve \(req.method) \(req.path)"))
@@ -219,7 +340,33 @@ final class GatewayEngine: @unchecked Sendable {
         return first.isEmpty ? "unknown" : String(first.prefix(40))
     }
 
-    private func proxy(_ api: GatewayAPI, _ req: GatewayHTTPRequest, _ w: GatewayResponseWriter, _ cfg: GatewayConfig) async {
+    /// The request as the route's provider expects it.
+    private func upstream(for api: GatewayAPI, body: JSONObject, route: GatewayRoute) -> Result<Upstream, GatewayRouteError> {
+        let cred = route.credential
+        let upstreamAPI: GatewayAPI = cred.provider == .anthropic ? .anthropic
+            : (api == .responses && cred.provider == .openai ? .responses : .chat)
+        if upstreamAPI == api {
+            var b = body
+            b["model"] = route.model
+            return .success(Upstream(api: api, body: b, passthrough: true, canon: nil))
+        }
+        if api == .responses, let prev = body["previous_response_id"], !(prev is NSNull) {
+            return .failure(GatewayRouteError(status: 400,
+                message: "previous_response_id only works with OpenAI accounts. Turn off server-side storage (store: false) in your client to use \(cred.provider.label)."))
+        }
+        let canon: CanonRequest
+        switch api {
+        case .anthropic: canon = CanonRequest(anthropic: body)
+        case .chat: canon = CanonRequest(chat: body)
+        case .responses: canon = CanonRequest(responses: body)
+        }
+        let b = upstreamAPI == .anthropic ? canon.anthropicBody(model: route.model)
+                                          : canon.chatBody(model: route.model, provider: cred.provider)
+        return .success(Upstream(api: upstreamAPI, body: b, passthrough: false, canon: canon))
+    }
+
+    private func proxy(_ api: GatewayAPI, _ req: GatewayHTTPRequest, _ w: GatewayResponseWriter,
+                       _ cfg: GatewayConfig, pinned: String?) async {
         let started = Date()
         guard var body = GatewayJSON.parse(req.body) else {
             await w.sendJSON(status: 400, GatewayErrorBody.make(api, status: 400, message: "Request body must be JSON."))
@@ -228,20 +375,28 @@ final class GatewayEngine: @unchecked Sendable {
         let requestedModel = body["model"] as? String ?? ""
         let stream = body["stream"] as? Bool ?? false
         let client = req.headers["user-agent"] ?? ""
+        var notes: [String] = []
 
-        func log(_ route: GatewayRoute?, status: Int, error: String? = nil) {
-            onLog?(GatewayLogEntry(date: started, client: clientName(req), api: api.label,
+        func log(_ route: GatewayRoute?, status: Int, usage: CanonUsage? = nil, error: String? = nil) {
+            var cost: Double?
+            if let route, let usage {
+                cost = GatewayPricing.price(for: route.model, provider: route.credential.provider, overrides: cfg.priceOverrides)?.cost(usage)
+                self.usage.record(identityID: route.identity.id, model: route.model, usage: usage, cost: cost)
+            }
+            onLog?(GatewayLogEntry(inputTokens: usage?.totalInput ?? 0, outputTokens: usage?.output ?? 0, cost: cost,
+                                   note: notes.isEmpty ? nil : notes.joined(separator: "; "),
+                                   date: started, client: clientName(req), api: api.label,
                                    identity: route?.identity.name ?? "—", identityColor: route?.identity.colorHex ?? "#8E8E98",
                                    provider: route?.credential.provider.label ?? "—", model: route?.model ?? requestedModel,
                                    reason: route?.reason ?? "", status: status,
                                    milliseconds: Int(Date().timeIntervalSince(started) * 1000), stream: stream, error: error))
         }
 
-        let route: GatewayRoute
+        var route: GatewayRoute
         do {
             route = try GatewayRouter.route(config: cfg, requestedModel: requestedModel,
                                             userTexts: GatewayUserText.texts(in: body, api: api),
-                                            client: client, knownModels: knownModels)
+                                            client: client, pinnedIdentityID: pinned, knownModels: knownModels)
         } catch let e as GatewayRouteError {
             await w.sendJSON(status: e.status, GatewayErrorBody.make(api, status: e.status, message: e.message))
             log(nil, status: e.status, error: e.message)
@@ -254,52 +409,70 @@ final class GatewayEngine: @unchecked Sendable {
         if cfg.tagsEnabled {
             GatewayUserText.stripTags(cfg.identities.map(\.slug), in: &body, api: api)
         }
-        let cred = route.credential
-        let key = self.key(for: cred) ?? ""
-        if key.isEmpty && cred.provider.keyRequired {
-            let msg = "No \(cred.provider.label) key saved for \(route.identity.name). Add it in Prism → Settings → Endpoint."
-            await w.sendJSON(status: 401, GatewayErrorBody.make(api, status: 401, message: msg))
-            log(route, status: 401, error: msg)
+
+        var visited: Set<String> = [route.identity.id]
+        switch applyLimits(route, cfg, visited: &visited, notes: &notes) {
+        case .success(let r): route = r
+        case .failure(let e):
+            await w.sendJSON(status: e.status, GatewayErrorBody.make(api, status: e.status, message: e.message))
+            log(route, status: e.status, error: e.message)
             return
         }
 
-        // Pick the provider's API and convert if it differs from the client's.
-        let upstreamAPI: GatewayAPI = cred.provider == .anthropic ? .anthropic
-            : (api == .responses && cred.provider == .openai ? .responses : .chat)
-        var up: Upstream
-        if upstreamAPI == api {
-            var b = body
-            b["model"] = route.model
-            up = Upstream(api: api, body: b, passthrough: true, canon: nil)
-        } else {
-            if api == .responses, let prev = body["previous_response_id"], !(prev is NSNull) {
-                let msg = "previous_response_id only works with OpenAI accounts. Turn off server-side storage (store: false) in your client to use \(cred.provider.label)."
-                await w.sendJSON(status: 400, GatewayErrorBody.make(api, status: 400, message: msg))
-                log(route, status: 400, error: msg)
+        let echoModel = requestedModel.isEmpty ? route.model : requestedModel
+        var strippedReasoning = false
+        var attempts = 0
+
+        while attempts < 2 + cfg.identities.count {
+            attempts += 1
+            let cred = route.credential
+            let key = self.key(for: cred) ?? ""
+            if key.isEmpty && cred.provider.keyRequired {
+                let msg = "No \(cred.provider.label) key saved for \(route.identity.name). Add it in Prism → Settings → Endpoint."
+                await w.sendJSON(status: 401, GatewayErrorBody.make(api, status: 401, message: msg))
+                log(route, status: 401, error: msg)
                 return
             }
-            let canon: CanonRequest
-            switch api {
-            case .anthropic: canon = CanonRequest(anthropic: body)
-            case .chat: canon = CanonRequest(chat: body)
-            case .responses: canon = CanonRequest(responses: body)
+            var up: Upstream
+            switch upstream(for: api, body: body, route: route) {
+            case .success(let u): up = u
+            case .failure(let e):
+                await w.sendJSON(status: e.status, GatewayErrorBody.make(api, status: e.status, message: e.message))
+                log(route, status: e.status, error: e.message)
+                return
             }
-            let b = upstreamAPI == .anthropic ? canon.anthropicBody(model: route.model)
-                                              : canon.chatBody(model: route.model, provider: cred.provider)
-            up = Upstream(api: upstreamAPI, body: b, passthrough: false, canon: canon)
-        }
-
-        let routeHeaders = [("X-Prism-Identity", route.identity.name),
-                            ("X-Prism-Upstream", "\(cred.provider.rawValue)/\(route.model)")]
-        let echoModel = requestedModel.isEmpty ? route.model : requestedModel
-
-        var retried = false
-        while true {
+            if strippedReasoning { GatewayUserText.stripReasoning(in: &up.body, api: up.api) }
+            let routeHeaders = [("X-Prism-Identity", route.identity.name),
+                                ("X-Prism-Upstream", "\(cred.provider.rawValue)/\(route.model)")]
             guard let request = makeRequest(up, cred: cred, key: key, client: req, stream: stream) else {
                 await w.sendJSON(status: 500, GatewayErrorBody.make(api, status: 500, message: "Invalid provider URL for \(route.identity.name)."))
                 log(route, status: 500, error: "invalid URL")
                 return
             }
+
+            /// After an error reply: try again (true) or report it.
+            func handleFailure(status: Int, data: Data, response: URLResponse?) -> Bool {
+                if !strippedReasoning, shouldRetryWithoutReasoning(status: status, data: data),
+                   GatewayUserText.stripReasoning(in: &up.body, api: up.api) {
+                    strippedReasoning = true
+                    return true
+                }
+                let retryAfter = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After")
+                if let wait = Self.limitCooldown(status: status, data: data, retryAfter: retryAfter) {
+                    coolDown(route.identity.id, cred.provider, for: wait)
+                    if let fbID = route.identity.fallbackIdentityID, !visited.contains(fbID),
+                       let fb = cfg.identity(id: fbID),
+                       let fbCred = GatewayRouter.credential(for: route.model, in: fb, knownModels: knownModels) {
+                        let why = status == 429 ? "rate-limited" : "out of credit"
+                        notes.append("\(route.identity.name) \(why) (\(status)) → \(fb.name)")
+                        visited.insert(fb.id)
+                        route = GatewayRoute(identity: fb, credential: fbCred, model: route.model, reason: route.reason)
+                        return true
+                    }
+                }
+                return false
+            }
+
             do {
                 if stream {
                     let (bytes, resp) = try await session.bytes(for: request)
@@ -310,45 +483,45 @@ final class GatewayEngine: @unchecked Sendable {
                             data.append(b)
                             if data.count > 1 << 20 { break }
                         }
-                        if !retried, shouldRetryWithoutReasoning(status: status, data: data),
-                           GatewayUserText.stripReasoning(in: &up.body, api: up.api) {
-                            retried = true
-                            continue
-                        }
+                        if handleFailure(status: status, data: data, response: resp) { continue }
                         await sendUpstreamError(api: api, upstreamAPI: up.api, status: status, data: data, route: route, w: w, headers: routeHeaders)
                         log(route, status: status, error: GatewayErrorBody.message(from: data))
                         return
                     }
                     await w.startStream(status: 200, headers: [("Content-Type", "text/event-stream; charset=utf-8")] + routeHeaders)
+                    let used: CanonUsage
                     if up.passthrough {
-                        await pipe(bytes, to: w)
+                        used = await pipe(bytes, api: up.api, to: w)
                     } else {
-                        await translate(bytes, from: up.api, to: api, model: echoModel, canon: up.canon, clientBody: body, w: w)
+                        used = await translate(bytes, from: up.api, to: api, model: echoModel, canon: up.canon, clientBody: body, w: w)
                     }
                     await w.finish()
-                    log(route, status: 200)
+                    log(route, status: 200, usage: used)
                 } else {
                     let (data, resp) = try await session.data(for: request)
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 502
                     if status >= 400 {
-                        if !retried, shouldRetryWithoutReasoning(status: status, data: data),
-                           GatewayUserText.stripReasoning(in: &up.body, api: up.api) {
-                            retried = true
-                            continue
-                        }
+                        if handleFailure(status: status, data: data, response: resp) { continue }
                         await sendUpstreamError(api: api, upstreamAPI: up.api, status: status, data: data, route: route, w: w, headers: routeHeaders)
                         log(route, status: status, error: GatewayErrorBody.message(from: data))
+                        return
+                    }
+                    guard let j = GatewayJSON.parse(data) else {
+                        if up.passthrough {
+                            let type = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "application/json"
+                            await w.send(status: 200, headers: [("Content-Type", type)] + routeHeaders, body: data)
+                            log(route, status: 200)
+                        } else {
+                            await w.sendJSON(status: 502, GatewayErrorBody.make(api, status: 502, message: "Provider sent an unreadable reply."))
+                            log(route, status: 502, error: "unreadable reply")
+                        }
                         return
                     }
                     if up.passthrough {
                         let type = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "application/json"
                         await w.send(status: 200, headers: [("Content-Type", type)] + routeHeaders, body: data)
+                        log(route, status: 200, usage: CanonUsage(reply: j, api: up.api))
                     } else {
-                        guard let j = GatewayJSON.parse(data) else {
-                            await w.sendJSON(status: 502, GatewayErrorBody.make(api, status: 502, message: "Provider sent an unreadable reply."))
-                            log(route, status: 502, error: "unreadable reply")
-                            return
-                        }
                         let canonResp = up.api == .anthropic ? CanonResponse(anthropic: j) : CanonResponse(chat: j)
                         let out: JSONObject
                         switch api {
@@ -357,8 +530,8 @@ final class GatewayEngine: @unchecked Sendable {
                         case .responses: out = canonResp.responsesJSON(model: echoModel, customTools: up.canon?.customToolNames ?? [])
                         }
                         await w.sendJSON(status: 200, out, headers: routeHeaders)
+                        log(route, status: 200, usage: canonResp.usage)
                     }
-                    log(route, status: 200)
                 }
             } catch {
                 let msg = "Couldn't reach \(cred.provider.label) for \(route.identity.name): \(error.localizedDescription)"
@@ -367,6 +540,8 @@ final class GatewayEngine: @unchecked Sendable {
             }
             return
         }
+        await w.sendJSON(status: 502, GatewayErrorBody.make(api, status: 502, message: "Every identity Prism tried was unavailable."))
+        log(route, status: 502, error: "no identity available")
     }
 
     private func makeRequest(_ up: Upstream, cred: GatewayCredential, key: String,
@@ -425,28 +600,35 @@ final class GatewayEngine: @unchecked Sendable {
         await w.sendJSON(status: status, GatewayErrorBody.make(api, status: status, message: msg), headers: headers)
     }
 
-    /// Same API on both sides: forward the bytes as they arrive.
-    private func pipe(_ bytes: URLSession.AsyncBytes, to w: GatewayResponseWriter) async {
+    /// Same API on both sides: forward the bytes as they arrive, noting
+    /// token counts on the way.
+    private func pipe(_ bytes: URLSession.AsyncBytes, api: GatewayAPI, to w: GatewayResponseWriter) async -> CanonUsage {
+        let sniffer = UsageSniffer(api: api)
         var chunk = Data()
         do {
             for try await b in bytes {
                 chunk.append(b)
                 if b == 0x0A {
+                    sniffer.feed(chunk)
                     guard await w.write(chunk) else {
                         bytes.task.cancel()
-                        return
+                        return sniffer.usage
                     }
                     chunk.removeAll(keepingCapacity: true)
                 }
             }
-            if !chunk.isEmpty { _ = await w.write(chunk) }
+            if !chunk.isEmpty {
+                sniffer.feed(chunk)
+                _ = await w.write(chunk)
+            }
         } catch {
             _ = await w.write("\n")
         }
+        return sniffer.usage
     }
 
     private func translate(_ bytes: URLSession.AsyncBytes, from upstreamAPI: GatewayAPI, to api: GatewayAPI,
-                           model: String, canon: CanonRequest?, clientBody: JSONObject, w: GatewayResponseWriter) async {
+                           model: String, canon: CanonRequest?, clientBody: JSONObject, w: GatewayResponseWriter) async -> CanonUsage {
         let decoder: GatewayStreamDecoder = upstreamAPI == .anthropic ? AnthropicStreamDecoder() : ChatStreamDecoder()
         let encoder: GatewayStreamEncoder
         switch api {
@@ -458,13 +640,23 @@ final class GatewayEngine: @unchecked Sendable {
         case .responses:
             encoder = ResponsesStreamEncoder(model: model, customTools: canon?.customToolNames ?? [])
         }
+        var usage = CanonUsage()
+        func encode(_ events: [StreamEvent]) -> String {
+            var out = ""
+            for e in events {
+                switch e {
+                case .start(_, _, let u) where u.totalInput > 0: usage = u
+                case .finish(_, let u): usage = u
+                default: break
+                }
+                out += encoder.encode(e)
+            }
+            return out
+        }
         var lines = SSELineBuffer()
         var pending = Data()
         func emit(_ payloads: [String]) async -> Bool {
-            var out = ""
-            for p in payloads {
-                for e in decoder.decode(p) { out += encoder.encode(e) }
-            }
+            let out = encode(payloads.flatMap { decoder.decode($0) })
             return out.isEmpty ? true : await w.write(out)
         }
         do {
@@ -473,21 +665,22 @@ final class GatewayEngine: @unchecked Sendable {
                 if b == 0x0A {
                     guard await emit(lines.feed(pending)) else {
                         bytes.task.cancel()
-                        return
+                        return usage
                     }
                     pending.removeAll(keepingCapacity: true)
                 }
             }
             _ = await emit(lines.feed(pending) + lines.flush())
-            _ = await w.write(decoder.end().map { encoder.encode($0) }.joined())
+            _ = await w.write(encode(decoder.end()))
         } catch {
             _ = await w.write(encoder.encode(.error("Connection to the provider dropped: \(error.localizedDescription)")))
         }
+        return usage
     }
 
     // MARK: count_tokens
 
-    private func countTokens(_ req: GatewayHTTPRequest, _ w: GatewayResponseWriter, _ cfg: GatewayConfig) async {
+    private func countTokens(_ req: GatewayHTTPRequest, _ w: GatewayResponseWriter, _ cfg: GatewayConfig, pinned: String?) async {
         guard var body = GatewayJSON.parse(req.body) else {
             await w.sendJSON(status: 400, GatewayErrorBody.make(.anthropic, status: 400, message: "Request body must be JSON."))
             return
@@ -495,7 +688,8 @@ final class GatewayEngine: @unchecked Sendable {
         let estimate = ["input_tokens": max(1, req.body.count / 4)]
         guard let route = try? GatewayRouter.route(config: cfg, requestedModel: body["model"] as? String ?? "",
                                                    userTexts: GatewayUserText.texts(in: body, api: .anthropic),
-                                                   client: req.headers["user-agent"] ?? "", knownModels: knownModels),
+                                                   client: req.headers["user-agent"] ?? "", pinnedIdentityID: pinned,
+                                                   knownModels: knownModels),
               route.credential.provider == .anthropic,
               let key = key(for: route.credential), !key.isEmpty,
               let url = URL(string: route.credential.effectiveBaseURL + "/v1/messages/count_tokens") else {

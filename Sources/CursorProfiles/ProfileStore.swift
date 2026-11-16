@@ -458,7 +458,8 @@ final class ProfileStore: ObservableObject {
                     displayName: profile.displayName,
                     codePath: customCodePath.isEmpty ? nil : customCodePath,
                     projectPath: projectPath ?? profile.defaultProjectPath,
-                    isSystem: profile.isSystem
+                    isSystem: profile.isSystem,
+                    environment: GatewayController.shared.claudeCodeEnvironment(for: profile.endpointIdentity) ?? [:]
                 )
             case CursorProfile.appClaudeDesktop:
                 try ClaudeLauncher.launchDesktop(

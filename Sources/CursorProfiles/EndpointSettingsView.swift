@@ -22,6 +22,7 @@ struct EndpointSettingsView: View {
                 switchingSection
             }
             if config.enabled {
+                if !config.identities.isEmpty { usageSection }
                 connectSection
                 activitySection
             }
@@ -183,6 +184,23 @@ struct EndpointSettingsView: View {
         }
     }
 
+    /// "Rate-limited until 13:42 → using Personal" / "Over budget".
+    private func limitStatus(_ identity: GatewayIdentity) -> String? {
+        _ = gateway.usageVersion
+        let fallback = identity.fallbackIdentityID.flatMap { config.identity(id: $0)?.name }
+        if let budget = identity.monthlyBudget, budget > 0, gateway.monthUsage(identity.id).cost >= budget {
+            switch identity.budgetAction {
+            case .warn: return "Over its $\(GatewayEngine.money(budget)) budget this month"
+            case .fallback: return "Over budget" + (fallback.map { " → using \($0)" } ?? " → stopped")
+            case .block: return "Over budget → stopped"
+            }
+        }
+        if let until = gateway.cooldowns[identity.id] {
+            return "Rate-limited until \(GatewayEngine.clock(until))" + (fallback.map { " → using \($0)" } ?? "")
+        }
+        return nil
+    }
+
     private func newIdentity() -> GatewayIdentity {
         let used = Set(config.identities.map(\.colorHex))
         let color = AccentPalette.all.first { !used.contains($0.hex) }?.hex ?? AccentPalette.random().hex
@@ -220,6 +238,12 @@ struct EndpointSettingsView: View {
                     .foregroundStyle(providers.isEmpty ? PrismTheme.Colors.amber : PrismTheme.Colors.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let status = limitStatus(identity) {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PrismTheme.Colors.amber)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             Button("Edit…") { editingIdentity = identity }
@@ -317,10 +341,47 @@ struct EndpointSettingsView: View {
         }
     }
 
+    // MARK: Usage
+
+    private var usageSection: some View {
+        Section {
+            ForEach(config.identities) { identity in
+                UsageRow(identity: identity)
+            }
+            let unpriced = gateway.unpricedModels
+            if !unpriced.isEmpty {
+                Text("No price for \(unpriced.prefix(3).joined(separator: ", "))\(unpriced.count > 3 ? " and \(unpriced.count - 3) more" : "") — their tokens are counted but not costed. Add prices below.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            PriceList()
+        } header: {
+            Text("This month")
+        } footer: {
+            Text("Estimated from list prices, before discounts, surcharges and tool fees. Your local servers count as free unless you give them a price.")
+                .font(.system(size: 11))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+        }
+    }
+
     // MARK: Connect apps
 
     private var connectSection: some View {
         Section {
+            Picker("Token in these snippets", selection: Binding(get: { gateway.snippetIdentityID ?? "" },
+                                                                set: { gateway.snippetIdentityID = $0.isEmpty ? nil : $0 })) {
+                Text("Any identity (follows the switch)").tag("")
+                ForEach(config.identities) { identity in
+                    Text("Always \(identity.name)").tag(identity.id)
+                }
+            }
+            if gateway.snippetIdentityID != nil {
+                Text("This token pins the app to one identity — handy for apps that keep a single setting, like Claude Desktop. @tags still work.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             SnippetDisclosure(title: "Chat apps",
                               detail: "Open WebUI, LibreChat, TypingMind, BoltAI, Msty, Chatbox: add an OpenAI-compatible connection.",
                               snippet: gateway.chatAppsSnippet)
@@ -475,7 +536,7 @@ private struct LogRow: View {
                     .truncationMode(.middle)
                 Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(entry.error == nil ? PrismTheme.Colors.textTertiary : PrismTheme.Colors.red)
+                    .foregroundStyle(entry.error != nil ? PrismTheme.Colors.red : (entry.note != nil ? PrismTheme.Colors.amber : PrismTheme.Colors.textTertiary))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -487,9 +548,18 @@ private struct LogRow: View {
     }
 
     private var detail: String {
-        if let e = entry.error { return e }
-        var parts = [entry.client, entry.api, entry.provider]
+        var parts: [String] = []
+        if let note = entry.note { parts.append(note) }
+        if let e = entry.error {
+            parts.append(e)
+            return parts.joined(separator: " · ")
+        }
+        parts += [entry.client, entry.api, entry.provider]
         if !entry.reason.isEmpty { parts.append("via \(entry.reason)") }
+        if entry.inputTokens + entry.outputTokens > 0 {
+            parts.append("\(Format.tokens(entry.inputTokens)) in / \(Format.tokens(entry.outputTokens)) out")
+        }
+        if let cost = entry.cost, cost > 0 { parts.append(Format.dollars(cost)) }
         parts.append("\(entry.milliseconds) ms")
         return parts.joined(separator: " · ")
     }
@@ -624,6 +694,56 @@ struct IdentityEditorSheet: View {
                 }
 
                 Section {
+                    Picker("Fall back to", selection: Binding(get: { identity.fallbackIdentityID ?? "" },
+                                                              set: { identity.fallbackIdentityID = $0.isEmpty ? nil : $0 })) {
+                        Text("Nothing — show the error").tag("")
+                        ForEach(gateway.config.identities.filter { $0.id != identity.id }) { other in
+                            Text(other.name).tag(other.id)
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text("Monthly budget")
+                        Spacer()
+                        Text("$").foregroundStyle(PrismTheme.Colors.textTertiary)
+                        TextField("", text: Binding(get: { identity.monthlyBudget.map { GatewayEngine.money($0) } ?? "" },
+                                                    set: { identity.monthlyBudget = Double($0.trimmingCharacters(in: .whitespaces)).flatMap { $0 > 0 ? $0 : nil } }),
+                                  prompt: Text("No limit"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                            .labelsHidden()
+                    }
+                    if identity.monthlyBudget != nil {
+                        Picker("When it's reached", selection: $identity.budgetAction) {
+                            ForEach(GatewayBudgetAction.allCases) { Text($0.label).tag($0) }
+                        }
+                    }
+                } header: {
+                    Text("Limits")
+                } footer: {
+                    Text("When this identity is rate-limited or out of credit, requests move to the fallback until it recovers. Budgets are estimates and reset each month.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                }
+
+                if !isNew {
+                    Section {
+                        LabeledContent("Token") {
+                            HStack(spacing: 6) {
+                                Text(String(identity.token.prefix(12)) + "…")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+                                CopyButton(text: identity.token)
+                                Button("New") { identity.token = GatewayConfig.newToken() }
+                            }
+                        }
+                    } footer: {
+                        Text("Apps using this token always get \(identity.name.isEmpty ? "this identity" : identity.name), whatever the switch says.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    }
+                }
+
+                Section {
                     HStack(spacing: 6) {
                         TextField("Default model", text: $identity.defaultModel, prompt: Text("claude-sonnet-4-5"))
                         if !availableModels.isEmpty {
@@ -662,7 +782,7 @@ struct IdentityEditorSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 560, height: 620)
+        .frame(width: 560, height: 680)
         .confirmationDialog("Delete \(identity.name)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 gateway.deleteIdentity(identity.id)
@@ -936,9 +1056,13 @@ struct EndpointCard: View {
         case .starting: return "Starting…"
         case .failed(let m): return m
         case .running:
-            if gateway.config.identities.isEmpty { return "Add an identity in Settings" }
-            let n = gateway.log.count
-            return "127.0.0.1:\(gateway.config.port)" + (n > 0 ? " · \(n) request\(n == 1 ? "" : "s")" : "")
+            guard let active = gateway.activeIdentity else { return "Add an identity in Settings" }
+            _ = gateway.usageVersion
+            let spent = gateway.monthUsage(active.id)
+            if spent.requests > 0 {
+                return "\(active.name) · \(Format.dollars(spent.cost)) this month"
+            }
+            return "127.0.0.1:\(gateway.config.port)"
         }
     }
 
@@ -984,5 +1108,165 @@ struct EndpointCard: View {
         .background(PrismTheme.Colors.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
             .strokeBorder(PrismTheme.Colors.border, lineWidth: 1))
+    }
+}
+
+
+// MARK: - Usage pieces
+
+private struct UsageRow: View {
+    @ObservedObject private var gateway = GatewayController.shared
+    let identity: GatewayIdentity
+    @State private var open = false
+
+    var body: some View {
+        let _ = gateway.usageVersion
+        let month = gateway.monthUsage(identity.id)
+        let today = gateway.todayUsage(identity.id)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(hex: identity.colorHex) ?? .accentColor).frame(width: 8, height: 8)
+                Text(identity.name).font(.system(size: 13, weight: .medium))
+                Spacer()
+                Text(Format.dollars(month.cost))
+                    .font(.system(size: 13, weight: .medium))
+                    .monospacedDigit()
+                if let budget = identity.monthlyBudget {
+                    Text("of $\(GatewayEngine.money(budget))")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                }
+                Button {
+                    open.toggle()
+                } label: {
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .disabled(month.requests == 0)
+            }
+            if let budget = identity.monthlyBudget, budget > 0 {
+                BudgetBar(fraction: month.cost / budget, color: Color(hex: identity.colorHex) ?? .accentColor)
+            }
+            Text("\(month.requests) request\(month.requests == 1 ? "" : "s") · \(Format.tokens(month.input + month.cacheRead + month.cacheWrite)) in · \(Format.tokens(month.output)) out · today \(Format.dollars(today.cost))")
+                .font(.system(size: 11))
+                .foregroundStyle(PrismTheme.Colors.textTertiary)
+            if open {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(gateway.monthByModel(identity.id).prefix(8), id: \.model) { row in
+                        HStack {
+                            Text(row.model)
+                                .font(.system(size: 11, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text("\(Format.tokens(row.totals.tokens)) tok")
+                                .foregroundStyle(PrismTheme.Colors.textTertiary)
+                            Text(row.totals.unpriced > 0 && row.totals.cost == 0 ? "—" : Format.dollars(row.totals.cost))
+                                .frame(width: 64, alignment: .trailing)
+                        }
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct BudgetBar: View {
+    let fraction: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(PrismTheme.Colors.surfaceHigh)
+                Capsule()
+                    .fill(fraction >= 1 ? PrismTheme.Colors.red : (fraction >= 0.8 ? PrismTheme.Colors.amber : color))
+                    .frame(width: max(4, geo.size.width * min(fraction, 1)))
+            }
+        }
+        .frame(height: 5)
+    }
+}
+
+/// Your own prices, over the built-in list.
+private struct PriceList: View {
+    @ObservedObject private var gateway = GatewayController.shared
+    @State private var open = false
+    @State private var newPrefix = ""
+    @State private var newInput = ""
+    @State private var newOutput = ""
+    @State private var newCache = ""
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Prices are US dollars per million tokens and match the start of a model id, so “gpt-5.4” covers gpt-5.4-2026-03-01. Yours override the built-in list.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(gateway.config.priceOverrides.keys.sorted(), id: \.self) { prefix in
+                    let p = gateway.config.priceOverrides[prefix]!
+                    HStack {
+                        Text(prefix).font(.system(size: 12, design: .monospaced))
+                        Spacer()
+                        Text("in $\(fmt(p.input)) · out $\(fmt(p.output)) · cached $\(fmt(p.cacheRead))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PrismTheme.Colors.textSecondary)
+                        Button {
+                            gateway.setPrice(nil, for: prefix)
+                        } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.borderless)
+                    }
+                }
+                HStack(spacing: 6) {
+                    TextField("Model id or prefix", text: $newPrefix)
+                    TextField("In", text: $newInput).frame(width: 56)
+                    TextField("Out", text: $newOutput).frame(width: 56)
+                    TextField("Cached", text: $newCache).frame(width: 60)
+                    Button("Add") {
+                        guard let i = Double(newInput), let o = Double(newOutput) else { return }
+                        gateway.setPrice(GatewayPrice(input: i, output: o, cacheRead: Double(newCache)), for: newPrefix)
+                        newPrefix = ""; newInput = ""; newOutput = ""; newCache = ""
+                    }
+                    .disabled(newPrefix.trimmingCharacters(in: .whitespaces).isEmpty || Double(newInput) == nil || Double(newOutput) == nil)
+                }
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .font(.system(size: 12))
+                if let model = gateway.unpricedModels.first, newPrefix.isEmpty {
+                    Button("Use “\(model)”") { newPrefix = model }
+                        .buttonStyle(.link)
+                        .font(.system(size: 11))
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Text("Prices")
+        }
+    }
+
+    private func fmt(_ v: Double) -> String {
+        v == v.rounded() ? String(format: "%.0f", v) : String(format: "%g", v)
+    }
+}
+
+extension Format {
+    /// 1234 → "1.2k", 2_500_000 → "2.5M"
+    static func tokens(_ n: Int) -> String {
+        switch n {
+        case ..<1000: return "\(n)"
+        case ..<1_000_000: return String(format: "%.1fk", Double(n) / 1000)
+        default: return String(format: "%.1fM", Double(n) / 1_000_000)
+        }
+    }
+
+    static func dollars(_ v: Double) -> String {
+        if v == 0 { return "$0" }
+        if v < 0.01 { return "<$0.01" }
+        return v >= 100 ? String(format: "$%.0f", v) : String(format: "$%.2f", v)
     }
 }
