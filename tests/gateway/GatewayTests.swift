@@ -36,7 +36,7 @@ func lastUserText(_ body: JSONObject, api: GatewayAPI) -> String {
     GatewayUserText.texts(in: body, api: api).last ?? ""
 }
 
-func mockHandler(_ req: GatewayHTTPRequest, _ w: GatewayResponseWriter) async {
+@Sendable func mockHandler(_ req: GatewayHTTPRequest, _ w: GatewayResponseWriter) async {
     let body = GatewayJSON.parse(req.body) ?? [:]
     mockLog.record(req.path, body, req.headers)
     let stream = body["stream"] as? Bool ?? false
@@ -111,7 +111,7 @@ func mockHandler(_ req: GatewayHTTPRequest, _ w: GatewayResponseWriter) async {
         if stream {
             await w.startStream(status: 200, headers: [("Content-Type", "text/event-stream")])
             func chunk(_ delta: JSONObject, _ finish: String? = nil) -> String {
-                "data: " + GatewayJSON.string(["id": "c1", "model": body["model"] ?? "", "choices": [["index": 0, "delta": delta, "finish_reason": finish ?? NSNull()]]]) + "\n\n"
+                "data: " + GatewayJSON.string(["id": "c1", "model": body["model"] ?? "", "choices": [["index": 0, "delta": delta, "finish_reason": finish.map { $0 as Any } ?? NSNull()]]] as JSONObject) + "\n\n"
             }
             var s = chunk(["role": "assistant", "content": ""]) + chunk(["content": text])
             if hasTools {
