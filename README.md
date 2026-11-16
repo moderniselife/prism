@@ -98,10 +98,17 @@ Point any AI app at Prism and switch between **work and personal mid-chat** — 
 - Set it up in **Settings → Endpoint** (Windows: the **Endpoint** card; Linux: **Preferences → Endpoint**); it shows copy-ready setup for Open WebUI, LibreChat, TypingMind, Claude Code, Codex, Claude Desktop (Developer → Configure Third-Party Inference → Gateway) and the SDKs, plus a live log of which identity answered each request
 - Uses **API keys only**: Claude Pro/Max and ChatGPT subscription sign-ins are only allowed in their providers' own apps
 
+### Groups
+- **Sort profiles into groups** — a project, a client, a kind of work. A group can hold profiles from any app, so one *Acme* group can have its Cursor, Claude Code and Claude Desktop profiles together
+- Make one with **+** next to *Groups* in the sidebar, then file profiles by dragging them onto it, from **Group** in their menu, the detail panel or the profile editor
+- Pick a group in the sidebar to see only its profiles, or arrange the whole list **by group** (sort menu, or Settings → General). Rename, recolour, reorder and delete groups from their menu or **Settings → Groups**; deleting a group keeps its profiles
+- Groups are made in the macOS app; the TUI, Windows and Linux apps keep each profile's group as it is
+
 ### Launching & switching
 - **One-click launch** — double-click a profile or use its row action, or open launch options for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a Cursor or Claude Code profile to open it there
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
+- **Settings** (`⌘,` or the gear in the sidebar) — General, Apps, Groups, Second brain, Endpoint and **About & updates**, which shows the version and build and checks GitHub for a new Prism (also **Prism → Check for Updates…**)
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
 - **Restart & Update** — Cursor, Claude Desktop and Grok Bot only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
 - **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
@@ -201,7 +208,8 @@ Sources/CursorProfiles/
   HubComponents.swift       # App glyphs, shared profile actions and menus
   ProfileEditorSheet.swift  # Create/edit sheet
   SpotlightCommandBar.swift # ⌥Space quick-switch palette
-  SettingsView.swift        # App paths, defaults, storage
+  SettingsWindow.swift      # Settings window: General, Apps, Groups, About & updates
+  ProfileGroupsUI.swift     # Groups: sidebar, menus, pickers; window drag regions
   ProfileStore.swift        # Metadata, CRUD, live RSS/CPU/window polling
   SystemStats.swift         # Real CPU/RAM/window measurement + global hotkey helpers
   CursorLauncher.swift      # Find/launch/quit Cursor processes
