@@ -20,6 +20,7 @@ public class ProfileVM : INotifyPropertyChanged
     private long _liveBytes;
     private int _windowCount;
     private bool _isDuplicating;
+    private bool _isSelected;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void Raise([CallerMemberName] string? name = null) =>
@@ -40,7 +41,12 @@ public class ProfileVM : INotifyPropertyChanged
                  nameof(ShowPin), nameof(ProjectText), nameof(HasProject),
                  nameof(RunningText), nameof(StatusBrush), nameof(PidText), nameof(DotBrush),
                  nameof(LaunchLabel), nameof(MemoryMain), nameof(MemorySuffix), nameof(MemoryBrush),
-                 nameof(WindowsText), nameof(MemFraction), nameof(IsDuplicating) })
+                 nameof(WindowsText), nameof(MemFraction), nameof(IsDuplicating),
+                 nameof(StatusLine), nameof(IsIdle), nameof(LiveMemoryText), nameof(HasLiveMemory),
+                 nameof(AppIcon), nameof(TileBrush), nameof(Subtitle), nameof(PidValue), nameof(HasPid),
+                 nameof(WindowCountText), nameof(HasWindows), nameof(MemoryDetail), nameof(LastUsedText),
+                 nameof(ProjectDisplay), nameof(HasMemoryCap), nameof(MemoryCapText), nameof(OpensProjectFolder),
+                 nameof(CopyActionTitle), nameof(IsGrok), nameof(SecondaryLabel) })
             Raise(p);
     }
 
@@ -60,6 +66,9 @@ public class ProfileVM : INotifyPropertyChanged
             Raise(nameof(PidText)); Raise(nameof(DotBrush)); Raise(nameof(LaunchLabel));
             Raise(nameof(MemoryMain)); Raise(nameof(MemorySuffix)); Raise(nameof(MemoryBrush));
             Raise(nameof(WindowsText)); Raise(nameof(MemFraction));
+            Raise(nameof(StatusLine)); Raise(nameof(IsIdle)); Raise(nameof(LiveMemoryText));
+            Raise(nameof(HasLiveMemory)); Raise(nameof(PidValue)); Raise(nameof(HasPid));
+            Raise(nameof(MemoryDetail)); Raise(nameof(SecondaryLabel));
         }
     }
 
@@ -71,19 +80,64 @@ public class ProfileVM : INotifyPropertyChanged
         {
             _liveBytes = value;
             Raise(nameof(MemoryMain)); Raise(nameof(MemFraction));
+            Raise(nameof(LiveMemoryText)); Raise(nameof(HasLiveMemory)); Raise(nameof(MemoryDetail));
         }
     }
 
     public int WindowCount
     {
         get => _windowCount;
-        set { _windowCount = value; Raise(nameof(WindowsText)); }
+        set
+        {
+            _windowCount = value;
+            Raise(nameof(WindowsText)); Raise(nameof(WindowCountText)); Raise(nameof(HasWindows));
+        }
     }
 
     public bool IsDuplicating
     {
         get => _isDuplicating;
-        set { _isDuplicating = value; Raise(); }
+        set { _isDuplicating = value; Raise(); Raise(nameof(StatusLine)); }
+    }
+
+    /// <summary>The row shown in the detail panel.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set { _isSelected = value; Raise(); }
+    }
+
+    // Hub list and detail panel
+    public bool IsIdle => !IsRunning;
+    public bool IsGrok => Model.NormalizedApp == CursorProfile.AppGrokBot;
+    public string StatusLine => _isDuplicating ? "Copying…"
+        : IsRunning ? "Running"
+        : Model.LastLaunchedAt is null ? "Idle" : $"Idle · {Format.Relative(Model.LastLaunchedAt)}";
+    public bool HasLiveMemory => IsRunning && _liveBytes > 0;
+    public string LiveMemoryText => HasLiveMemory ? Format.Bytes(_liveBytes) : "";
+    public string MemoryDetail => !HasLiveMemory ? "Measuring…"
+        : Format.Bytes(_liveBytes) + (HasMemoryCap ? $" of {Model.MemoryCapLabel}" : "");
+    public int PidValue => _runningPids.FirstOrDefault(pid => pid > 0);
+    public bool HasPid => PidValue > 0;
+    public bool HasWindows => IsRunning && _windowCount > 0;
+    public string WindowCountText => _windowCount.ToString();
+    public string LastUsedText => Model.LastLaunchedAt is null ? "Never" : Format.Relative(Model.LastLaunchedAt);
+    public string ProjectDisplay => string.IsNullOrEmpty(Model.DefaultProjectPath) ? "None" : Model.DefaultProjectPath!;
+    public bool OpensProjectFolder => Model.OpensProjectFolder;
+    public string MemoryCapText => Model.MemoryCapLabel;
+    public string CopyActionTitle => Model.CopyActionTitle;
+    public string Subtitle => Model.IsSystem ? $"{Model.AppLabel} · Default profile" : Model.AppLabel;
+    /// <summary>Quit while running, launch options otherwise.</summary>
+    public string SecondaryLabel => IsRunning ? "Quit" : "Options…";
+    public System.Windows.Media.Geometry AppIcon => AppIcons.For(Model.NormalizedApp);
+    /// <summary>Profile color at ~14% for the detail panel's icon tile.</summary>
+    public Brush TileBrush
+    {
+        get
+        {
+            var c = Palette.ColorFromHex(Model.ColorHex);
+            return new SolidColorBrush(Color.FromArgb(0x24, c.R, c.G, c.B));
+        }
     }
 
     // Bindable projections
@@ -101,9 +155,11 @@ public class ProfileVM : INotifyPropertyChanged
     public string AppName => Model.AppLabel;
     public string AppBadge => Model.AppBadge;
     public bool ShowAppBadge => Model.ShowAppBadge;
-    public string LaunchLabel => Model.NormalizedApp == CursorProfile.AppClaudeCode && !IsRunning
-        ? "Open Terminal"
-        : IsRunning ? "New Window" : "Launch";
+    /// <summary>Grok Bot has no new-window switch: launching a running
+    /// profile again brings its window forward.</summary>
+    public string LaunchLabel => IsRunning
+        ? (Model.NormalizedApp == CursorProfile.AppGrokBot ? "Show" : "New Window")
+        : (Model.NormalizedApp == CursorProfile.AppClaudeCode ? "Open Terminal" : "Launch");
     public bool ShowPin => Model.IsPinned && !Model.IsSystem;
     public bool IsRunning => _runningPids.Count > 0;
     public string RunningText => IsRunning ? "Running" : "Idle";
@@ -111,6 +167,7 @@ public class ProfileVM : INotifyPropertyChanged
     public string LastLaunchedText => Format.Relative(Model.LastLaunchedAt);
     public string ProjectText => Model.DefaultProjectPath ?? "";
     public bool HasProject => !string.IsNullOrEmpty(Model.DefaultProjectPath);
+    public bool HasMemoryCap => Model.HasMemoryCap;
 
     public string PidText
     {
@@ -122,7 +179,6 @@ public class ProfileVM : INotifyPropertyChanged
         }
     }
 
-    private bool HasMemoryCap => Model.NormalizedApp == CursorProfile.AppCursor;
     private long LimitBytes => HasMemoryCap ? (long)Model.DefaultMemoryMB * 1024 * 1024 : 0;
 
     /// <summary>Live RSS when running, configured limit when idle. Never a guess.
@@ -205,7 +261,10 @@ public class ProfileStore
     public string ProfilesDir { get; }
     public string CodeDir { get; }
     public string DesktopDir { get; }
+    public string GrokDir { get; }
     public LauncherSettings Settings { get; }
+    /// <summary>Second brain (Brainium) state and actions.</summary>
+    public BrainService Brain { get; }
     public List<ProfileVM> Profiles { get; } = new();
 
     public event Action? Changed;
@@ -232,8 +291,8 @@ public class ProfileStore
     /// <summary>Real (built-in) data location per app.</summary>
     public static string SystemDataDirFor(string app)
     {
-        var normalized = app == CursorProfile.AppClaudeCode ? app
-            : app == CursorProfile.AppClaudeDesktop ? app : CursorProfile.AppCursor;
+        var normalized = CursorProfile.NormalizeApp(app);
+        if (normalized == CursorProfile.AppGrokBot) return GrokLauncher.SystemUserDataDir;
         if (normalized == CursorProfile.AppClaudeCode)
         {
             var env = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
@@ -253,10 +312,11 @@ public class ProfileStore
         return SystemDataDir;
     }
 
-    public string DirForApp(string app) => app switch
+    public string DirForApp(string app) => CursorProfile.NormalizeApp(app) switch
     {
         CursorProfile.AppClaudeCode => CodeDir,
         CursorProfile.AppClaudeDesktop => DesktopDir,
+        CursorProfile.AppGrokBot => GrokDir,
         _ => ProfilesDir,
     };
 
@@ -268,6 +328,9 @@ public class ProfileStore
 
     public string? ResolvedDesktopPath => ClaudeLauncher.FindClaudeDesktop(
         string.IsNullOrWhiteSpace(Settings.CustomDesktopPath) ? null : Settings.CustomDesktopPath);
+
+    public string? ResolvedGrokPath => GrokLauncher.FindGrokBot(
+        string.IsNullOrWhiteSpace(Settings.CustomGrokPath) ? null : Settings.CustomGrokPath);
 
     /// <summary>
     /// True when managed Desktop profiles exist but the standalone installer
@@ -281,13 +344,19 @@ public class ProfileStore
     /// <summary>Raised when a Desktop profile can't launch without the standalone installer build.</summary>
     public event Action<string>? DesktopInstallRequired;
 
-    public ProfileStore(string? profilesDir = null, string? codeDir = null, string? desktopDir = null)
+    public ProfileStore(string? profilesDir = null, string? codeDir = null, string? desktopDir = null,
+                        string? grokDir = null)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         ProfilesDir = profilesDir ?? Path.Combine(home, ".cursor_profiles");
         CodeDir = codeDir ?? Path.Combine(home, ".claude_code_profiles");
         DesktopDir = desktopDir ?? Path.Combine(home, ".claude_desktop_profiles");
+        // Tests pass temp dirs for the other apps: keep Grok beside them.
+        GrokDir = grokDir ?? (profilesDir is null
+            ? Path.Combine(home, ".grokbot_profiles")
+            : Path.Combine(Path.GetDirectoryName(profilesDir) ?? profilesDir, "grok"));
         Settings = LauncherSettings.Load(ProfilesDir);
+        Brain = new BrainService(this);
         Reload();
 
         _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
@@ -307,7 +376,7 @@ public class ProfileStore
     public void Reload()
     {
         Profiles.Clear();
-        foreach (var app in new[] { CursorProfile.AppCursor, CursorProfile.AppClaudeCode, CursorProfile.AppClaudeDesktop })
+        foreach (var app in CursorProfile.AllApps)
             foreach (var p in LoadApp(app))
                 Profiles.Add(new ProfileVM(p));
         SaveMetadata();
@@ -349,7 +418,9 @@ public class ProfileStore
         known.RemoveAll(p => !p.IsSystem && !onDisk.Contains(p.FolderName));
 
         // Surface the original app data — visible, launchable, protected.
-        if (!known.Any(p => p.IsSystem) && Directory.Exists(SystemDataDirFor(app)))
+        var systemExists = Directory.Exists(SystemDataDirFor(app))
+            || (app == CursorProfile.AppGrokBot && Directory.Exists(GrokLauncher.SystemDataRoot));
+        if (!known.Any(p => p.IsSystem) && systemExists)
         {
             known.Insert(0, new CursorProfile
             {
@@ -381,7 +452,7 @@ public class ProfileStore
     {
         try
         {
-            foreach (var app in new[] { CursorProfile.AppCursor, CursorProfile.AppClaudeCode, CursorProfile.AppClaudeDesktop })
+            foreach (var app in CursorProfile.AllApps)
             {
                 var json = JsonSerializer.Serialize(
                     Profiles.Select(p => p.Model).Where(p => p.NormalizedApp == app).ToList(),
@@ -399,10 +470,13 @@ public class ProfileStore
         CreateProfile(displayName, CursorProfile.AppCursor, colorHex, memoryMB, projectPath);
 
     public ProfileVM? CreateProfile(string displayName, string app, string colorHex,
-                                    int memoryMB, string? projectPath)
+                                    int memoryMB, string? projectPath) =>
+        CreateProfile(displayName, app, colorHex, memoryMB, projectPath, wire: true);
+
+    private ProfileVM? CreateProfile(string displayName, string app, string colorHex,
+                                     int memoryMB, string? projectPath, bool wire)
     {
-        if (app != CursorProfile.AppClaudeCode && app != CursorProfile.AppClaudeDesktop)
-            app = CursorProfile.AppCursor;
+        app = CursorProfile.NormalizeApp(app);
         var baseName = ProfileNaming.SanitizeFolderName(displayName.Replace(' ', '_'));
         if (baseName.Length == 0)
         {
@@ -436,8 +510,54 @@ public class ProfileStore
         RefreshSizes();
         if (app == CursorProfile.AppCursor)
             TitleBarColorizer.Apply(profile, dir);
+        if (wire) Brain.WireIfEnabled(vm);
         return vm;
     }
+
+    // MARK: Overflow accounts
+
+    /// <summary>Create a profile of source's app carrying over source's agents
+    /// and config (never its sign-in). On a failed copy the half-made profile
+    /// is removed again.</summary>
+    public async Task<ProfileVM?> CreateOverflow(string displayName, string colorHex, int memoryMB,
+                                                 string? projectPath, ProfileVM source)
+    {
+        var src = source.Model;
+        var vm = CreateProfile(displayName, src.NormalizedApp, colorHex, memoryMB, projectPath, wire: false);
+        if (vm is null) return null;
+        var srcDir = DirectoryFor(src);
+        var dstDir = DirectoryFor(vm.Model);
+        vm.IsDuplicating = true;
+        source.IsDuplicating = true;
+        try
+        {
+            await Task.Run(() => CarryOver.Run(src.NormalizedApp, srcDir, src.IsSystem, dstDir));
+            if (vm.Model.NormalizedApp == CursorProfile.AppCursor)
+                TitleBarColorizer.Apply(vm.Model, dstDir); // the copied settings carry the source's color
+        }
+        catch (Exception e)
+        {
+            try { if (Directory.Exists(dstDir)) Directory.Delete(dstDir, true); } catch { }
+            Profiles.Remove(vm);
+            SaveMetadata();
+            Changed?.Invoke();
+            Error?.Invoke($"Could not carry over from {src.DisplayName}: {e.Message}");
+            return null;
+        }
+        finally
+        {
+            vm.IsDuplicating = false;
+            source.IsDuplicating = false;
+        }
+        RefreshSizes();
+        Brain.WireIfEnabled(vm);
+        return vm;
+    }
+
+    /// <summary>One click: a second account of source's app with its setup.</summary>
+    public Task<ProfileVM?> NewOverflow(ProfileVM source) =>
+        CreateOverflow(source.Model.CopyName, Palette.RandomHex(), source.Model.DefaultMemoryMB,
+            source.Model.DefaultProjectPath, source);
 
     /// <summary>Seed a fresh Desktop profile with the main install's MCP/connectors
     /// config — without copying gigabytes of cache.</summary>
@@ -460,9 +580,7 @@ public class ProfileStore
         // Folder names stay globally unique across apps: live-stats maps are
         // keyed by folder name in every client.
         bool Taken(string f) =>
-            f == CursorProfile.SystemFolderName ||
-            f == CursorProfile.SystemCodeFolderName ||
-            f == CursorProfile.SystemDesktopFolderName ||
+            CursorProfile.SystemFolderNames.Contains(f) ||
             Profiles.Any(p => string.Equals(p.Model.FolderName, f, StringComparison.OrdinalIgnoreCase));
         while (Taken(folder))
         {
@@ -500,7 +618,8 @@ public class ProfileStore
         try
         {
             ShortcutBuilder.CreateOrUpdate(vm.Model, DirectoryFor(vm.Model),
-                Settings.CustomCursorPath, Settings.CustomCodePath, Settings.CustomDesktopPath);
+                Settings.CustomCursorPath, Settings.CustomCodePath, Settings.CustomDesktopPath,
+                Settings.CustomGrokPath);
             if (announce)
             {
                 Info?.Invoke(
@@ -525,6 +644,12 @@ public class ProfileStore
     {
         var profile = vm.Model;
         var app = profile.NormalizedApp;
+        // Desktop and Grok Bot copies are always second accounts.
+        if (!profile.ClonesWholeProfile)
+        {
+            await NewOverflow(vm);
+            return;
+        }
         var baseName = profile.IsSystem ? app switch
         {
             CursorProfile.AppClaudeCode => "Main-Claude-Code-Clone",
@@ -647,6 +772,11 @@ public class ProfileStore
                         projectPath: projectPath ?? p.DefaultProjectPath,
                         isSystem: p.IsSystem);
                     break;
+                case CursorProfile.AppGrokBot:
+                    GrokLauncher.Launch(
+                        profileDir: p.IsSystem ? null : DirectoryFor(p),
+                        grokPath: string.IsNullOrWhiteSpace(Settings.CustomGrokPath) ? null : Settings.CustomGrokPath);
+                    break;
                 case CursorProfile.AppClaudeDesktop:
                     ClaudeLauncher.LaunchDesktop(
                         profileDir: p.IsSystem ? null : DirectoryFor(p),
@@ -699,8 +829,9 @@ public class ProfileStore
         var snapshot = Profiles.Select(vm => (vm, dir: DirectoryFor(vm.Model), vm.Model.IsSystem, app: vm.Model.NormalizedApp)).ToList();
         var processes = await Task.Run(CursorLauncher.ProcessList);
         var desktopProcesses = await Task.Run(ClaudeLauncher.DesktopProcessList);
+        var grokProcesses = await Task.Run(GrokLauncher.ProcessList);
         var bytesByPid = processes.ToDictionary(p => p.Pid, p => p.WorkingSetBytes);
-        foreach (var d in desktopProcesses)
+        foreach (var d in desktopProcesses.Concat(grokProcesses))
             bytesByPid[d.Pid] = d.WorkingSetBytes;
         var anyDesktopAlive = desktopProcesses.Count > 0;
         var matched = new Dictionary<ProfileVM, List<int>>();
@@ -714,6 +845,8 @@ public class ProfileStore
                     ClaudeLauncher.SystemDesktopPids(desktopProcesses),
                 CursorProfile.AppClaudeDesktop =>
                     ClaudeLauncher.DesktopPids(desktopProcesses, dir),
+                CursorProfile.AppGrokBot when isSystem => GrokLauncher.SystemPids(grokProcesses),
+                CursorProfile.AppGrokBot => GrokLauncher.Pids(grokProcesses, dir),
                 _ when isSystem => CursorLauncher.SystemProfilePids(processes),
                 _ => CursorLauncher.Pids(processes, dir),
             };

@@ -16,11 +16,43 @@ public class CursorProfile
     /// Reserved marker for the built-in Claude Desktop profile (the real
     /// Electron userData dir). Never a real folder, never deletable.
     public const string SystemDesktopFolderName = "__claude-desktop-default__";
+    /// Reserved marker for the built-in Grok Bot profile (its default
+    /// userData + ~/.grokbot). Never a real folder, never deletable.
+    public const string SystemGrokFolderName = "__grok-bot-default__";
 
     /// App identifiers. Absent in files predating multi-app support (= cursor).
     public const string AppCursor = "cursor";
     public const string AppClaudeCode = "claude-code";
     public const string AppClaudeDesktop = "claude-desktop";
+    public const string AppGrokBot = "grok-bot";
+
+    /// <summary>Every app Prism manages, in display order.</summary>
+    public static readonly string[] AllApps = { AppCursor, AppClaudeCode, AppClaudeDesktop, AppGrokBot };
+
+    public static readonly string[] SystemFolderNames =
+        { SystemFolderName, SystemCodeFolderName, SystemDesktopFolderName, SystemGrokFolderName };
+
+    /// <summary>Legacy/unknown app values are Cursor profiles.</summary>
+    public static string NormalizeApp(string? app) => app switch
+    {
+        AppClaudeCode => AppClaudeCode,
+        AppClaudeDesktop => AppClaudeDesktop,
+        AppGrokBot => AppGrokBot,
+        _ => AppCursor,
+    };
+
+    public static string LabelFor(string app) => NormalizeApp(app) switch
+    {
+        AppClaudeCode => "Claude Code",
+        AppClaudeDesktop => "Claude Desktop",
+        AppGrokBot => "Grok Bot",
+        _ => "Cursor",
+    };
+
+    /// <summary>Grok Bot's agents live on the signed-in account, so its copy
+    /// carries settings only and gets plainer words than "overflow".</summary>
+    public static string CopyChoiceLabelFor(string app) =>
+        NormalizeApp(app) == AppGrokBot ? "Copy settings" : "Overflow account";
 
     [JsonPropertyName("folderName")] public string FolderName { get; set; } = "";
     [JsonPropertyName("displayName")] public string DisplayName { get; set; } = "";
@@ -47,43 +79,63 @@ public class CursorProfile
 
     /// <summary>Normalize legacy/unknown app values to cursor.</summary>
     [JsonIgnore]
-    public string NormalizedApp => App switch
-    {
-        AppClaudeCode => AppClaudeCode,
-        AppClaudeDesktop => AppClaudeDesktop,
-        _ => AppCursor,
-    };
+    public string NormalizedApp => NormalizeApp(App);
 
     [JsonIgnore]
-    public string AppLabel => NormalizedApp switch
-    {
-        AppClaudeCode => "Claude Code",
-        AppClaudeDesktop => "Claude Desktop",
-        _ => "Cursor",
-    };
+    public string AppLabel => LabelFor(App);
 
     [JsonIgnore]
     public string AppBadge => NormalizedApp switch
     {
         AppClaudeCode => "CODE",
         AppClaudeDesktop => "DESKTOP",
+        AppGrokBot => "GROK",
         _ => "",
     };
 
     [JsonIgnore]
     public bool ShowAppBadge => NormalizedApp != AppCursor;
 
-    public static string SystemMarkerFor(string app) => app switch
+    /// <summary>Only Cursor launches with --max-memory.</summary>
+    [JsonIgnore]
+    public bool HasMemoryCap => NormalizedApp == AppCursor;
+
+    /// <summary>Whether launching can open a project folder (Cursor, Claude Code).</summary>
+    [JsonIgnore]
+    public bool OpensProjectFolder => NormalizedApp is AppCursor or AppClaudeCode;
+
+    /// <summary>Cursor and Claude Code duplicates are full clones (same login);
+    /// Desktop and Grok Bot copies are always overflow accounts.</summary>
+    [JsonIgnore]
+    public bool ClonesWholeProfile => NormalizedApp is AppCursor or AppClaudeCode;
+
+    /// <summary>Sentence-case label for "copy into a second account".</summary>
+    [JsonIgnore]
+    public string CopyActionTitle => NormalizedApp == AppGrokBot
+        ? "Copy settings to a new profile" : "New overflow account from this";
+
+    [JsonIgnore]
+    public string MemoryCapLabel => DefaultMemoryMB >= 1024
+        ? $"{DefaultMemoryMB / 1024.0:0} GB" : $"{DefaultMemoryMB} MB";
+
+    /// <summary>Display name for a one-click copy of this profile.</summary>
+    [JsonIgnore]
+    public string CopyName => (IsSystem ? AppLabel : DisplayName)
+        + (NormalizedApp == AppGrokBot ? " 2" : " Overflow");
+
+    public static string SystemMarkerFor(string app) => NormalizeApp(app) switch
     {
         AppClaudeCode => SystemCodeFolderName,
         AppClaudeDesktop => SystemDesktopFolderName,
+        AppGrokBot => SystemGrokFolderName,
         _ => SystemFolderName,
     };
 
-    public static string SystemDisplayNameFor(string app) => app switch
+    public static string SystemDisplayNameFor(string app) => NormalizeApp(app) switch
     {
         AppClaudeCode => "Main Claude Code",
         AppClaudeDesktop => "Main Claude Desktop",
+        AppGrokBot => "Main Grok Bot",
         _ => "Main Cursor",
     };
 }
@@ -179,6 +231,13 @@ public class LauncherSettings
     [JsonPropertyName("customCursorPath")] public string CustomCursorPath { get; set; } = "";
     [JsonPropertyName("customCodePath")] public string CustomCodePath { get; set; } = "";
     [JsonPropertyName("customDesktopPath")] public string CustomDesktopPath { get; set; } = "";
+    [JsonPropertyName("customGrokPath")] public string CustomGrokPath { get; set; } = "";
+    /// <summary>Brainium checkout (or bin/brainium.mjs); empty = auto-detect.</summary>
+    [JsonPropertyName("brainiumPath")] public string BrainiumPath { get; set; } = "";
+    /// <summary>node.exe for Brainium; empty = auto-detect.</summary>
+    [JsonPropertyName("brainiumNodePath")] public string BrainiumNodePath { get; set; } = "";
+    /// <summary>Wire new profiles into the second brain as they're created.</summary>
+    [JsonPropertyName("brainAutoWire")] public bool BrainAutoWire { get; set; }
     [JsonPropertyName("defaultMemoryMB")] public int DefaultMemoryMB { get; set; } = 16384;
     /// <summary>App theme: "system" (follow Windows), "light" or "dark".</summary>
     [JsonPropertyName("theme")] public string Theme { get; set; } = "system";

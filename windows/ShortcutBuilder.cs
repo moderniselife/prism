@@ -32,6 +32,7 @@ public static class ShortcutBuilder
         // so "Work" (Cursor) and "Work" (Desktop) don't overwrite each other.
         CursorProfile.AppClaudeCode => $"{profile.DisplayName} (Claude Code)",
         CursorProfile.AppClaudeDesktop => $"{profile.DisplayName} (Claude Desktop)",
+        CursorProfile.AppGrokBot => $"{profile.DisplayName} (Grok Bot)",
         _ => profile.DisplayName,
     };
 
@@ -39,7 +40,7 @@ public static class ShortcutBuilder
 
     public static void CreateOrUpdate(CursorProfile profile, string profileDir,
                                       string? cursorPath, string? codePath = null,
-                                      string? desktopPath = null)
+                                      string? desktopPath = null, string? grokPath = null)
     {
         Directory.CreateDirectory(ShortcutsDir);
         Directory.CreateDirectory(IconsDir);
@@ -70,6 +71,25 @@ public static class ShortcutBuilder
                 args = profile.IsSystem ? "" : $"--user-data-dir \"{profileDir}\"";
                 workingDirectory = Path.GetDirectoryName(exe) ?? "";
                 description = $"Open Claude Desktop with the \"{profile.DisplayName}\" profile";
+                break;
+            }
+            case CursorProfile.AppGrokBot:
+            {
+                var grokExe = GrokLauncher.FindGrokBot(grokPath) ?? "Grok Bot.exe";
+                if (profile.IsSystem)
+                {
+                    exe = grokExe;
+                    args = "";
+                }
+                else
+                {
+                    // Isolation is an environment variable, which a shortcut
+                    // can't set directly: hand off through cmd.
+                    exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+                    args = $"/c set \"{GrokLauncher.UserDataEnv}={profileDir}\" && start \"\" \"{grokExe}\" \"--user-data-dir={profileDir}\"";
+                }
+                workingDirectory = Path.GetDirectoryName(grokExe) ?? "";
+                description = $"Open Grok Bot with the \"{profile.DisplayName}\" profile";
                 break;
             }
             default:

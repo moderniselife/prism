@@ -36,22 +36,32 @@ public sealed class CardTemplateTests
             foreach (var key in resources.Keys)
                 window.Resources[key] = resources[key];
 
-            var cards = (ItemsControl)window.FindName("Cards");
-            Assert.NotNull(cards);
-            var template = (DataTemplate)cards.ItemTemplate;
+            var template = RowTemplate(window);
             Assert.NotNull(template);
+            Assert.Same(template, ((ItemsControl)window.FindName("RunningRows")).ItemTemplate);
+            Assert.Same(template, ((ItemsControl)window.FindName("IdleRows")).ItemTemplate);
 
             int realized = 0;
             foreach (var vm in SampleProfiles())
             {
                 var root = (FrameworkElement)template.LoadContent();
                 root.DataContext = vm;
-                root.Measure(new Size(300, 300));
-                root.Arrange(new Rect(new Size(300, 300)));
+                root.Measure(new Size(800, 44));
+                root.Arrange(new Rect(new Size(800, 44)));
                 root.UpdateLayout();
                 realized++;
             }
-            Assert.Equal(3, realized);
+            Assert.Equal(4, realized);
+
+            // The detail panel binds the same view model.
+            var inspector = (FrameworkElement)window.FindName("InspectorContent");
+            foreach (var vm in SampleProfiles())
+            {
+                inspector.DataContext = vm;
+                inspector.Measure(new Size(320, 800));
+                inspector.Arrange(new Rect(new Size(320, 800)));
+                inspector.UpdateLayout();
+            }
         });
     }
 
@@ -73,10 +83,15 @@ public sealed class CardTemplateTests
 
     private static readonly string[] ThemeBrushKeys =
     {
-        "WindowBrush", "CardBrush", "CardBorderBrush", "CardHoverBorderBrush",
-        "TextBrush", "SubTextBrush", "MutedBrush", "FieldBrush", "TrackBrush",
-        "AccentBrush", "DangerBrush", "SuccessBrush",
+        "WindowBrush", "SidebarBrush", "PanelBrush", "CardBrush", "CardBorderBrush",
+        "SubtleBorderBrush", "CardHoverBorderBrush", "TextBrush", "SubTextBrush", "MutedBrush",
+        "FieldBrush", "HoverBrush", "SelectedBrush", "TrackBrush", "AccentBrush", "AccentTextBrush",
+        "AccentSoftBrush", "AccentRingBrush", "DangerBrush", "SuccessBrush", "LiveBrush", "WarningBrush",
     };
+
+    /// <summary>The shared row template both list groups use.</summary>
+    private static DataTemplate RowTemplate(Window window) =>
+        (DataTemplate)window.Resources["ProfileRowTemplate"];
 
     /// <summary>
     /// Both theme dictionaries load and expose identical brush keys, so a
@@ -118,8 +133,7 @@ public sealed class CardTemplateTests
             // App styles (Card, buttons) + theme brushes, like the real app.
             foreach (var key in resources.Keys)
                 window.Resources[key] = resources[key];
-            var cards = (ItemsControl)window.FindName("Cards");
-            var template = (DataTemplate)cards.ItemTemplate;
+            var template = RowTemplate(window);
             foreach (var theme in new[] { "Dark.xaml", "Light.xaml" })
             {
                 // Swap just the theme layer, mirroring ThemeManager.
@@ -132,8 +146,8 @@ public sealed class CardTemplateTests
                 {
                     var root = (FrameworkElement)template.LoadContent();
                     root.DataContext = vm;
-                    root.Measure(new Size(300, 300));
-                    root.Arrange(new Rect(new Size(300, 300)));
+                    root.Measure(new Size(800, 44));
+                    root.Arrange(new Rect(new Size(800, 44)));
                     root.UpdateLayout();
                 }
                 window.Resources.MergedDictionaries.Clear();
@@ -291,7 +305,127 @@ public sealed class CardTemplateTests
             });
             new SettingsWindow(store).Close();
             new LaunchOptionsWindow(store, vm).Close();
+            new SecondBrainWindow(store).Close();
         });
+    }
+
+    [Fact]
+    public void ProfileEditorWindow_Constructs_For_Grok_Edit()
+    {
+        OnStaThread(() =>
+        {
+            var store = NewTempStore();
+            var vm = new ProfileVM(new CursorProfile
+            {
+                FolderName = "Grok2",
+                DisplayName = "Grok 2",
+                App = CursorProfile.AppGrokBot,
+                ColorHex = "#8B5CF6",
+            });
+            new ProfileEditorWindow(store, vm).Close();
+        });
+    }
+
+    [Fact]
+    public void Grok_Main_Process_Matching()
+    {
+        var list = new List<ProcessEntry>
+        {
+            new(1, 0, @"""C:\G\Grok Bot.exe"""),
+            new(2, 0, @"""C:\G\Grok Bot.exe"" --user-data-dir=C:\p\Work"),
+            new(3, 0, @"""C:\G\Grok Bot.exe"" --type=renderer --user-data-dir=C:\p\Work"),
+            new(4, 0, @"""C:\G\Grok Bot.exe"" C:\G\resources\local-exec.cjs"),
+            new(5, 0, @"""C:\G\Grok Bot.exe"" --user-data-dir=C:\p\Work2"),
+            new(6, 0, @"""C:\G\Grok Bot.exe"" ""--user-data-dir=C:\Users\A B\Work"""),
+        };
+        Assert.Equal(new[] { 1 }, GrokLauncher.SystemPids(list));
+        Assert.Equal(new[] { 2 }, GrokLauncher.Pids(list, @"C:\p\Work"));
+        Assert.Equal(new[] { 5 }, GrokLauncher.Pids(list, @"C:\p\Work2\"));
+        Assert.Equal(new[] { 6 }, GrokLauncher.Pids(list, @"C:\Users\A B\Work"));
+        Assert.Equal(@"C:\p\Work\sand-data", GrokLauncher.DataRoot(@"C:\p\Work", false));
+    }
+
+    [Fact]
+    public void Model_Knows_Grok_Bot()
+    {
+        Assert.Equal(CursorProfile.AppGrokBot, CursorProfile.NormalizeApp("grok-bot"));
+        Assert.Equal(CursorProfile.AppCursor, CursorProfile.NormalizeApp("something-else"));
+        Assert.Equal("Copy settings", CursorProfile.CopyChoiceLabelFor("grok-bot"));
+        Assert.Equal("Overflow account", CursorProfile.CopyChoiceLabelFor("claude-code"));
+        var grok = new CursorProfile { DisplayName = "Main Grok Bot", App = "grok-bot", IsSystem = true };
+        Assert.Equal("Grok Bot 2", grok.CopyName);
+        Assert.False(grok.ClonesWholeProfile);
+        Assert.False(grok.OpensProjectFolder);
+    }
+
+    [Fact]
+    public void CarryOver_Grok_Skips_Identity_And_Scrubs_Settings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Prism.Tests", Guid.NewGuid().ToString("N"));
+        var src = Path.Combine(root, "src");
+        var dst = Path.Combine(root, "dst");
+        Directory.CreateDirectory(Path.Combine(src, "agents"));
+        File.WriteAllText(Path.Combine(src, "agents", "a.json"), "{}");
+        File.WriteAllText(Path.Combine(src, "host-token.json"), "secret");
+        File.WriteAllText(Path.Combine(src, "mcp-auth.json.123"), "secret");
+        File.WriteAllText(Path.Combine(src, "local-exec-credential.json"), "secret");
+        File.WriteAllText(Path.Combine(src, "settings.json"),
+            "{\"theme\":\"dark\",\"activeAccountScope\":\"acct\",\"hasSeenOnboarding\":true}");
+        try
+        {
+            var copied = CarryOver.GrokData(src, dst);
+            Assert.Equal(2, copied);
+            Assert.True(File.Exists(Path.Combine(dst, "agents", "a.json")));
+            Assert.False(File.Exists(Path.Combine(dst, "host-token.json")));
+            Assert.False(File.Exists(Path.Combine(dst, "mcp-auth.json.123")));
+            Assert.False(File.Exists(Path.Combine(dst, "local-exec-credential.json")));
+            var settings = File.ReadAllText(Path.Combine(dst, "settings.json"));
+            Assert.Contains("theme", settings);
+            Assert.DoesNotContain("activeAccountScope", settings);
+            Assert.DoesNotContain("hasSeenOnboarding", settings);
+        }
+        finally { try { Directory.Delete(root, true); } catch { } }
+    }
+
+    [Fact]
+    public void CarryOver_ClaudeCode_Allowlist_And_State_Keys()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "Prism.Tests", Guid.NewGuid().ToString("N"));
+        var src = Path.Combine(root, "src");
+        var dst = Path.Combine(root, "dst");
+        Directory.CreateDirectory(Path.Combine(src, "agents"));
+        Directory.CreateDirectory(Path.Combine(src, "plugins"));
+        Directory.CreateDirectory(dst);
+        File.WriteAllText(Path.Combine(src, "settings.json"), "{}");
+        File.WriteAllText(Path.Combine(src, "agents", "x.md"), "agent");
+        File.WriteAllText(Path.Combine(src, ".credentials.json"), "secret");
+        File.WriteAllText(Path.Combine(src, "plugins", "installed.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { path = Path.Combine(src, "plugins", "p") }));
+        File.WriteAllText(Path.Combine(src, ".claude.json"),
+            "{\"mcpServers\":{\"x\":{}},\"oauthAccount\":{\"email\":\"a@b\"},\"theme\":\"dark\"}");
+        try
+        {
+            CarryOver.Run(CursorProfile.AppClaudeCode, src, false, dst);
+            Assert.True(File.Exists(Path.Combine(dst, "settings.json")));
+            Assert.True(File.Exists(Path.Combine(dst, "agents", "x.md")));
+            Assert.False(File.Exists(Path.Combine(dst, ".credentials.json")));
+            var state = File.ReadAllText(Path.Combine(dst, ".claude.json"));
+            Assert.Contains("mcpServers", state);
+            Assert.DoesNotContain("oauthAccount", state);
+            var plugins = File.ReadAllText(Path.Combine(dst, "plugins", "installed.json"));
+            Assert.Contains(System.Text.Json.JsonSerializer.Serialize(dst)[1..^1], plugins);
+        }
+        finally { try { Directory.Delete(root, true); } catch { } }
+    }
+
+    [Fact]
+    public void Brainium_Wire_Arguments()
+    {
+        Assert.Equal(new[] { "wire", "--app", "claude-code", "--profile", @"C:\p", "--json", "--system", "--capture" },
+            BrainiumBridge.WireArguments("claude-code", @"C:\p", isSystem: true, capture: true));
+        Assert.Equal(new[] { "unwire", "--app", "cursor", "--json" },
+            BrainiumBridge.WireArguments("cursor", @"C:\p", false, false, enable: false));
+        Assert.Null(BrainiumBridge.WireArguments("grok-bot", @"C:\p", false, false));
     }
 
     /// <summary>A store rooted at temp dirs: Reload/constructors never touch home.</summary>
@@ -336,7 +470,17 @@ public sealed class CardTemplateTests
         });
         desktop.RunningPids = new List<int> { 1234 };
         desktop.LiveBytes = 1024 * 1024;
-        return new[] { cursor, code, desktop };
+        desktop.WindowCount = 1;
+        var grok = new ProfileVM(new CursorProfile
+        {
+            FolderName = "Overflow",
+            DisplayName = "Overflow",
+            App = CursorProfile.AppGrokBot,
+            ColorHex = "#8B5CF6",
+            LastLaunchedAt = DateTime.UtcNow.AddDays(-2),
+        });
+        grok.IsSelected = true;
+        return new[] { cursor, code, desktop, grok };
     }
 
     /// <summary>Finds windows/MainWindow.xaml by walking up from the test bin dir.</summary>
@@ -380,7 +524,7 @@ public sealed class CardTemplateTests
     {
         xaml = Regex.Replace(xaml, "\\sx:Class=\"[^\"]*\"", "");
         xaml = Regex.Replace(xaml, "\\sStartupUri=\"[^\"]*\"", "");
-        xaml = Regex.Replace(xaml, "\\s(Click|TextChanged|ContextMenuOpening|MouseLeftButtonDown|Drop|DragOver|Checked|Unchecked|SelectionChanged|Toggled)=\"[^\"]*\"", "");
+        xaml = Regex.Replace(xaml, "\\s(Click|TextChanged|ContextMenuOpening|MouseLeftButtonDown|Drop|DragOver|Checked|Unchecked|SelectionChanged|Toggled|SizeChanged|PreviewKeyDown|Loaded)=\"[^\"]*\"", "");
         return xaml;
     }
 
