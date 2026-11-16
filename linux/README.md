@@ -10,12 +10,12 @@ built-in card — launchable and clonable, never deletable.
 ## Requirements
 
 - GTK 4.10+ and libadwaita 1.2+ with Python bindings
-- `pycairo` (python3-cairo) for generating per-profile launcher icons — optional;
+- `pycairo` (python3-cairo, plus python3-gi-cairo on Debian/Ubuntu) for the app's line icons and per-profile launcher icons — optional;
   without it, launchers still work but fall back to a generic themed icon
 
 ```bash
 # Debian/Ubuntu
-sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-cairo
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 python3-cairo
 
 # Fedora
 sudo dnf install python3-gobject gtk4 libadwaita python3-cairo

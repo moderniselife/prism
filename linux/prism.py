@@ -334,8 +334,10 @@ BRAINIUM_PROVIDERS = (
     ("openai-compatible", "Other OpenAI-compatible API"),
 )
 
-BRAINIUM_NOT_FOUND = ("Brainium or Node.js wasn't found. Install Node.js, then: git clone "
-                      "https://github.com/moderniselife/brainium ~/brainium — or set the paths here.")
+BRAINIUM_NOT_FOUND = "Brainium isn't set up yet. Open Preferences → Second brain and click Install."
+BRAINIUM_REPO = "https://github.com/moderniselife/brainium.git"
+BRAINIUM_TARBALL = "https://codeload.github.com/moderniselife/brainium/tar.gz/refs/heads/main"
+NODE_DOWNLOAD_URL = "https://nodejs.org/en/download"
 
 
 def _version_key(name: str):
@@ -971,6 +973,7 @@ class Store:
         self._prev_cpu = None
         self._cpu_lock = threading.Lock()
         self.duplicating: set[str] = set()
+        self.brain_status: dict | None = None  # last `brainium status --json`
         self.settings = self._load_settings()
         self.on_changed = lambda: None      # cards need rebuilding
         self.on_status = lambda: None       # dot/size labels need refreshing
@@ -1160,6 +1163,87 @@ class Store:
         targets = self._brain_targets()
         self.brain_task("Wiring failed" if enable else "Unwiring failed",
                         lambda b: b.wire_all(targets, enable))
+
+    def refresh_brain_status(self):
+        """Fetch `brainium status` off the main loop, then refresh the UI."""
+        b = self.brainium()
+        if b is None:
+            self.brain_status = None
+            self.on_status()
+            return
+
+        def run():
+            try:
+                status = b.status()
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                status = None
+
+            def finish():
+                self.brain_status = status
+                self.on_status()
+                return False
+            GLib.idle_add(finish)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def wire_brain(self, profile: Profile):
+        """Wire one profile now (Grok Bot has nothing local to wire)."""
+        if brain_wire_args(profile.app, "", False, False) is None:
+            return
+        targets = self._brain_targets([profile])
+        self.brain_task(f"Couldn't wire '{profile.displayName}'",
+                        lambda b: (b.wire_all(targets, True), f"Wired '{profile.displayName}' into your second brain.")[1])
+
+    def install_brainium(self, on_done=None):
+        """Clone Brainium into ~/brainium (git), or unpack the GitHub tarball."""
+        target = Path.home() / "brainium"
+
+        def run():
+            error = None
+            try:
+                if (target / "bin" / "brainium.mjs").is_file():
+                    pass
+                elif target.exists() and any(target.iterdir()):
+                    raise RuntimeError(f"{target} already exists and isn't Brainium. Move it aside, "
+                                       "or set its path below.")
+                elif shutil.which("git"):
+                    if target.exists():
+                        target.rmdir()
+                    proc = subprocess.run(["git", "clone", "--depth", "1", BRAINIUM_REPO, str(target)],
+                                          capture_output=True, text=True, timeout=300)
+                    if proc.returncode != 0:
+                        raise RuntimeError(proc.stderr.strip().splitlines()[-1] if proc.stderr.strip()
+                                           else "git clone failed")
+                else:
+                    import tarfile
+                    import tempfile
+                    import urllib.request
+                    with tempfile.TemporaryDirectory() as tmp:
+                        archive = Path(tmp) / "brainium.tar.gz"
+                        urllib.request.urlretrieve(BRAINIUM_TARBALL, archive)
+                        with tarfile.open(archive) as tar:
+                            tar.extractall(tmp, filter="data")
+                        root = next(d for d in Path(tmp).iterdir() if d.is_dir())
+                        if target.exists():
+                            target.rmdir()
+                        shutil.move(str(root), str(target))
+                if not (target / "bin" / "brainium.mjs").is_file():
+                    raise RuntimeError(f"Downloaded Brainium, but {target}/bin/brainium.mjs is missing.")
+            except (OSError, RuntimeError, ValueError, subprocess.SubprocessError, StopIteration) as e:
+                error = str(e) or type(e).__name__
+
+            def finish():
+                if error:
+                    self.on_error(f"Couldn't install Brainium: {error}")
+                else:
+                    self.on_info(f"Brainium is ready at {target}.")
+                self.refresh_brain_status()
+                if on_done:
+                    on_done()
+                return False
+            GLib.idle_add(finish)
+
+        threading.Thread(target=run, daemon=True).start()
 
     def wire_brain_if_enabled(self, profile: Profile):
         if not self.settings.get("brainAutoWire") or brain_wire_args(profile.app, "", False, False) is None:
@@ -1656,22 +1740,189 @@ class Store:
 # UI
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Look: quiet neutrals, one accent, hairline borders. Follows the system
+# light/dark setting; colours match the macOS and Windows apps.
+# ---------------------------------------------------------------------------
+
+THEMES = {
+    False: {  # light
+        "bg": "#FFFFFF", "sidebar": "#F7F7F8", "panel": "#FCFCFD", "card": "#FFFFFF",
+        "border": "#E6E6EA", "subtle": "#EFEFF2", "border_med": "#DCDCE1",
+        "text": "#18181B", "text2": "#52525C", "text3": "#6B6B75",
+        "field": "#F1F1F3", "hover": "#F4F4F6", "selected": "#E9E9EC",
+        "accent": "#5B5BD6", "accent_text": "#4F4FC4", "accent_soft": "alpha(#5B5BD6, 0.08)",
+        "accent_ring": "alpha(#5B5BD6, 0.24)", "green": "#15803D", "live": "#22C55E",
+    },
+    True: {  # dark
+        "bg": "#141416", "sidebar": "#19191C", "panel": "#17171A", "card": "#1C1C20",
+        "border": "#2A2A2F", "subtle": "#222227", "border_med": "#34343A",
+        "text": "#EDEDF0", "text2": "#A9A9B3", "text3": "#8C8C97",
+        "field": "#222227", "hover": "#1F1F23", "selected": "#2A2A30",
+        "accent": "#6262D9", "accent_text": "#A5A5F3", "accent_soft": "alpha(#6262D9, 0.16)",
+        "accent_ring": "alpha(#6262D9, 0.35)", "green": "#4ADE80", "live": "#22C55E",
+    },
+}
+
+# Line icons on a 20x20 grid (stroked): the same shapes as the other apps.
+# Generic, not app logos.
+ICON_PATHS = {
+    APP_CURSOR: "M5,3.5 L15.5,8.5 L11,10 L9.5,14.5 Z",
+    APP_CODE: ("M4.5,4 H15.5 A2,2 0 0 1 17.5,6 V14 A2,2 0 0 1 15.5,16 H4.5 A2,2 0 0 1 2.5,14 V6 "
+               "A2,2 0 0 1 4.5,4 Z M6,8.5 L8.5,10.5 L6,12.5 M10.5,12.5 H14"),
+    APP_DESKTOP: ("M4.5,3.5 H15.5 A2,2 0 0 1 17.5,5.5 V12 A2,2 0 0 1 15.5,14 H4.5 A2,2 0 0 1 2.5,12 "
+                  "V5.5 A2,2 0 0 1 4.5,3.5 Z M7,17 H13 M10,14 V17"),
+    APP_GROK: ("M6.5,6.5 H13.5 A3,3 0 0 1 16.5,9.5 V13 A3,3 0 0 1 13.5,16 H6.5 A3,3 0 0 1 3.5,13 "
+               "V9.5 A3,3 0 0 1 6.5,6.5 Z M10,3.5 V6.5 M7.5,10.7 V11.3 M12.5,10.7 V11.3"),
+    "stack": "M10,3 L17,7 L10,11 L3,7 Z M3,11 L10,15 L17,11",
+    "pulse": "M2.5,10 H5.5 L7.5,5 L11.5,15 L13.5,10 H17.5",
+    "person": "M10,4 A3,3 0 1 1 9.99,4 Z M4,16.5 C5,13.5 7.5,12 10,12 C12.5,12 15,13.5 16,16.5",
+    "brain": ("M8,3.5 A2.5,2.5 0 0 0 5.5,6 V6.3 A2.6,2.6 0 0 0 4,10.7 A2.6,2.6 0 0 0 6,14.9 "
+              "A2.5,2.5 0 0 0 10,16 V5.5 A2,2 0 0 0 8,3.5 Z M12,3.5 A2.5,2.5 0 0 1 14.5,6 V6.3 "
+              "A2.6,2.6 0 0 1 16,10.7 A2.6,2.6 0 0 1 14,14.9 A2.5,2.5 0 0 1 10,16"),
+    "search": "M9,3.5 A5.5,5.5 0 1 1 8.99,3.5 Z M13,13 L16.5,16.5",
+    "arrow": "M4,10 H15 M11,6 L15,10 L11,14",
+    "folder": ("M3,6.5 A1.5,1.5 0 0 1 4.5,5 H8 L9.5,6.5 H15.5 A1.5,1.5 0 0 1 17,8 V14.5 "
+               "A1.5,1.5 0 0 1 15.5,16 H4.5 A1.5,1.5 0 0 1 3,14.5 Z"),
+    "pin": "M10,13 V17.5 M6,13 H14 L12.5,9 V4.5 H7.5 V9 Z",
+    "plus": "M10,4.5 V15.5 M4.5,10 H15.5",
+}
+
+_PATH_TOKEN = re.compile(r"[MLHVCAZmlhvcaz]|-?\d*\.?\d+(?:e-?\d+)?")
+
+
+def _parse_path(d: str):
+    """Absolute SVG path commands (M L H V C A Z) as (cmd, [numbers])."""
+    out, cmd, nums = [], None, []
+    for tok in _PATH_TOKEN.findall(d):
+        if tok.isalpha():
+            if cmd:
+                out.append((cmd, nums))
+            cmd, nums = tok, []
+        else:
+            nums.append(float(tok))
+    if cmd:
+        out.append((cmd, nums))
+    return out
+
+
+def _arc_to_cairo(cr, x1, y1, r, large, sweep, x2, y2):
+    """SVG circular arc (rx = ry = r, no rotation) from (x1,y1) to (x2,y2)."""
+    import math
+    dx, dy = (x1 - x2) / 2, (y1 - y2) / 2
+    d2 = dx * dx + dy * dy
+    if d2 == 0:
+        return
+    r = max(r, math.sqrt(d2))
+    coef = math.sqrt(max(0.0, (r * r - d2) / d2))
+    if large == sweep:
+        coef = -coef
+    cx = (x1 + x2) / 2 + coef * dy
+    cy = (y1 + y2) / 2 - coef * dx
+    a1 = math.atan2(y1 - cy, x1 - cx)
+    a2 = math.atan2(y2 - cy, x2 - cx)
+    (cr.arc if sweep else cr.arc_negative)(cx, cy, r, a1, a2)
+
+
+class LineIcon(Gtk.DrawingArea):
+    """A stroked line icon drawn with Cairo on a 20x20 grid (no SVG loader needed)."""
+
+    def __init__(self, name: str, color: str, size: int = 16, width: float = 1.6):
+        super().__init__(content_width=size, content_height=size,
+                         halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self._commands = _parse_path(ICON_PATHS[name])
+        rgba = Gdk.RGBA()
+        rgba.parse(color)
+        self._rgba, self._width = rgba, width
+        self.set_draw_func(self._draw)
+
+    def _draw(self, _area, cr, w, h):
+        scale = min(w, h) / 20.0
+        cr.scale(scale, scale)
+        cr.set_line_width(self._width)
+        cr.set_line_cap(1)   # round
+        cr.set_line_join(1)  # round
+        cr.set_source_rgba(self._rgba.red, self._rgba.green, self._rgba.blue, self._rgba.alpha)
+        x = y = sx = sy = 0.0
+        for cmd, n in self._commands:
+            if cmd == "M":
+                x, y = n[0], n[1]
+                sx, sy = x, y
+                cr.move_to(x, y)
+                for i in range(2, len(n), 2):
+                    x, y = n[i], n[i + 1]
+                    cr.line_to(x, y)
+            elif cmd == "L":
+                for i in range(0, len(n), 2):
+                    x, y = n[i], n[i + 1]
+                    cr.line_to(x, y)
+            elif cmd == "H":
+                for v in n:
+                    x = v
+                    cr.line_to(x, y)
+            elif cmd == "V":
+                for v in n:
+                    y = v
+                    cr.line_to(x, y)
+            elif cmd == "C":
+                for i in range(0, len(n), 6):
+                    cr.curve_to(*n[i:i + 6])
+                    x, y = n[i + 4], n[i + 5]
+            elif cmd == "A":
+                for i in range(0, len(n), 7):
+                    r, _ry, _rot, large, sweep, x2, y2 = n[i:i + 7]
+                    _arc_to_cairo(cr, x, y, r, int(large), int(sweep), x2, y2)
+                    x, y = x2, y2
+            elif cmd in "Zz":
+                cr.close_path()
+                x, y = sx, sy
+        cr.stroke()
+
+
+try:  # Drawing from Python needs PyGObject's cairo glue (python3-gi-cairo on Debian/Ubuntu).
+    import gi._gi_cairo  # noqa: F401
+    HAS_GI_CAIRO = cairo is not None
+except ImportError:
+    HAS_GI_CAIRO = False
+
+
+def line_icon(name: str, color: str, size: int = 16, width: float = 1.6) -> Gtk.Widget:
+    """The icon, or an empty spacer of the same size when Cairo glue is missing."""
+    if HAS_GI_CAIRO:
+        return LineIcon(name, color, size, width)
+    return Gtk.Box(width_request=size, height_request=size, valign=Gtk.Align.CENTER)
+
+
+def theme_colors() -> dict:
+    return THEMES[Adw.StyleManager.get_default().get_dark()]
+
+
 class MainWindow(Adw.ApplicationWindow):
+    """Sidebar (search, filters, second brain, totals) | profile list grouped
+    into Running / Not running | detail panel for the selected profile."""
+
     SORT_MODES = ["Recent", "Name", "Size"]
+    FILTERS = [("All profiles", "stack"), ("Running", "pulse"), ("Custom", "person"),
+               ("Cursor", APP_CURSOR), ("Claude Code", APP_CODE),
+               ("Claude Desktop", APP_DESKTOP), ("Grok Bot", APP_GROK)]
+    INSPECTOR_MIN_WIDTH = 1180
 
     def __init__(self, app, store: Store):
-        super().__init__(application=app, title="Prism",
-                         default_width=1000, default_height=660)
+        super().__init__(application=app, title="Prism", default_width=1240, default_height=780)
         self.store = store
         self.search_text = ""
         self.sort_mode = 0
-        self.filter_mode = 0  # 0 all, 1 active, 2 custom, 3 cursor, 4 code, 5 desktop, 6 grok
-        self._last_visible = set()
+        self.filter_mode = 0  # 0 all, 1 running, 2 custom, 3 cursor, 4 code, 5 desktop, 6 grok
+        self.selected: str | None = None  # folderName
+        self._running_set = set()
         self.status_updaters = []
+        self.inspector_updaters = []
+        self.add_css_class("prism")
+
         self._css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(), self._css,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gdk.Display.get_default(), self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Adw.StyleManager.get_default().connect("notify::dark", lambda *_: self.rebuild())
 
         store.on_changed = self.rebuild
         store.on_status = self.refresh_status
@@ -1680,99 +1931,169 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
-
         root = Adw.ToolbarView()
         self.toasts.set_child(root)
 
         header = Adw.HeaderBar()
-        root.add_top_bar(header)
-
-        new_btn = Gtk.Button(label="New Profile")
+        self.title_lbl = Gtk.Label(label="All profiles")
+        self.title_lbl.add_css_class("prism-title")
+        self.title_count = Gtk.Label()
+        self.title_count.add_css_class("prism-dim")
+        title_box = Gtk.Box(spacing=10, margin_start=6)
+        title_box.append(self.title_lbl)
+        title_box.append(self.title_count)
+        header.pack_start(title_box)
+        header.set_title_widget(Gtk.Box())
+        new_btn = Gtk.Button(tooltip_text="New profile (Ctrl+N)")
+        new_box = Gtk.Box(spacing=6)
+        self.new_icon_slot = new_box
+        new_box.append(Gtk.Label(label="New profile"))
+        new_btn.set_child(new_box)
         new_btn.add_css_class("suggested-action")
-        new_btn.connect("clicked", lambda *_: EditorDialog(self, self.store, None).present())
-        header.pack_start(new_btn)
-
-        self.search = Gtk.SearchEntry(placeholder_text="Search profiles")
-        self.search.connect("search-changed", self.on_search)
-        header.pack_start(self.search)
-
-        prefs_btn = Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Preferences")
-        prefs_btn.connect("clicked", lambda *_: PreferencesDialog(self, self.store).present())
-        header.pack_end(prefs_btn)
-
-        self.sort_btn = Gtk.Button(label="Sort: Recent")
+        new_btn.connect("clicked", lambda *_: self.new_profile())
+        header.pack_end(new_btn)
+        self.sort_btn = Gtk.Button(label="Recent ▾", tooltip_text="Sort profiles")
+        self.sort_btn.add_css_class("flat")
         self.sort_btn.connect("clicked", self.on_sort)
         header.pack_end(self.sort_btn)
+        root.add_top_bar(header)
 
-        scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
-        root.set_content(scroller)
+        body = Gtk.Box()
+        root.set_content(body)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        scroller.set_child(outer)
+        # -- Sidebar
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=228, hexpand=False)
+        side.add_css_class("prism-sidebar")
+        body.append(side)
+        search_box = Gtk.Box(spacing=8, margin_top=12, margin_start=12, margin_end=12)
+        search_box.add_css_class("prism-search")
+        self.search_icon_slot = search_box
+        self.search = Gtk.Text(placeholder_text="Search", hexpand=True, width_chars=6)
+        self.search.connect("changed", self.on_search)
+        search_box.append(self.search)
+        side.append(search_box)
 
-        # Filter row: All / Active / Custom + rescan
-        filter_row = Gtk.Box(spacing=4, margin_top=8, margin_start=12, margin_end=12)
-        filter_lbl = Gtk.Label(label="Profiles:")
-        filter_lbl.add_css_class("heading")
-        filter_row.append(filter_lbl)
-        self.filter_btns = []
-        for i, name in enumerate(["All", "Active", "Custom", "Cursor", "Code", "Desktop", "Grok"]):
-            btn = Gtk.ToggleButton(label=name)
-            btn.add_css_class("flat")
-            filter_row.append(btn)
-            self.filter_btns.append(btn)
-        # Set state before connecting: no rebuild before the window exists.
-        self.filter_btns[0].set_active(True)
-        for i, btn in enumerate(self.filter_btns):
-            btn.connect("toggled", self.on_filter, i)
-        rescan = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Rescan profiles",
-                            halign=Gtk.Align.END, hexpand=True)
-        rescan.connect("clicked", lambda *_: self.store.reload())
-        filter_row.append(rescan)
-        outer.append(filter_row)
+        self.nav_buttons = []
+        self.nav_counts = []
+        nav = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=14,
+                      margin_start=12, margin_end=12)
+        for i, (label, icon) in enumerate(self.FILTERS):
+            if i == 3:
+                apps = Gtk.Label(label="Apps", xalign=0, margin_top=14, margin_bottom=4, margin_start=10)
+                apps.add_css_class("prism-section-title")
+                nav.append(apps)
+            btn = Gtk.Button()
+            btn.add_css_class("prism-nav")
+            row = Gtk.Box(spacing=10)
+            row.append(Gtk.Box(width_request=16))  # icon slot, filled by restyle()
+            row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            count = Gtk.Label()
+            count.add_css_class("prism-count")
+            row.append(count)
+            btn.set_child(row)
+            btn.connect("clicked", lambda *_, m=i: self.set_filter(m))
+            nav.append(btn)
+            self.nav_buttons.append(btn)
+            self.nav_counts.append(count)
+        side.append(nav)
+        side.append(Gtk.Box(vexpand=True))
 
-        # Status bar: real CPU + live RSS / real RAM. Nothing hardcoded.
-        status_bar = Gtk.Box(spacing=12, margin_top=4, margin_bottom=4,
-                             margin_start=12, margin_end=12)
-        self.cpu_lbl = Gtk.Label(xalign=0)
-        self.cpu_lbl.add_css_class("caption")
-        self.cpu_lbl.add_css_class("dim-label")
-        status_bar.append(self.cpu_lbl)
-        self.ram_lbl = Gtk.Label(xalign=0)
-        self.ram_lbl.add_css_class("caption")
-        self.ram_lbl.add_css_class("dim-label")
-        status_bar.append(self.ram_lbl)
-        self.count_lbl = Gtk.Label(xalign=1, hexpand=True)
-        self.count_lbl.add_css_class("caption")
-        self.count_lbl.add_css_class("dim-label")
-        status_bar.append(self.count_lbl)
-        root.add_bottom_bar(status_bar)
+        self.brain_card = Gtk.Button(margin_start=12, margin_end=12, tooltip_text="Second brain settings")
+        self.brain_card.add_css_class("prism-brain-card")
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        top = Gtk.Box(spacing=8)
+        self.brain_icon_slot = top
+        brain_lbl = Gtk.Label(label="Second brain", xalign=0, hexpand=True)
+        brain_lbl.add_css_class("prism-strong")
+        top.append(brain_lbl)
+        self.brain_dot = Gtk.Box(valign=Gtk.Align.CENTER)
+        top.append(self.brain_dot)
+        self.brain_state = Gtk.Label(label="Off")
+        self.brain_state.add_css_class("prism-small")
+        top.append(self.brain_state)
+        card.append(top)
+        self.brain_detail = Gtk.Label(label="Not set up", xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+        self.brain_detail.add_css_class("prism-small")
+        card.append(self.brain_detail)
+        self.brain_card.set_child(card)
+        self.brain_card.connect("clicked", lambda *_: self.open_preferences(brain=True))
+        side.append(self.brain_card)
 
-        self.banner = Adw.Banner(
-            title="Cursor was not found. Install it from cursor.sh, or set a custom path in Preferences.")
-        self.banner.set_button_label("Preferences")
-        self.banner.connect("button-clicked", lambda *_: PreferencesDialog(self, self.store).present())
-        outer.append(self.banner)
+        foot = Gtk.Box(margin_top=10, margin_bottom=12, margin_start=16, margin_end=8)
+        totals = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        self.running_lbl = Gtk.Label(xalign=0)
+        self.running_lbl.add_css_class("prism-small")
+        self.system_lbl = Gtk.Label(xalign=0)
+        self.system_lbl.add_css_class("prism-small")
+        totals.append(self.running_lbl)
+        totals.append(self.system_lbl)
+        foot.append(totals)
+        prefs = Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Preferences",
+                           valign=Gtk.Align.END)
+        prefs.add_css_class("flat")
+        prefs.connect("clicked", lambda *_: self.open_preferences())
+        foot.append(prefs)
+        side.append(foot)
 
-        self.flow = Gtk.FlowBox(
-            valign=Gtk.Align.START, max_children_per_line=8, min_children_per_line=1,
-            selection_mode=Gtk.SelectionMode.NONE, column_spacing=8, row_spacing=8,
-            margin_top=12, margin_bottom=16, margin_start=12, margin_end=12,
-            homogeneous=True)
-        outer.append(self.flow)
+        # -- Main column
+        main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        body.append(main)
+        self.banner = Gtk.Box(spacing=10, margin_top=12, margin_start=16, margin_end=16)
+        self.banner.add_css_class("prism-banner")
+        banner_lbl = Gtk.Label(label="Cursor wasn't found. Install it from cursor.com, or set its path in Preferences.",
+                               xalign=0, wrap=True, hexpand=True)
+        banner_lbl.add_css_class("prism-sub")
+        self.banner.append(banner_lbl)
+        banner_btn = Gtk.Button(label="Preferences", valign=Gtk.Align.CENTER)
+        banner_btn.add_css_class("prism-secondary")
+        banner_btn.connect("clicked", lambda *_: self.open_preferences())
+        self.banner.append(banner_btn)
+        main.append(self.banner)
+
+        self.columns = Gtk.Box(spacing=12, margin_top=14, margin_bottom=2, margin_start=46, margin_end=46)
+        for text, width in (("Name", -1), ("App", 130), ("Status", 160), ("", 104)):
+            lbl = Gtk.Label(label=text, xalign=0, hexpand=width < 0, width_request=max(width, 0))
+            lbl.add_css_class("prism-colhead")
+            self.columns.append(lbl)
+        main.append(self.columns)
+
+        self.scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        main.append(self.scroller)
+        self.list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_bottom=16)
+        self.scroller.set_child(self.list_box)
 
         self.empty = Adw.StatusPage(
-            icon_name="folder-templates-symbolic",
-            title="No profiles yet",
-description="Each profile is a fully isolated instance — its own settings, login and history, per app.",
-            vexpand=True)
-        empty_btn = Gtk.Button(label="Create your first profile", halign=Gtk.Align.CENTER)
+            icon_name="folder-templates-symbolic", title="No profiles yet",
+            description="Each profile keeps its own sign-in, settings and history.", vexpand=True)
+        empty_btn = Gtk.Button(label="New profile", halign=Gtk.Align.CENTER)
         empty_btn.add_css_class("suggested-action")
         empty_btn.add_css_class("pill")
-        empty_btn.connect("clicked", lambda *_: EditorDialog(self, self.store, None).present())
+        empty_btn.connect("clicked", lambda *_: self.new_profile())
         self.empty.set_child(empty_btn)
-        outer.append(self.empty)
+        main.append(self.empty)
 
+        self.no_matches = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, vexpand=True,
+                                  valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        self.no_matches_lbl = Gtk.Label()
+        self.no_matches_lbl.add_css_class("prism-sub")
+        self.no_matches_btn = Gtk.Button(halign=Gtk.Align.CENTER)
+        self.no_matches_btn.connect("clicked", lambda *_: self.clear_filters())
+        self.no_matches.append(self.no_matches_lbl)
+        self.no_matches.append(self.no_matches_btn)
+        main.append(self.no_matches)
+
+        # -- Detail panel
+        self.inspector = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=320)
+        self.inspector.add_css_class("prism-inspector")
+        body.append(self.inspector)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        self.connect("notify::default-width", lambda *_: self.update_layout())
+        self.connect("notify::maximized", lambda *_: GLib.idle_add(self.update_layout))
+
+        store.refresh_brain_status()
         self.rebuild()
 
     # -- helpers
@@ -1783,329 +2104,316 @@ description="Each profile is a fully isolated instance — its own settings, log
     def show_info(self, message):
         self.toasts.add_toast(Adw.Toast(title=message, timeout=6))
 
+    def new_profile(self):
+        EditorDialog(self, self.store, None).present()
+
+    def open_preferences(self, brain=False):
+        dialog = PreferencesDialog(self, self.store)
+        if brain:
+            dialog.set_visible_page(dialog.brain_page)
+        dialog.present()
+
+    def on_key(self, _ctrl, keyval, _code, state):
+        if state & Gdk.ModifierType.CONTROL_MASK:
+            if keyval in (Gdk.KEY_k, Gdk.KEY_K):
+                self.search.grab_focus()
+                return True
+            if keyval in (Gdk.KEY_n, Gdk.KEY_N):
+                self.new_profile()
+                return True
+        return False
+
     def on_search(self, entry):
         self.search_text = entry.get_text().strip().lower()
         self.rebuild()
 
     def on_sort(self, button):
         self.sort_mode = (self.sort_mode + 1) % len(self.SORT_MODES)
-        button.set_label(f"Sort: {self.SORT_MODES[self.sort_mode]}")
+        button.set_label(f"{self.SORT_MODES[self.sort_mode]} ▾")
         self.rebuild()
 
-    def sorted_profiles(self):
+    def set_filter(self, mode):
+        self.filter_mode = mode
+        self.rebuild()
+
+    def clear_filters(self):
+        if self.search_text:
+            self.search.set_text("")
+        else:
+            self.set_filter(0)
+
+    def is_running(self, p):
+        return bool(self.store.running.get(p.folderName))
+
+    def matches(self, p, mode):
+        app = normalize_app(p.app)
+        return {0: True, 1: self.is_running(p), 2: not p.isSystem,
+                3: app == APP_CURSOR, 4: app == APP_CODE,
+                5: app == APP_DESKTOP, 6: app == APP_GROK}[mode]
+
+    def visible_profiles(self):
         def key(p: Profile):
-            primary = (not p.isSystem, not p.isPinned)
+            primary = (not p.isPinned, not p.isSystem)
             if self.sort_mode == 1:
                 return (*primary, p.displayName.lower())
             if self.sort_mode == 2:
                 return (*primary, -(self.store.sizes.get(p.folderName) or 0))
             stamp = p.lastLaunchedAt.timestamp() if p.lastLaunchedAt else 0
             return (*primary, -stamp)
-        return sorted(self.store.profiles, key=key)
 
-    def on_filter(self, button, mode):
-        if not button.get_active():
-            # Keep one tab always selected.
-            if not any(b.get_active() for b in self.filter_btns):
-                button.set_active(True)
-            return
-        self.filter_mode = mode
-        for i, btn in enumerate(self.filter_btns):
-            if i != mode:
-                btn.set_active(False)
-        self.rebuild()
+        q = self.search_text
+        return [p for p in sorted(self.store.profiles, key=key)
+                if self.matches(p, self.filter_mode)
+                and (not q or q in p.displayName.lower() or q in p.folderName.lower()
+                     or q in app_label(normalize_app(p.app)).lower() or q in normalize_app(p.app))]
 
-    def visible_profiles(self):
-        profiles = self.sorted_profiles()
-        if self.filter_mode == 1:
-            profiles = [p for p in profiles if self.store.running.get(p.folderName)]
-        elif self.filter_mode == 2:
-            profiles = [p for p in profiles if not p.isSystem]
-        elif self.filter_mode == 3:
-            profiles = [p for p in profiles if normalize_app(p.app) == APP_CURSOR]
-        elif self.filter_mode == 4:
-            profiles = [p for p in profiles if normalize_app(p.app) == APP_CODE]
-        elif self.filter_mode == 5:
-            profiles = [p for p in profiles if normalize_app(p.app) == APP_DESKTOP]
-        elif self.filter_mode == 6:
-            profiles = [p for p in profiles if normalize_app(p.app) == APP_GROK]
-        return [p for p in profiles
-                if not self.search_text
-                or self.search_text in p.displayName.lower()
-                or self.search_text in p.folderName.lower()
-                or self.search_text in app_label(normalize_app(p.app)).lower()
-                or self.search_text in normalize_app(p.app)]
+    def selected_profile(self):
+        return next((p for p in self.store.profiles if p.folderName == self.selected), None)
 
-    # -- CSS for per-profile gradients & accents
+    # -- styling
 
     def regenerate_css(self):
-        # Deep-dark redesign: flat dark cards, per-profile accent strip,
-        # translucent accent icon tiles. (The gradient .hdr-* rules are kept
-        # for the editor preview, which is still a gradient header.)
+        c = theme_colors()
         rules = [
-            ".profile-card { background: #0f131c; border: 1px solid alpha(white, 0.12); "
-            "border-radius: 16px; }",
-            # Kept for the editor preview, whose header is still a gradient.
-            ".preview-tile { background: alpha(white, 0.25); border-radius: 11px; font-size: 22px; }",
-            ".card-strip { min-height: 3px; border-radius: 8px 8px 0 0; }",
-            ".card-header { border-radius: 13px 13px 0 0; padding: 12px; }",
-            ".on-header { color: white; }",
-            ".card-name { color: #f2f4f8; font-weight: bold; }",
-            ".card-status-running { color: #34d399; }",
-            ".card-status-idle { color: #a8b0c4; }",
-            ".card-muted { color: #8b94a5; }",
-            ".tile-glyph { font-weight: 800; font-size: 20px; }",
-            ".badge { background: alpha(white, 0.07); color: #b7bfcd; "
-            "border: 1px solid alpha(white, 0.14); font-size: 8pt; font-weight: 800; "
-            "border-radius: 6px; padding: 1px 5px; }",
-            ".launch-running { background: #1b2233; color: white; }",
-            "progressbar.memory-track trough { background: #232d44; min-height: 4px; "
-            "border-radius: 2px; border: none; }",
-            "progressbar.memory-track progress { min-height: 4px; border-radius: 2px; border: none; }",
+            f"@define-color accent_bg_color {c['accent']};",
+            f"@define-color accent_color {c['accent_text']};",
+            f"window.prism, window.prism .prism-main {{ background: {c['bg']}; color: {c['text']}; }}",
+            f"window.prism headerbar {{ background: {c['bg']}; box-shadow: inset 0 -1px {c['subtle']}; }}",
+            f".prism-title {{ font-size: 15px; font-weight: 600; color: {c['text']}; }}",
+            f".prism-sidebar {{ background: {c['sidebar']}; border-right: 1px solid {c['border']}; }}",
+            f".prism-inspector {{ background: {c['panel']}; border-left: 1px solid {c['border']}; }}",
+            f".prism-search {{ background: {c['field']}; border-radius: 8px; padding: 0 10px; min-height: 30px; }}",
+            f".prism-search text {{ background: none; color: {c['text']}; }}",
+            f"button.prism-nav {{ background: none; box-shadow: none; border-radius: 7px; padding: 0 10px; "
+            f"min-height: 30px; color: {c['text2']}; font-weight: normal; }}",
+            f"button.prism-nav:hover {{ background: {c['hover']}; }}",
+            f"button.prism-nav.selected {{ background: {c['selected']}; color: {c['text']}; font-weight: 500; }}",
+            f".prism-count, .prism-dim, .prism-colhead, .prism-small {{ color: {c['text3']}; }}",
+            ".prism-count { font-size: 12px; } .prism-small { font-size: 11px; }",
+            ".prism-colhead { font-size: 11px; font-weight: 500; }",
+            f".prism-section-title {{ font-size: 11px; font-weight: 600; color: {c['text3']}; }}",
+            f".prism-section {{ font-size: 12px; font-weight: 600; color: {c['text']}; }}",
+            f".prism-sub {{ color: {c['text2']}; }}",
+            f".prism-strong {{ font-size: 12px; font-weight: 500; color: {c['text']}; }}",
+            f".prism-row {{ border-radius: 8px; padding: 0 14px; min-height: 44px; "
+            f"border: 1px solid transparent; }}",
+            f".prism-row:hover {{ background: {c['hover']}; }}",
+            f".prism-row.selected {{ background: {c['accent_soft']}; border-color: {c['accent_ring']}; }}",
+            f".prism-name {{ font-weight: 500; color: {c['text']}; }}",
+            f".prism-tag {{ font-size: 10.5px; color: {c['text3']}; border: 1px solid {c['border']}; "
+            f"border-radius: 4px; padding: 0 5px; }}",
+            f".prism-running {{ color: {c['green']}; font-weight: 500; }}",
+            f".prism-live {{ background: {c['live']}; min-width: 6px; min-height: 6px; border-radius: 999px; "
+            f"box-shadow: 0 0 0 3px alpha({c['live']}, 0.18); }}",
+            f".prism-off {{ background: {c['text3']}; min-width: 6px; min-height: 6px; border-radius: 999px; }}",
+            f"button.prism-quiet {{ background: none; box-shadow: none; color: {c['text2']}; "
+            f"min-height: 28px; padding: 0 12px; border-radius: 6px; font-weight: normal; }}",
+            f"button.prism-quiet:hover {{ background: {c['hover']}; color: {c['text']}; }}",
+            f"button.prism-secondary {{ background: {c['card']}; color: {c['text']}; box-shadow: none; "
+            f"border: 1px solid {c['border_med']}; min-height: 28px; padding: 0 12px; border-radius: 7px; "
+            f"font-weight: 500; }}",
+            f"button.prism-secondary:hover {{ background: {c['hover']}; }}",
+            f"button.prism-primary {{ background: {c['accent']}; color: white; min-height: 32px; "
+            f"border-radius: 7px; font-weight: 500; }}",
+            f"button.prism-brain-card {{ background: {c['bg']}; border: 1px solid {c['border']}; "
+            f"border-radius: 10px; padding: 9px 12px; box-shadow: none; font-weight: normal; }}",
+            f"button.prism-brain-card:hover {{ background: {c['hover']}; }}",
+            f"button.prism-footer {{ background: none; box-shadow: none; color: {c['text2']}; "
+            f"min-height: 30px; padding: 0 12px; border-radius: 7px; font-weight: normal; }}",
+            f"button.prism-footer:hover {{ background: {c['hover']}; }}",
+            f".prism-rule {{ background: {c['subtle']}; min-height: 1px; }}",
+            f".prism-banner {{ border: 1px solid {c['border']}; border-radius: 10px; padding: 8px 12px; }}",
+            f".prism-key {{ color: {c['text3']}; font-size: 12px; }}",
+            f".prism-value {{ color: {c['text']}; font-size: 12px; }}",
+            f".prism-heading {{ font-size: 16px; font-weight: 600; color: {c['text']}; }}",
+            ".swatch-selected { outline: 2px solid alpha(currentColor, 0.6); outline-offset: 2px; }",
         ]
         for hex_color in {p.colorHex for p in self.store.profiles} | {h for _, h in PALETTE}:
             tag = hex_color.lstrip("#")
-            rules.append(
-                f".hdr-{tag} {{ background: linear-gradient(135deg, {hex_color}, {shade(hex_color, 0.68)}); }}")
-            rules.append(
-                f".strip-{tag} {{ background: linear-gradient(90deg, {hex_color}, {shade(hex_color, 0.55)}); }}")
-            rules.append(
-                f".tile-{tag} {{ background: alpha({hex_color}, 0.2); border-radius: 12px; font-size: 22px; }}")
-            rules.append(
-                f".tilefg-{tag} {{ color: {hex_color}; }}")
-            rules.append(
-                f".btn-{tag} {{ background: {hex_color}; color: white; }}")
-            rules.append(
-                f".mem-{tag} {{ color: {hex_color}; font-weight: bold; }}")
-            rules.append(
-                f".memfill-{tag} progress {{ background: {hex_color}; }}")
-            rules.append(
-                f".swatch-{tag} {{ background: {hex_color}; border-radius: 999px; min-width: 24px; min-height: 24px; }}")
+            rules.append(f".dot-{tag} {{ background: {hex_color}; min-width: 8px; min-height: 8px; "
+                         "border-radius: 999px; }")
+            rules.append(f".tile-{tag} {{ background: alpha({hex_color}, 0.14); border-radius: 11px; }}")
+            rules.append(f".swatch-{tag} {{ background: {hex_color}; border-radius: 999px; "
+                         "min-width: 24px; min-height: 24px; }")
         self._css.load_from_data("\n".join(rules).encode())
 
-    # -- card construction
+    def restyle_chrome(self):
+        """Theme-coloured icons in the sidebar and header."""
+        c = theme_colors()
+        for i, (btn, (_label, icon)) in enumerate(zip(self.nav_buttons, self.FILTERS)):
+            selected = i == self.filter_mode
+            row = btn.get_child()
+            slot = row.get_first_child()
+            if slot.get_first_child():
+                slot.remove(slot.get_first_child())
+            slot.append(line_icon(icon, c["text"] if selected else c["text2"], 15))
+            if selected:
+                btn.add_css_class("selected")
+            else:
+                btn.remove_css_class("selected")
+
+        def set_lead(box, widget):
+            first = box.get_first_child()
+            if first is not None and getattr(first, "_prism_icon", False):
+                box.remove(first)
+            widget._prism_icon = True
+            box.prepend(widget)
+
+        set_lead(self.search_icon_slot, line_icon("search", c["text3"], 13))
+        set_lead(self.brain_icon_slot, line_icon("brain", c["text2"], 14))
+        set_lead(self.new_icon_slot, line_icon("plus", "#FFFFFF", 12, 2.2))
+
+    # -- list
 
     def rebuild(self, *_):
         self.regenerate_css()
+        self.restyle_chrome()
         self.status_updaters.clear()
-        while (child := self.flow.get_first_child()) is not None:
-            self.flow.remove(child)
+        while (child := self.list_box.get_first_child()) is not None:
+            self.list_box.remove(child)
 
         profiles = self.visible_profiles()
-        for profile in profiles:
-            self.flow.append(self.build_card(profile))
+        running = [p for p in profiles if self.is_running(p)]
+        idle = [p for p in profiles if not self.is_running(p)]
+        self._running_set = {p.folderName for p in self.store.profiles if self.is_running(p)}
+        for title, group in (("Running", running), ("Not running", idle)):
+            if not group:
+                continue
+            head = Gtk.Box(spacing=8, margin_top=14, margin_bottom=4, margin_start=32)
+            t = Gtk.Label(label=title)
+            t.add_css_class("prism-section")
+            n = Gtk.Label(label=str(len(group)))
+            n.add_css_class("prism-dim")
+            head.append(t)
+            head.append(n)
+            self.list_box.append(head)
+            for p in group:
+                self.list_box.append(self.build_row(p))
 
         has_any = bool(self.store.profiles)
-        self.flow.set_visible(has_any)
+        shown = bool(profiles)
         self.empty.set_visible(not has_any)
-        self.banner.set_revealed(self.store.cursor_path is None)
-        self._last_visible = {p.folderName for p in profiles}
-        self._update_filter_labels()
+        self.scroller.set_visible(shown)
+        self.columns.set_visible(shown)
+        self.no_matches.set_visible(has_any and not shown)
+        if has_any and not shown:
+            self.no_matches_lbl.set_label(
+                f"No profiles match “{self.search_text}”" if self.search_text
+                else "Nothing is running" if self.filter_mode == 1 else "Nothing here yet")
+            self.no_matches_btn.set_label("Clear search" if self.search_text else "Show all profiles")
+            self.no_matches_btn.set_visible(bool(self.search_text) or self.filter_mode != 0)
+        self.banner.set_visible(
+            self.store.cursor_path is None and any(normalize_app(p.app) == APP_CURSOR for p in self.store.profiles))
+
+        self.title_lbl.set_label(self.FILTERS[self.filter_mode][0])
+        self.title_count.set_label(str(len(profiles)))
+        for i, count in enumerate(self.nav_counts):
+            count.set_label(str(sum(1 for p in self.store.profiles if self.matches(p, i))))
+
+        names = [p.folderName for p in running + idle]
+        if self.selected not in names:
+            self.selected = names[0] if names else None
+        self.build_inspector()
         self.refresh_status()
 
-    def _update_filter_labels(self):
-        profiles = self.store.profiles
-        active = sum(1 for p in profiles if self.store.running.get(p.folderName))
-        custom = sum(1 for p in profiles if not p.isSystem)
-        counts = {
-            3: sum(1 for p in profiles if normalize_app(p.app) == APP_CURSOR),
-            4: sum(1 for p in profiles if normalize_app(p.app) == APP_CODE),
-            5: sum(1 for p in profiles if normalize_app(p.app) == APP_DESKTOP),
-            6: sum(1 for p in profiles if normalize_app(p.app) == APP_GROK),
-        }
-        self.filter_btns[0].set_label(f"All ({len(profiles)})")
-        self.filter_btns[1].set_label(f"Active ({active})")
-        self.filter_btns[2].set_label(f"Custom ({custom})")
-        self.filter_btns[3].set_label(f"Cursor ({counts[3]})")
-        self.filter_btns[4].set_label(f"Code ({counts[4]})")
-        self.filter_btns[5].set_label(f"Desktop ({counts[5]})")
-        self.filter_btns[6].set_label(f"Grok ({counts[6]})")
-
-    def build_card(self, profile: Profile):
+    def build_row(self, profile: Profile):
         tag = profile.colorHex.lstrip("#")
         app = normalize_app(profile.app)
-        has_cap = app == APP_CURSOR
-        limit_bytes = profile.defaultMemoryMB * 1024 * 1024 if has_cap else 0
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, width_request=280)
-        card.add_css_class("card")
-        card.add_css_class("profile-card")
+        c = theme_colors()
+        row = Gtk.Box(spacing=12, margin_start=16, margin_end=16, margin_top=1, margin_bottom=1)
+        row.add_css_class("prism-row")
+        if profile.folderName == self.selected:
+            row.add_css_class("selected")
 
-        # 3px accent strip — the card body itself stays flat dark.
-        strip = Gtk.Box(height_request=3)
-        strip.add_css_class("card-strip")
-        strip.add_css_class(f"strip-{tag}")
-        card.append(strip)
-
-        # Flat header (no more full-bleed gradient)
-        header = Gtk.Box(spacing=12, margin_top=12, margin_bottom=8,
-                         margin_start=14, margin_end=14)
-        tile = Gtk.Label(label=profile.initial, width_request=44, height_request=44)
-        tile.add_css_class(f"tile-{tag}")
-        tile.add_css_class(f"tilefg-{tag}")
-        tile.add_css_class("tile-glyph")
-        header.append(tile)
-
-        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=3)
-        name_row = Gtk.Box(spacing=6)
-        name = Gtk.Label(label=profile.displayName, xalign=0, max_width_chars=16,
-                         ellipsize=Pango.EllipsizeMode.END)
-        name.add_css_class("heading")
-        name.add_css_class("card-name")
-        name_row.append(name)
+        name_box = Gtk.Box(spacing=10, hexpand=True)
+        dot = Gtk.Box(valign=Gtk.Align.CENTER)
+        dot.add_css_class(f"dot-{tag}")
+        name_box.append(dot)
+        name = Gtk.Label(label=profile.displayName, xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        name.add_css_class("prism-name")
+        name_box.append(name)
         if profile.isSystem:
-            badge = Gtk.Label(label="BUILT-IN", valign=Gtk.Align.CENTER, tooltip_text=(
-                f"Your original {app_label(app)} data. "
-                "Launchable and clonable, never deletable from this app."))
-            badge.add_css_class("badge")
-            name_row.append(badge)
-        if app != APP_CURSOR:
-            app_badge = Gtk.Label(
-                label={APP_CODE: "CODE", APP_DESKTOP: "DESKTOP", APP_GROK: "GROK"}[app],
-                valign=Gtk.Align.CENTER, tooltip_text=app_label(app))
-            app_badge.add_css_class("badge")
-            name_row.append(app_badge)
-        if not profile.isSystem and profile.isPinned:
-            pin_img = Gtk.Image.new_from_icon_name("view-pin-symbolic")
-            name_row.append(pin_img)
-        title_box.append(name_row)
+            t = Gtk.Label(label="Default", valign=Gtk.Align.CENTER, tooltip_text=(
+                f"Your original {app_label(app)} data. Launchable and clonable, never deletable from here."))
+            t.add_css_class("prism-tag")
+            name_box.append(t)
+        if profile.isPinned and not profile.isSystem:
+            name_box.append(line_icon("pin", c["text3"], 11))
+        row.append(name_box)
 
-        status_row = Gtk.Box(spacing=5)
-        dot = Gtk.Label(label="●")
-        status = Gtk.Label(label="Idle", xalign=0)
-        status.add_css_class("caption")
-        pid_lbl = Gtk.Label(label="", xalign=0)
-        pid_lbl.add_css_class("caption")
-        pid_lbl.add_css_class("card-muted")
-        status_row.append(dot)
-        status_row.append(status)
-        status_row.append(pid_lbl)
-        title_box.append(status_row)
-        header.append(title_box)
-        card.append(header)
+        app_box = Gtk.Box(spacing=7, width_request=130)
+        app_box.append(line_icon(app, c["text2"], 14))
+        app_lbl = Gtk.Label(label=app_label(app), xalign=0)
+        app_lbl.add_css_class("prism-sub")
+        app_box.append(app_lbl)
+        row.append(app_box)
 
-        # Details
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
-                          margin_top=2, margin_bottom=12, margin_start=14, margin_end=14)
-        meta = Gtk.Label(xalign=0)
-        meta.add_css_class("caption")
-        meta.add_css_class("dim-label")
-        details.append(meta)
-
-        if profile.defaultProjectPath:
-            proj = Gtk.Label(label=profile.defaultProjectPath, xalign=0,
-                             ellipsize=Pango.EllipsizeMode.MIDDLE)
-            proj.add_css_class("caption")
-            proj.add_css_class("dim-label")
-            details.append(proj)
-
-        # Live memory (measured RSS) vs configured limit. Window counts are
-        # omitted on Linux: Wayland exposes no global window list, and a
-        # guessed number would be worse than none.
+        status_box = Gtk.Box(spacing=7, width_request=160)
+        live_dot = Gtk.Box(valign=Gtk.Align.CENTER)
+        live_dot.add_css_class("prism-live")
+        status = Gtk.Label(xalign=0)
         mem = Gtk.Label(xalign=0)
-        mem.add_css_class("caption")
-        details.append(mem)
+        mem.add_css_class("prism-dim")
+        status_box.append(live_dot)
+        status_box.append(status)
+        status_box.append(mem)
+        row.append(status_box)
 
-        mem_bar = Gtk.ProgressBar()
-        mem_bar.add_css_class("memory-track")
-        mem_bar.add_css_class(f"memfill-{tag}")
-        mem_bar.set_show_text(False)
-        details.append(mem_bar)
+        action = Gtk.Button(width_request=104, halign=Gtk.Align.END)
+        action.add_css_class("prism-secondary" if profile.folderName == self.selected else "prism-quiet")
+        action.connect("clicked", lambda *_, p=profile: self.launch(p))
+        row.append(action)
 
-        buttons = Gtk.Box(spacing=6)
-        launch = Gtk.Button(hexpand=True)
-        launch.add_css_class(f"btn-{tag}")
-        launch.connect("clicked", lambda *_, p=profile: self.store.launch(
-            p, new_window=bool(self.store.running.get(p.folderName))))
-        buttons.append(launch)
-
-        options = Gtk.Button(icon_name="applications-system-symbolic",
-                             tooltip_text="Launch with options…")
-        options.connect("clicked", lambda *_, p=profile: LaunchOptionsDialog(self, self.store, p).present())
-        buttons.append(options)
-
-        stop = Gtk.Button(icon_name="media-playback-stop-symbolic", tooltip_text="Quit this profile")
-        stop.add_css_class("destructive-action")
-        stop.connect("clicked", lambda *_, p=profile: self.store.quit_profile(p))
-        buttons.append(stop)
-
-        spinner = Gtk.Spinner(tooltip_text="Cloning profile data…")
-        buttons.append(spinner)
-
-        pin = Gtk.Button(icon_name="view-pin-symbolic",
-                         tooltip_text="Create/update a dash launcher for this profile")
-        pin.connect("clicked", lambda *_, p=profile: self.store.create_or_update_launcher(p))
-        buttons.append(pin)
-
-        menu = Gtk.MenuButton(icon_name="view-more-symbolic", tooltip_text="More")
-        menu.set_popover(self.build_menu(profile))
-        buttons.append(menu)
-        details.append(buttons)
-        card.append(details)
-
-        # Live status updates without rebuilding the grid
         def update():
-            pids = self.store.running.get(profile.folderName) or []
-            running = bool(pids)
+            running = self.is_running(profile)
             duplicating = profile.folderName in self.store.duplicating
             live = self.store.live_bytes.get(profile.folderName, 0) if running else 0
-            dot.set_markup(f'<span foreground="{"#34d399" if running else "#6b7484"}">●</span>')
-            status.set_label("Running" if running else "Idle")
-            status.get_style_context().add_class(
-                "card-status-running" if running else "card-status-idle")
-            status.get_style_context().remove_class(
-                "card-status-idle" if running else "card-status-running")
-            real = next((q for q in pids if q > 0), 0)
-            pid_lbl.set_label(f"PID {real}" if real else "")
-            if running and has_cap:
-                mem.set_markup(
-                    f"Memory <span foreground=\"{profile.colorHex}\"><b>{format_bytes(live)}</b></span>"
-                    f" / {format_bytes(limit_bytes)} limit")
-                mem_bar.set_fraction(min(1.0, live / limit_bytes) if limit_bytes else 0.0)
+            live_dot.set_visible(running)
+            if duplicating:
+                status.set_label("Copying…")
             elif running:
-                mem.set_markup(
-                    f"Memory <span foreground=\"{profile.colorHex}\"><b>{format_bytes(live)}</b></span> live")
-                mem_bar.set_fraction(0.0)
-            elif has_cap:
-                mem.set_markup(
-                    f"Memory <span foreground=\"#a8b0c4\">{format_bytes(limit_bytes)} limit</span>")
-                mem_bar.set_fraction(0.0)
+                status.set_label("Running")
+            elif profile.lastLaunchedAt:
+                status.set_label(f"Idle · {format_relative(profile.lastLaunchedAt)}")
             else:
-                mem.set_markup(
-                    "Memory <span foreground=\"#a8b0c4\">no memory cap</span>")
-                mem_bar.set_fraction(0.0)
-            if running:
-                # Grok Bot has no new-window switch: relaunching focuses it.
-                launch.set_label("Show" if app == APP_GROK else "New Window")
-                launch.remove_css_class(f"btn-{tag}")
-                launch.add_css_class("launch-running")
-            elif app == APP_CODE:
-                launch.set_label("Open Terminal")
-                launch.remove_css_class("launch-running")
-                launch.add_css_class(f"btn-{tag}")
-            else:
-                launch.set_label("Launch")
-                launch.remove_css_class("launch-running")
-                launch.add_css_class(f"btn-{tag}")
-            stop.set_visible(running)
-            spinner.set_visible(duplicating)
-            spinner.set_spinning(duplicating)
-            meta.set_label(
-                f"Disk {format_bytes(self.store.sizes.get(profile.folderName))}  ·  "
-                f"{format_relative(profile.lastLaunchedAt)}")
+                status.set_label("Idle")
+            for css, on in (("prism-running", running and not duplicating), ("prism-dim", not running)):
+                (status.add_css_class if on else status.remove_css_class)(css)
+            mem.set_label(format_bytes(live) if running and live else "")
+            action.set_label(launch_label(profile, running))
         self.status_updaters.append(update)
         update()
 
-        # Double-click launches; drop a folder to open it with this profile
         click = Gtk.GestureClick(button=1)
-        click.connect("released", lambda g, n, x, y, p=profile:
-                      self.store.launch(p) if n == 2 else None)
-        card.add_controller(click)
+        click.connect("pressed", lambda g, n, x, y, p=profile: self.on_row_click(p, n))
+        row.add_controller(click)
+        menu_click = Gtk.GestureClick(button=3)
+        menu_click.connect("pressed", lambda g, n, x, y, p=profile, r=row: self.popup_menu(p, r, x, y))
+        row.add_controller(menu_click)
+        if app in (APP_CURSOR, APP_CODE):
+            drop = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.LINK | Gdk.DragAction.COPY)
+            drop.connect("drop", self.on_drop, profile)
+            row.add_controller(drop)
+        return row
 
-        drop = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.LINK | Gdk.DragAction.COPY)
-        drop.connect("drop", self.on_drop, profile)
-        card.add_controller(drop)
+    def on_row_click(self, profile, n_press):
+        if self.selected != profile.folderName:
+            self.selected = profile.folderName
+            GLib.idle_add(lambda: (self.rebuild(), False)[1])
+        if n_press == 2:
+            self.launch(profile)
 
-        return card
+    def launch(self, profile):
+        self.store.launch(profile, new_window=self.is_running(profile))
+
+    def popup_menu(self, profile, widget, x=0, y=0):
+        popover = self.build_menu(profile)
+        popover.set_parent(widget)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        popover.set_pointing_to(rect)
+        popover.connect("closed", lambda p: GLib.idle_add(lambda: (p.unparent(), False)[1]))
+        popover.popup()
 
     def on_drop(self, target, value, x, y, profile):
         path = value.get_path()
@@ -2118,32 +2426,34 @@ description="Each profile is a fully isolated instance — its own settings, log
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
                       margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
         popover = Gtk.Popover(child=box)
+        running = self.is_running(profile)
 
         def item(label, callback, destructive=False, enabled=True):
             btn = Gtk.Button(label=label, has_frame=False, sensitive=enabled)
             btn.get_child().set_xalign(0)
             if destructive:
                 btn.add_css_class("destructive-action")
+
             def run(*_):
                 popover.popdown()
                 callback()
             btn.connect("clicked", run)
             box.append(btn)
 
-        item("Launch", lambda p=profile: self.store.launch(p))
+        busy = profile.folderName in self.store.duplicating
+        item(launch_label(profile, running), lambda: self.launch(profile))
         item("Launch with Options…", lambda: LaunchOptionsDialog(self, self.store, profile).present())
+        if running:
+            item("Quit", lambda: self.store.quit_profile(profile))
         item("Unpin" if profile.isPinned else "Pin to Top", lambda: self.toggle_pin(profile))
         item("Edit…", lambda: EditorDialog(self, self.store, profile).present())
         clones_whole = normalize_app(profile.app) in (APP_CURSOR, APP_CODE)
         item("Clone into New Profile" if profile.isSystem and clones_whole
              else "Duplicate" if clones_whole else copy_menu_title(profile.app),
-             lambda: self.store.duplicate(profile),
-             enabled=profile.folderName not in self.store.duplicating)
+             lambda: self.store.duplicate(profile), enabled=not busy)
         if clones_whole:
-            item(copy_menu_title(profile.app), lambda: self.store.new_overflow(profile),
-                 enabled=profile.folderName not in self.store.duplicating)
-        item("Open in Files", lambda: Gio.AppInfo.launch_default_for_uri(
-            Gio.File.new_for_path(str(self.store.directory_for(profile))).get_uri(), None))
+            item(copy_menu_title(profile.app), lambda: self.store.new_overflow(profile), enabled=not busy)
+        item("Open in Files", lambda: self.open_folder(profile))
         item("Update Dash Launcher" if self.store.has_launcher(profile) else "Create Dash Launcher…",
              lambda: self.store.create_or_update_launcher(profile))
         if self.store.has_launcher(profile):
@@ -2151,6 +2461,10 @@ description="Each profile is a fully isolated instance — its own settings, log
         if not profile.isSystem:
             item("Move to Trash", lambda: self.confirm_delete(profile), destructive=True)
         return popover
+
+    def open_folder(self, profile):
+        Gio.AppInfo.launch_default_for_uri(
+            Gio.File.new_for_path(str(self.store.directory_for(profile))).get_uri(), None)
 
     def toggle_pin(self, profile):
         profile.isPinned = not profile.isPinned
@@ -2168,27 +2482,247 @@ description="Each profile is a fully isolated instance — its own settings, log
         dialog.connect("response", lambda d, r: self.store.delete(profile) if r == "delete" else None)
         dialog.present()
 
+    # -- detail panel
+
+    def update_layout(self):
+        width = self.get_width() or self.get_default_size()[0]
+        self.inspector.set_visible(width >= self.INSPECTOR_MIN_WIDTH and self.selected_profile() is not None)
+        return False
+
+    def build_inspector(self):
+        self.inspector_updaters.clear()
+        while (child := self.inspector.get_first_child()) is not None:
+            self.inspector.remove(child)
+        profile = self.selected_profile()
+        self.update_layout()
+        if profile is None:
+            return
+        c = theme_colors()
+        app = normalize_app(profile.app)
+        tag = profile.colorHex.lstrip("#")
+
+        top = Gtk.Box(halign=Gtk.Align.END, margin_top=6, margin_bottom=6, margin_end=12)
+        more = Gtk.MenuButton(icon_name="view-more-symbolic", tooltip_text="More actions")
+        more.add_css_class("flat")
+        more.set_popover(self.build_menu(profile))
+        top.append(more)
+        self.inspector.append(top)
+        rule = Gtk.Box()
+        rule.add_css_class("prism-rule")
+        self.inspector.append(rule)
+
+        scroller = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.inspector.append(scroller)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_top=22, margin_bottom=20,
+                          margin_start=24, margin_end=24)
+        scroller.set_child(content)
+
+        head = Gtk.Box(spacing=14)
+        tile = Gtk.CenterBox(width_request=44, height_request=44, valign=Gtk.Align.START,
+                             halign=Gtk.Align.START, hexpand=False)
+        tile.add_css_class(f"tile-{tag}")
+        tile.set_center_widget(line_icon(app, profile.colorHex, 22, 1.5))
+        head.append(tile)
+        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
+        title = Gtk.Label(label=profile.displayName, xalign=0, wrap=True)
+        title.add_css_class("prism-heading")
+        names.append(title)
+        sub = Gtk.Label(xalign=0, label=(f"{app_label(app)} · Default profile" if profile.isSystem
+                                         else app_label(app)))
+        sub.add_css_class("prism-dim")
+        names.append(sub)
+        head.append(names)
+        content.append(head)
+
+        buttons = Gtk.Box(spacing=8, margin_top=16)
+        primary = Gtk.Button(hexpand=True)
+        primary.add_css_class("suggested-action")
+        primary.add_css_class("prism-primary")
+        primary.connect("clicked", lambda *_: self.launch(profile))
+        secondary = Gtk.Button()
+        secondary.add_css_class("prism-secondary")
+
+        def on_secondary(*_):
+            if self.is_running(profile):
+                self.store.quit_profile(profile)
+            else:
+                LaunchOptionsDialog(self, self.store, profile).present()
+        secondary.connect("clicked", on_secondary)
+        buttons.append(primary)
+        buttons.append(secondary)
+        content.append(buttons)
+
+        def divider():
+            d = Gtk.Box(margin_top=20)
+            d.add_css_class("prism-rule")
+            content.append(d)
+
+        def section(title_text):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=16)
+            t = Gtk.Label(label=title_text, xalign=0, margin_bottom=2)
+            t.add_css_class("prism-section-title")
+            box.append(t)
+            content.append(box)
+            return box
+
+        def key_value(box, key, value=""):
+            line = Gtk.Box(spacing=12)
+            k = Gtk.Label(label=key, xalign=0, width_request=84, valign=Gtk.Align.START)
+            k.add_css_class("prism-key")
+            v = Gtk.Label(label=value, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.MIDDLE)
+            v.add_css_class("prism-value")
+            line.append(k)
+            line.append(v)
+            box.append(line)
+            return line, v
+
+        divider()
+        live_box = section("Live")
+        _, status_v = key_value(live_box, "Status", "Running")
+        status_v.add_css_class("prism-running")
+        _, memory_v = key_value(live_box, "Memory")
+        pid_line, pid_v = key_value(live_box, "Process")
+        idle_box = section("Activity")
+        _, idle_status = key_value(idle_box, "Status", "Idle")
+        key_value(idle_box, "Last used",
+                  format_relative(profile.lastLaunchedAt) if profile.lastLaunchedAt else "Never")
+
+        divider()
+        prof = section("Profile")
+        directory = str(self.store.directory_for(profile))
+        _, data_v = key_value(prof, "Data", "Default location" if profile.isSystem
+                              else directory.replace(str(Path.home()), "~", 1))
+        data_v.set_tooltip_text(directory)
+        if app in (APP_CURSOR, APP_CODE):
+            key_value(prof, "Project", (profile.defaultProjectPath or "None").replace(str(Path.home()), "~", 1))
+        if app == APP_CURSOR:
+            key_value(prof, "Memory cap", format_bytes(profile.defaultMemoryMB * 1024 * 1024))
+        _, disk_v = key_value(prof, "On disk")
+        key_value(prof, "Account", "Its own sign-in")
+
+        divider()
+        brain = section("Second brain")
+        status = self.store.brain_status or {}
+        on = bool(status.get("personalExists"))
+        if app == APP_GROK:
+            blurb = ("Grok agents run in the cloud. Paste the Brainium snippet into an agent's "
+                     "instructions to share memory with your other apps.")
+            action_label, action = "Copy snippet", self.copy_grok_snippet
+        elif on:
+            blurb = "Connect this profile so its agents read and write the same memory as your other apps."
+            action_label, action = "Connect this profile", lambda: self.store.wire_brain(profile)
+        else:
+            blurb = "Set up Brainium to give every profile one shared memory."
+            action_label, action = "Set up…", lambda: self.open_preferences(brain=True)
+        b_lbl = Gtk.Label(label=blurb, xalign=0, wrap=True)
+        b_lbl.add_css_class("prism-sub")
+        brain.append(b_lbl)
+        b_btn = Gtk.Button(label=action_label, halign=Gtk.Align.START)
+        b_btn.add_css_class("prism-secondary")
+        b_btn.connect("clicked", lambda *_: action())
+        brain.append(b_btn)
+
+        foot_rule = Gtk.Box()
+        foot_rule.add_css_class("prism-rule")
+        self.inspector.append(foot_rule)
+        foot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=12, margin_bottom=12,
+                       margin_start=12, margin_end=12)
+        for icon_name, label, callback in (
+                ("arrow", copy_action_title(profile.app), lambda: self.copy_to_new(profile)),
+                ("folder", "Show data folder", lambda: self.open_folder(profile)),
+                ("pin", "Update dash launcher" if self.store.has_launcher(profile) else "Create dash launcher",
+                 lambda: self.store.create_or_update_launcher(profile))):
+            btn = Gtk.Button()
+            btn.add_css_class("prism-footer")
+            line = Gtk.Box(spacing=10)
+            line.append(line_icon(icon_name, c["text2"], 13))
+            line.append(Gtk.Label(label=label, xalign=0))
+            btn.set_child(line)
+            btn.connect("clicked", lambda *_, cb=callback: cb())
+            foot.append(btn)
+        self.inspector.append(foot)
+
+        def update():
+            running = self.is_running(profile)
+            pids = self.store.running.get(profile.folderName) or []
+            live = self.store.live_bytes.get(profile.folderName, 0) if running else 0
+            live_box.set_visible(running)
+            idle_box.set_visible(not running)
+            primary.set_label(launch_label(profile, running))
+            secondary.set_label("Quit" if running else "Options…")
+            cap = f" of {format_bytes(profile.defaultMemoryMB * 1024 * 1024)}" if app == APP_CURSOR else ""
+            memory_v.set_label(f"{format_bytes(live)}{cap}" if live else "Measuring…")
+            real = next((q for q in pids if q > 0), 0)
+            pid_line.set_visible(bool(real))
+            pid_v.set_label(str(real))
+            idle_status.set_label(f"Idle · {format_relative(profile.lastLaunchedAt)}"
+                                  if profile.lastLaunchedAt else "Idle")
+            disk_v.set_label(format_bytes(self.store.sizes.get(profile.folderName)))
+        self.inspector_updaters.append(update)
+        update()
+
+    def copy_to_new(self, profile):
+        if normalize_app(profile.app) in (APP_CURSOR, APP_CODE):
+            self.store.new_overflow(profile)
+        else:
+            self.store.duplicate(profile)
+
+    def copy_grok_snippet(self):
+        def done(text):
+            Gdk.Display.get_default().get_clipboard().set(text)
+            self.store.on_info("Grok Bot snippet copied. Paste it into the agent's instructions.")
+        self.store.brain_task("Couldn't build the snippet", lambda b: b.run("snippet", "grok"), on_done=done)
+
+    # -- live status
+
     def refresh_status(self, *_):
-        for update in self.status_updaters:
+        now_running = {p.folderName for p in self.store.profiles if self.is_running(p)}
+        if now_running != self._running_set:
+            self.rebuild()
+            return
+        for update in self.status_updaters + self.inspector_updaters:
             update()
         live_total = sum(self.store.live_bytes.get(p.folderName, 0)
-                         for p in self.store.profiles
-                         if self.store.running.get(p.folderName))
+                         for p in self.store.profiles if self.is_running(p))
+        n = len(now_running)
+        self.running_lbl.set_label(f"{n} running · {format_bytes(live_total)}" if n else "Nothing running")
         cpu = f"{self.store.system_cpu:.0f}%" if self.store.system_cpu is not None else "—"
-        self.cpu_lbl.set_label(f"CPU {cpu}")
-        total = format_bytes(self.store.total_memory) if self.store.total_memory else "—"
-        self.ram_lbl.set_label(f"RAM {format_bytes(live_total)} / {total}")
-        self.count_lbl.set_label(f"{len(self.store.profiles)} profiles")
-        self._update_filter_labels()
-        # Keep Active-tab membership truthful between rebuilds.
-        if self.filter_mode == 1:
-            now = {p.folderName for p in self.visible_profiles()}
-            if now != getattr(self, "_last_visible", None):
-                self.rebuild()
+        ram = f" · {format_bytes(self.store.total_memory)} RAM" if self.store.total_memory else ""
+        self.system_lbl.set_label(f"CPU {cpu}{ram}")
+
+        status = self.store.brain_status or {}
+        on = bool(status.get("personalExists"))
+        self.brain_state.set_label("On" if on else "Off")
+        for css, active in (("prism-live", on), ("prism-off", not on)):
+            (self.brain_dot.add_css_class if active else self.brain_dot.remove_css_class)(css)
+        if not self.store.brainium():
+            detail = "Not set up"
+        elif not on:
+            detail = "No personal brain yet"
+        else:
+            place = f"Saving to {str(status.get('personalBrain', '')).replace(str(Path.home()), '~', 1)}"
+            pending = int(status.get("pending") or 0)
+            detail = f"{pending} to file · {place}" if pending else place
+        self.brain_detail.set_label(detail)
+        self.update_layout()
+
+
+def launch_label(profile: Profile, running: bool) -> str:
+    """Grok Bot has no new-window switch: launching a running profile again
+    brings its window forward."""
+    app = normalize_app(profile.app)
+    if running:
+        return "Show" if app == APP_GROK else "New Window"
+    return "Open Terminal" if app == APP_CODE else "Launch"
+
+
+def copy_action_title(app: str) -> str:
+    return ("Copy settings to a new profile" if normalize_app(app) == APP_GROK
+            else "New overflow account from this")
 
 
 class EditorDialog(Adw.Window):
-    """Create or edit a profile, with a live gradient preview."""
+    """Create or edit a profile."""
 
     def __init__(self, parent: MainWindow, store: Store, profile: Profile | None):
         super().__init__(transient_for=parent, modal=True, default_width=460,
@@ -2212,19 +2746,10 @@ class EditorDialog(Adw.Window):
 
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         root.set_content(body)
-
-        # Live preview
-        self.preview = Gtk.Box(spacing=12)
-        self.preview.add_css_class("card-header")
-        self.preview_tile = Gtk.Label(width_request=48, height_request=48)
-        self.preview_tile.add_css_class("preview-tile")
-        self.preview_tile.add_css_class("tile-glyph")
-        self.preview.append(self.preview_tile)
-        self.preview_name = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
-        self.preview_name.add_css_class("title-2")
-        self.preview_name.add_css_class("on-header")
-        self.preview.append(self.preview_name)
-        body.append(self.preview)
+        intro = Gtk.Label(label="Each profile keeps its own sign-in, settings and history.", xalign=0,
+                          margin_top=14, margin_start=16, margin_end=16, wrap=True)
+        intro.add_css_class("dim-label")
+        body.append(intro)
 
         clamp = Adw.Clamp(margin_top=14, margin_bottom=14, margin_start=16, margin_end=16)
         body.append(clamp)
@@ -2261,7 +2786,7 @@ class EditorDialog(Adw.Window):
         default_mb = profile.defaultMemoryMB if profile else store.settings.get("defaultMemoryMB", 16384)
         self.memory = Gtk.SpinButton.new_with_range(512, 262144, 1024)
         self.memory.set_value(default_mb)
-        self.memory_row = self._labeled("Memory limit (MB, Cursor only)", self.memory)
+        self.memory_row = self._labeled("Memory limit (MB)", self.memory)
         form.append(self.memory_row)
 
         # Fresh account, or an overflow account carrying another same-app
@@ -2316,11 +2841,10 @@ class EditorDialog(Adw.Window):
         # Memory cap only applies to Cursor; dim the field for other apps.
         app = self.selected_app()
         is_cursor = app == APP_CURSOR
-        self.memory.set_sensitive(is_cursor)
-        self.memory_row.set_opacity(1.0 if is_cursor else 0.45)
-        # Account choice on create; Grok Bot never opens project folders.
+        self.memory_row.set_visible(is_cursor)
+        # Account choice on create; only Cursor and Claude Code open folders.
         self.account_row.set_visible(self.profile is None)
-        self.project_row.set_visible(app != APP_GROK)
+        self.project_row.set_visible(app in (APP_CURSOR, APP_CODE))
         self.account_sources = [p for p in self.store.profiles if normalize_app(p.app) == app]
         self.account_model.splice(0, self.account_model.get_n_items(),
                                   ["Fresh account — starts empty"]
@@ -2341,18 +2865,11 @@ class EditorDialog(Adw.Window):
         self.update_preview()
 
     def update_preview(self):
-        for css in list(self.preview.get_css_classes()):
-            if css.startswith("hdr-"):
-                self.preview.remove_css_class(css)
-        self.preview.add_css_class(f"hdr-{self.color_hex.lstrip('#')}")
-        name = self.name_entry.get_text().strip()
-        self.preview_tile.set_label(name[0].upper() if name else "?")
-        self.preview_name.set_label(name or "New Profile")
         for hex_color, btn in self.color_buttons.items():
             if hex_color == self.color_hex:
-                btn.add_css_class("suggested-action")
+                btn.add_css_class("swatch-selected")
             else:
-                btn.remove_css_class("suggested-action")
+                btn.remove_css_class("swatch-selected")
 
     def pick_folder(self, *_):
         dialog = Gtk.FileDialog()
@@ -2534,12 +3051,14 @@ class PreferencesDialog(Adw.PreferencesWindow):
         storage_group.add(rescan_row)
 
         self.add(self._brain_page())
+        self.connect("close-request", lambda *_: (store.refresh_brain_status(), False)[1])
 
     # -- Second brain page
 
     def _brain_page(self):
         store = self.store
         page = Adw.PreferencesPage(title="Second brain", icon_name="system-search-symbolic")
+        self.brain_page = page
         intro = Adw.PreferencesGroup(description=(
             "Brainium keeps a git-backed memory outside every account — a personal brain that "
             "follows you, plus a project brain in each repo — so agents keep their knowledge when "
@@ -2548,16 +3067,37 @@ class PreferencesDialog(Adw.PreferencesWindow):
 
         where = Adw.PreferencesGroup(title="Brainium")
         page.add(where)
-        b = store.brainium()
-        self.brain_found_row = Adw.ActionRow(title="Detected",
-                                             subtitle=f"{b.cli}\n{b.node}" if b else BRAINIUM_NOT_FOUND)
-        where.add(self.brain_found_row)
-        for key, title in (("brainiumPath", "Brainium checkout (empty = auto-detect)"),
-                           ("nodePath", "Node.js (empty = auto-detect)")):
+        cli, node = find_brainium_cli(store.settings.get("brainiumPath", "")), find_node(store.settings.get("nodePath", ""))
+
+        def open_url(url):
+            Gio.AppInfo.launch_default_for_uri(url, None)
+
+        brain_row = Adw.ActionRow(title="Brainium",
+                                  subtitle=str(Path(cli).parent.parent) if cli else "Not installed")
+        if not cli:
+            install = Gtk.Button(label="Install", valign=Gtk.Align.CENTER)
+            install.add_css_class("suggested-action")
+
+            def do_install(btn):
+                btn.set_sensitive(False)
+                btn.set_label("Installing…")
+                store.install_brainium(on_done=self.close)
+            install.connect("clicked", do_install)
+            brain_row.add_suffix(install)
+        where.add(brain_row)
+        node_row = Adw.ActionRow(title="Node.js", subtitle=node or "Not installed. Brainium needs Node.js 18 or newer.")
+        if not node:
+            get_node = Gtk.Button(label="Get Node.js", valign=Gtk.Align.CENTER)
+            get_node.connect("clicked", lambda *_: open_url(NODE_DOWNLOAD_URL))
+            node_row.add_suffix(get_node)
+        where.add(node_row)
+        for key, title in (("brainiumPath", "Use an existing Brainium folder (empty = auto-detect)"),
+                           ("nodePath", "Use a specific node binary (empty = auto-detect)")):
             row = Adw.EntryRow(title=title)
             row.set_text(store.settings.get(key, ""))
             row.connect("changed", lambda r, k=key: self._set(k, r.get_text().strip()))
             where.add(row)
+        b = store.brainium()
 
         status = {}
         self._brain_status = status
@@ -2668,9 +3208,8 @@ class CursorProfilesApp(Adw.Application):
         self.store = None
 
     def do_activate(self):
-        # Deep-dark redesign: pin libadwaita to dark so custom surfaces,
-        # borders and accent rules render as designed on any system theme.
-        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+        # Follow the system light/dark setting (the palette has both).
+        Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.DEFAULT)
         window = self.get_active_window()
         if not window:
             if self.store is None:
