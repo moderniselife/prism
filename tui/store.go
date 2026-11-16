@@ -58,6 +58,8 @@ type Profile struct {
 	// Claude Code only: run through the Prism endpoint with this identity's
 	// API keys ("" = own sign-in, "*" = the active identity).
 	EndpointIdentity string `json:"-"`
+	// The profile's group (made in the macOS app; kept as-is here).
+	GroupID string `json:"-"`
 }
 
 // NOTE: older .profiles.json files may carry an "emoji" key. It has no field
@@ -75,6 +77,7 @@ type profileJSON struct {
 	IsPinned           bool     `json:"isPinned"`
 	IsSystem           bool     `json:"isSystem"`
 	EndpointIdentity   string   `json:"endpointIdentity,omitempty"`
+	GroupID            string   `json:"groupID,omitempty"`
 }
 
 func appleToTime(sec float64) time.Time {
@@ -96,6 +99,7 @@ func (p Profile) toJSON() profileJSON {
 		IsPinned:           p.IsPinned,
 		IsSystem:           p.IsSystem,
 		EndpointIdentity:   p.EndpointIdentity,
+		GroupID:            p.GroupID,
 	}
 	if j.App == "" {
 		j.App = AppCursor
@@ -120,6 +124,7 @@ func profileFromJSON(j profileJSON) Profile {
 		IsPinned:           j.IsPinned,
 		IsSystem:           j.IsSystem,
 		EndpointIdentity:   j.EndpointIdentity,
+		GroupID:            j.GroupID,
 	}
 	// Absent or unknown: files predating multi-app support are Cursor.
 	p.App = normalizeApp(p.App)

@@ -29,7 +29,7 @@ struct EndpointSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 620, height: 720)
+        .scrollContentBackground(.hidden)
         .sheet(item: $editingIdentity) { identity in
             IdentityEditorSheet(identity: identity,
                                 isNew: config.identity(id: identity.id) == nil,
@@ -1069,7 +1069,7 @@ struct EndpointCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SettingsLink {
+            Button { PrismSettings.open(.endpoint) } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Image(systemName: "point.3.connected.trianglepath.dotted")

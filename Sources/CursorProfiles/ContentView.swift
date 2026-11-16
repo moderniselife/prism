@@ -45,11 +45,13 @@ enum SortMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// A titled group of rows ("Running", "Not running").
+/// A titled group of rows ("Running", "Not running", or a profile group).
 struct HubSection: Identifiable {
+    let id: String
     let title: String
     let profiles: [CursorProfile]
-    var id: String { title }
+    /// Set for a profile group's section: its swatch colour.
+    var colorHex: String? = nil
 }
 
 // MARK: - Main Hub Window
@@ -63,6 +65,9 @@ struct ContentView: View {
     @State private var search = ""
     @State private var sortMode: SortMode = .recent
     @State private var filter: ProfileFilter = .all
+    /// A profile group picked in the sidebar (overrides `filter`).
+    @State private var selectedGroup: String?
+    @AppStorage(HubGrouping.storageKey) private var groupingRaw = HubGrouping.status.rawValue
     @State private var selectedID: String?
     @State private var showingAdd = false
     @State private var editingProfile: CursorProfile?
@@ -87,8 +92,16 @@ struct ContentView: View {
         store.profiles.filter { matches($0, filter) }.count
     }
 
+    private var grouping: HubGrouping { HubGrouping(rawValue: groupingRaw) ?? .status }
+
+    /// The group picked in the sidebar, if it still exists.
+    private var activeGroup: ProfileGroup? { store.group(selectedGroup) }
+
+    private var listTitle: String { activeGroup?.name ?? filter.title }
+
     private var filtered: [CursorProfile] {
-        var list = store.profiles.filter { matches($0, filter) }
+        var list = activeGroup.map { g in store.profiles.filter { $0.groupID == g.id } }
+            ?? store.profiles.filter { matches($0, filter) }
 
         if !search.isEmpty {
             list = list.filter {
@@ -118,10 +131,32 @@ struct ContentView: View {
         let list = filtered
         let running = list.filter { store.isRunning($0) }
         let idle = list.filter { !store.isRunning($0) }
+        if groupsSections {
+            // One section per group (in the user's order), then the rest.
+            var out: [HubSection] = []
+            for group in store.groups {
+                let members = list.filter { $0.groupID == group.id }
+                if !members.isEmpty {
+                    out.append(HubSection(id: "group-\(group.id)", title: group.name,
+                                          profiles: members, colorHex: group.colorHex))
+                }
+            }
+            let loose = list.filter { store.group($0.groupID) == nil }
+            if !loose.isEmpty {
+                out.append(HubSection(id: "ungrouped", title: "No group", profiles: loose))
+            }
+            return out
+        }
         var out: [HubSection] = []
-        if !running.isEmpty { out.append(HubSection(title: "Running", profiles: running)) }
-        if !idle.isEmpty { out.append(HubSection(title: "Not running", profiles: idle)) }
+        if !running.isEmpty { out.append(HubSection(id: "running", title: "Running", profiles: running)) }
+        if !idle.isEmpty { out.append(HubSection(id: "idle", title: "Not running", profiles: idle)) }
         return out
+    }
+
+    /// The list is split by group (not by status) — only when there are
+    /// groups and the sidebar isn't already showing one.
+    private var groupsSections: Bool {
+        grouping == .group && activeGroup == nil && !store.groups.isEmpty
     }
 
     /// The selected profile, falling back to the first one listed.
@@ -135,7 +170,7 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geo in
             HStack(spacing: 0) {
-                HubSidebar(search: $search, filter: $filter,
+                HubSidebar(search: $search, filter: $filter, selectedGroup: $selectedGroup,
                            searchFocus: $isSearchFocused, count: count)
                 mainColumn
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -153,7 +188,7 @@ struct ContentView: View {
         .frame(minWidth: 860, minHeight: 560)
         .tint(PrismTheme.Colors.accent)
         .sheet(isPresented: $showingAdd) {
-            ProfileEditorSheet(mode: .create, onClose: { showingAdd = false })
+            ProfileEditorSheet(mode: .create, defaultGroupID: activeGroup?.id, onClose: { showingAdd = false })
         }
         .sheet(item: $editingProfile) { profile in
             ProfileEditorSheet(mode: .edit(profile), onClose: { editingProfile = nil })
@@ -215,9 +250,19 @@ struct ContentView: View {
     // MARK: - Main column
 
     private var mainColumn: some View {
-        VStack(spacing: 0) {
+        // The header sits in front of the list: on recent macOS the list's
+        // scroll view extends up under it and used to swallow the clicks
+        // that should drag the window.
+        ZStack(alignment: .top) {
+            listColumn
+                .padding(.top, 52)
             header
+        }
+        .background(PrismTheme.Colors.bg)
+    }
 
+    private var listColumn: some View {
+        VStack(spacing: 0) {
             VStack(spacing: 8) {
                 if store.resolvedCursorPath == nil && count(.cursor) > 0 {
                     cursorMissingBanner
@@ -242,6 +287,7 @@ struct ContentView: View {
                                 ProfileRow(
                                     profile: profile,
                                     isSelected: profile.folderName == selectedProfile?.folderName,
+                                    showGroup: !groupsSections && activeGroup == nil,
                                     onSelect: { selectedID = profile.folderName },
                                     onEdit: { editingProfile = profile },
                                     onDelete: { deletingProfile = profile }
@@ -254,12 +300,14 @@ struct ContentView: View {
                 }
             }
         }
-        .background(PrismTheme.Colors.bg)
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text(filter.title)
+            if let group = activeGroup {
+                GroupSwatch(colorHex: group.colorHex, size: 11)
+            }
+            Text(listTitle)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
             Text("\(filtered.count)")
@@ -276,6 +324,14 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.inline)
+                if !store.groups.isEmpty && activeGroup == nil {
+                    Picker("Arrange", selection: $groupingRaw) {
+                        ForEach(HubGrouping.allCases) { g in
+                            Text(g.title).tag(g.rawValue)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
             } label: {
                 HStack(spacing: 4) {
                     Text(sortMode == .recent ? "Recent" : sortMode.rawValue)
@@ -301,6 +357,12 @@ struct ContentView: View {
         .padding(.leading, 24)
         .padding(.trailing, 16)
         .frame(height: 52)
+        .background {
+            ZStack {
+                PrismTheme.Colors.bg
+                WindowDragArea()
+            }
+        }
         .overlay(alignment: .bottom) {
             Rectangle().fill(PrismTheme.Colors.borderSubtle).frame(height: 1)
         }
@@ -322,6 +384,9 @@ struct ContentView: View {
 
     private func sectionHeader(_ section: HubSection) -> some View {
         HStack(spacing: 8) {
+            if let hex = section.colorHex {
+                GroupSwatch(colorHex: hex, size: 9)
+            }
             Text(section.title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(PrismTheme.Colors.textPrimary)
@@ -360,14 +425,17 @@ struct ContentView: View {
 
     private var noMatches: some View {
         VStack(spacing: 10) {
-            Text(!search.isEmpty ? "No profiles match “\(search)”" : (filter == .active ? "Nothing is running" : "Nothing here yet"))
+            Text(!search.isEmpty ? "No profiles match “\(search)”"
+                 : activeGroup.map { "No profiles in \($0.name) yet. Drag one onto the group, or use Group in its menu." }
+                 ?? (filter == .active ? "Nothing is running" : "Nothing here yet"))
+                .multilineTextAlignment(.center)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(PrismTheme.Colors.textSecondary)
             if !search.isEmpty {
                 Button("Clear search") { search = "" }
                     .buttonStyle(PrismButtonStyle(kind: .secondary))
-            } else if filter != .all {
-                Button("Show all profiles") { filter = .all }
+            } else if filter != .all || activeGroup != nil {
+                Button("Show all profiles") { filter = .all; selectedGroup = nil }
                     .buttonStyle(PrismButtonStyle(kind: .secondary))
             }
         }
@@ -377,7 +445,7 @@ struct ContentView: View {
     private var cursorMissingBanner: some View {
         HubBanner(icon: "exclamationmark.triangle", iconColor: PrismTheme.Colors.amber,
                   text: "Cursor wasn't found. Install it from cursor.com, or set its path in Settings.") {
-            SettingsLink { Text("Open Settings") }
+            Button("Open Settings") { PrismSettings.open(.apps) }
                 .buttonStyle(PrismButtonStyle(kind: .secondary, height: 26))
         }
     }
@@ -390,37 +458,46 @@ struct HubSidebar: View {
     @EnvironmentObject var store: ProfileStore
     @Binding var search: String
     @Binding var filter: ProfileFilter
+    @Binding var selectedGroup: String?
+    @ObservedObject private var updater = PrismSelfUpdater.shared
     var searchFocus: FocusState<Bool>.Binding
     var count: (ProfileFilter) -> Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Room for the window's traffic lights.
-            Color.clear.frame(height: 52)
+            // Room for the window's traffic lights; drags the window.
+            WindowDragArea().frame(height: 52)
 
             searchField
 
-            VStack(spacing: 2) {
-                item(.all) { symbol("square.stack") }
-                item(.active) { symbol("waveform.path.ecg") }
-                item(.custom) { symbol("person") }
-            }
-            .padding(.top, 16)
+            // Filters, apps and groups scroll when there are many groups.
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(spacing: 2) {
+                        item(.all) { symbol("square.stack") }
+                        item(.active) { symbol("waveform.path.ecg") }
+                        item(.custom) { symbol("person") }
+                    }
+                    .padding(.top, 16)
 
-            Text("Apps")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(PrismTheme.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.top, 20)
-                .padding(.bottom, 6)
+                    Text("Apps")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 20)
+                        .padding(.bottom, 6)
 
-            VStack(spacing: 2) {
-                ForEach([ProfileFilter.cursor, .code, .desktop, .grok]) { f in
-                    item(f) { AppGlyph(app: f.app ?? "", size: 15) }
+                    VStack(spacing: 2) {
+                        ForEach([ProfileFilter.cursor, .code, .desktop, .grok]) { f in
+                            item(f) { AppGlyph(app: f.app ?? "", size: 15) }
+                        }
+                    }
+
+                    SidebarGroups(selectedGroup: $selectedGroup, onSelect: { search = "" })
                 }
+                .padding(.bottom, 16)
             }
-
-            Spacer(minLength: 16)
+            .frame(maxHeight: .infinity)
 
             EndpointCard()
                 .padding(.bottom, 8)
@@ -475,10 +552,11 @@ struct HubSidebar: View {
     }
 
     private func item<Icon: View>(_ f: ProfileFilter, @ViewBuilder icon: () -> Icon) -> some View {
-        let selected = filter == f
+        let selected = filter == f && store.group(selectedGroup) == nil
         let n = count(f)
         return Button {
             filter = f
+            selectedGroup = nil
         } label: {
             HStack(spacing: 10) {
                 icon()
@@ -514,7 +592,7 @@ struct HubSidebar: View {
     }
 
     private var brainCard: some View {
-        SettingsLink {
+        Button { PrismSettings.open(.secondBrain) } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Image(systemName: "brain")
@@ -557,8 +635,17 @@ struct HubSidebar: View {
                      ? "\(running) running · \(Format.bytes(Int64(store.liveMemoryTotal)))"
                      : "Nothing running")
                 Text("CPU \(store.systemCPU.map { String(format: "%.0f%%", $0) } ?? "—") · \(Format.bytes(Int64(store.physicalMemory))) RAM")
-                Text("Prism \(BuildInfo.version) · \(BuildInfo.commit)")
+                Button { PrismSettings.open(.about) } label: {
+                    HStack(spacing: 4) {
+                        Text("Prism \(BuildInfo.version) · \(BuildInfo.commit)")
+                        if updater.available != nil {
+                            Circle().fill(PrismTheme.Colors.accent).frame(width: 5, height: 5)
+                        }
+                    }
                     .foregroundStyle(PrismTheme.Colors.textMuted)
+                }
+                .buttonStyle(.plain)
+                .help(updater.available.map { "Prism \($0.version) is available" } ?? "About Prism and updates")
             }
             .font(.system(size: 11))
             .monospacedDigit()
@@ -567,7 +654,7 @@ struct HubSidebar: View {
 
             Spacer(minLength: 4)
 
-            SettingsLink {
+            Button { PrismSettings.open() } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
                     .foregroundStyle(PrismTheme.Colors.textSecondary)

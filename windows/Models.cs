@@ -79,6 +79,10 @@ public class CursorProfile
     [JsonPropertyName("endpointIdentity")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? EndpointIdentity { get; set; }
+    /// <summary>The profile's group (projects/clients, made in the macOS app); kept as-is.</summary>
+    [JsonPropertyName("groupID")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? GroupID { get; set; }
 
     public CursorProfile Copy() => (CursorProfile)MemberwiseClone();
 

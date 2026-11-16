@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct CursorProfilesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var store = ProfileStore()
+    @StateObject private var store = ProfileStore.shared
 
     var body: some Scene {
         WindowGroup {
@@ -15,6 +15,13 @@ struct CursorProfilesApp: App {
         // Wide enough for sidebar + list + detail panel on first launch.
         .defaultSize(width: 1240, height: 780)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { PrismSettings.open() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { PrismSettings.checkForUpdates() }
+            }
             CommandGroup(after: .newItem) {
                 Button("Rescan Profiles") { store.reload() }
                     .keyboardShortcut("r", modifiers: .command)
@@ -35,11 +42,6 @@ struct CursorProfilesApp: App {
                 Button("Switch Endpoint Identity") { GatewayController.shared.cycleActive() }
                     .keyboardShortcut("i", modifiers: [.command, .option])
             }
-        }
-
-        Settings {
-            SettingsView()
-                .environmentObject(store)
         }
 
         MenuBarExtra("Prism", systemImage: "cursorarrow.square") {
@@ -192,7 +194,7 @@ struct MenuBarDropdown: View {
             .help("Open full hub")
 
             Button {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                PrismSettings.open()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 11))

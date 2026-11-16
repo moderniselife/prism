@@ -16,6 +16,9 @@ struct ProfileRow: View {
     @EnvironmentObject var store: ProfileStore
     let profile: CursorProfile
     let isSelected: Bool
+    /// Show the profile's group as a tag (off when the list is already
+    /// split or filtered by group).
+    var showGroup = true
     var onSelect: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
@@ -39,6 +42,9 @@ struct ProfileRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if profile.isSystem { DefaultTag() }
+                if showGroup, let group = store.group(profile.groupID) {
+                    GroupTag(group: group)
+                }
                 if profile.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9))
@@ -88,6 +94,16 @@ struct ProfileRow: View {
         }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             handleDrop(providers)
+        }
+        // Drag onto a group in the sidebar to file it there.
+        .draggable(profile.id) {
+            HStack(spacing: 8) {
+                Circle().fill(profile.accentColor).frame(width: 8, height: 8)
+                Text(profile.displayName).font(.system(size: 13, weight: .medium))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(PrismTheme.Colors.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .help(profile.opensProjectFolder ? "Drop a folder here to open it in this profile" : "")
     }

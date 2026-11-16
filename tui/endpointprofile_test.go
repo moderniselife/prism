@@ -12,9 +12,13 @@ import (
 // A profile's API account (set in the macOS/Windows/Linux apps) survives the
 // TUI rewriting .profiles.json, and the Claude Code command uses it.
 func TestEndpointIdentityRoundTripAndCommand(t *testing.T) {
-	p := Profile{FolderName: "work", DisplayName: "Work", App: AppClaudeCode, EndpointIdentity: "ID1"}
-	if got := profileFromJSON(p.toJSON()).EndpointIdentity; got != "ID1" {
-		t.Fatalf("endpointIdentity lost: %q", got)
+	p := Profile{FolderName: "work", DisplayName: "Work", App: AppClaudeCode, EndpointIdentity: "ID1", GroupID: "G1"}
+	back := profileFromJSON(p.toJSON())
+	if back.EndpointIdentity != "ID1" {
+		t.Fatalf("endpointIdentity lost: %q", back.EndpointIdentity)
+	}
+	if back.GroupID != "G1" {
+		t.Fatalf("groupID lost: %q", back.GroupID)
 	}
 
 	dir := t.TempDir()

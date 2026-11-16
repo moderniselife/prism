@@ -823,6 +823,8 @@ class Profile:
     # Claude Code only: go through the Prism endpoint. None = the profile's own
     # sign-in, "*" = the active identity, otherwise an endpoint identity id.
     endpointIdentity: str | None = None
+    # The profile's group (projects/clients, made in the macOS app); kept as-is.
+    groupID: str | None = None
 
     @property
     def initial(self) -> str:
@@ -843,6 +845,7 @@ class Profile:
             "isPinned": self.isPinned,
             "isSystem": self.isSystem,
             **({"endpointIdentity": self.endpointIdentity} if self.endpointIdentity else {}),
+            **({"groupID": self.groupID} if self.groupID else {}),
         }
 
     @classmethod
@@ -859,6 +862,7 @@ class Profile:
             isPinned=data.get("isPinned", False),
             isSystem=data.get("isSystem", False),
             endpointIdentity=data.get("endpointIdentity"),
+            groupID=data.get("groupID"),
         )
 
 

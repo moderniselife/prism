@@ -16,6 +16,8 @@ struct ProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let mode: Mode
+    /// Group a new profile starts in (the group shown in the hub).
+    var defaultGroupID: String? = nil
     /// Explicit closer from the presenter. Environment `dismiss()` is kept
     /// as fallback, but state-driven closing can't silently no-op.
     var onClose: (() -> Void)? = nil
@@ -26,6 +28,7 @@ struct ProfileEditorSheet: View {
     @State private var memoryMB = 16384
     @State private var projectPath = ""
     @State private var endpointIdentity = ""
+    @State private var groupID: String?
     @ObservedObject private var gateway = GatewayController.shared
     /// Start empty, or carry another same-app profile's config over into a
     /// second account ("overflow"). Never its sign-in.
@@ -70,6 +73,9 @@ struct ProfileEditorSheet: View {
                     nameField
                     appPicker
                     colorPicker
+                    field("Group") {
+                        GroupPicker(groupID: $groupID)
+                    }
                     if !isEditing {
                         accountSection
                     }
@@ -442,6 +448,7 @@ struct ProfileEditorSheet: View {
             memoryMB = store.defaultMemoryMB
             colorHex = AccentPalette.random().hex
             app = CursorProfile.appCursor
+            groupID = store.group(defaultGroupID)?.id
         case .edit(let profile):
             name = profile.displayName
             app = profile.normalizedApp
@@ -449,6 +456,7 @@ struct ProfileEditorSheet: View {
             memoryMB = profile.defaultMemoryMB
             projectPath = profile.defaultProjectPath ?? ""
             endpointIdentity = profile.endpointIdentity ?? ""
+            groupID = profile.groupID
         }
     }
 
@@ -460,7 +468,7 @@ struct ProfileEditorSheet: View {
             store.createOverflow(displayName: trimmedName, colorHex: colorHex,
                                  memoryMB: max(512, memoryMB),
                                  defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject,
-                                 source: source)
+                                 source: source, groupID: groupID)
             close()
         case .create:
             let created = store.createProfile(
@@ -468,7 +476,8 @@ struct ProfileEditorSheet: View {
                 app: app,
                 colorHex: colorHex,
                 memoryMB: max(512, memoryMB),
-                defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject
+                defaultProjectPath: trimmedProject.isEmpty ? nil : trimmedProject,
+                groupID: groupID
             )
             if var created {
                 if app == CursorProfile.appClaudeCode, !endpointIdentity.isEmpty {
@@ -483,6 +492,7 @@ struct ProfileEditorSheet: View {
             updated.colorHex = colorHex
             updated.defaultMemoryMB = max(512, memoryMB)
             updated.defaultProjectPath = trimmedProject.isEmpty ? nil : trimmedProject
+            updated.groupID = store.group(groupID)?.id
             updated.endpointIdentity = app == CursorProfile.appClaudeCode && !endpointIdentity.isEmpty ? endpointIdentity : nil
             store.update(updated)
             close()

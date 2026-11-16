@@ -6,8 +6,13 @@ import SwiftUI
 
 @MainActor
 final class ProfileStore: ObservableObject {
+    /// The app's one store, so windows Prism opens itself (Settings) and the
+    /// menu bar share it with the hub.
+    static let shared = ProfileStore()
 
     @Published var profiles: [CursorProfile] = []
+    /// User-made groups, in display order.
+    @Published var groups: [ProfileGroup] = []
     @Published var sizes: [String: Int64] = [:]
     @Published var runningPIDs: [String: [Int32]] = [:]
     /// Live resident memory per profile (bytes, summed RSS of its processes).
@@ -138,6 +143,12 @@ final class ProfileStore: ObservableObject {
             all.append(contentsOf: reloadApp(app))
         }
         profiles = all
+        groups = loadGroups()
+        // Profiles pointing at a group that no longer exists are ungrouped.
+        let ids = Set(groups.map(\.id))
+        for i in profiles.indices where profiles[i].groupID.map({ !ids.contains($0) }) == true {
+            profiles[i].groupID = nil
+        }
         saveMetadata()
         refreshSizes()
         refreshRunning()
@@ -204,6 +215,96 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    // MARK: Groups
+
+    private var groupsURL: URL { profilesDir.appendingPathComponent(".groups.json") }
+
+    private func loadGroups() -> [ProfileGroup] {
+        guard let data = try? Data(contentsOf: groupsURL) else { return [] }
+        return (try? JSONDecoder().decode([ProfileGroup].self, from: data)) ?? []
+    }
+
+    private func saveGroups() {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(groups) {
+            try? data.write(to: groupsURL, options: .atomic)
+        }
+    }
+
+    func group(_ id: String?) -> ProfileGroup? {
+        guard let id else { return nil }
+        return groups.first { $0.id == id }
+    }
+
+    func profiles(in groupID: String) -> [CursorProfile] {
+        profiles.filter { $0.groupID == groupID }
+    }
+
+    /// A name not already used by another group ("Project", "Project 2"…).
+    func uniqueGroupName(_ base: String, excluding id: String? = nil) -> String {
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = trimmed.isEmpty ? "New group" : trimmed
+        let taken = Set(groups.filter { $0.id != id }.map { $0.name.lowercased() })
+        if !taken.contains(root.lowercased()) { return root }
+        var n = 2
+        while taken.contains("\(root) \(n)".lowercased()) { n += 1 }
+        return "\(root) \(n)"
+    }
+
+    @discardableResult
+    func addGroup(name: String, colorHex: String? = nil) -> ProfileGroup {
+        let used = Set(groups.map(\.colorHex))
+        let color = colorHex
+            ?? AccentPalette.all.first(where: { !used.contains($0.hex) })?.hex
+            ?? AccentPalette.random().hex
+        let group = ProfileGroup(name: uniqueGroupName(name), colorHex: color)
+        groups.append(group)
+        saveGroups()
+        return group
+    }
+
+    func updateGroup(_ group: ProfileGroup) {
+        guard let i = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        var g = group
+        g.name = uniqueGroupName(group.name, excluding: group.id)
+        groups[i] = g
+        saveGroups()
+    }
+
+    /// Delete a group; its profiles stay, ungrouped.
+    func deleteGroup(_ id: String) {
+        groups.removeAll { $0.id == id }
+        for i in profiles.indices where profiles[i].groupID == id {
+            profiles[i].groupID = nil
+        }
+        saveGroups()
+        saveMetadata()
+    }
+
+    func moveGroup(_ id: String, by offset: Int) {
+        guard let i = groups.firstIndex(where: { $0.id == id }) else { return }
+        let j = i + offset
+        guard groups.indices.contains(j) else { return }
+        groups.swapAt(i, j)
+        saveGroups()
+    }
+
+    func moveGroups(fromOffsets source: IndexSet, toOffset destination: Int) {
+        groups.move(fromOffsets: source, toOffset: destination)
+        saveGroups()
+    }
+
+    /// File profiles under a group (nil = ungrouped).
+    func setGroup(_ groupID: String?, for profileIDs: [String]) {
+        var changed = false
+        for i in profiles.indices where profileIDs.contains(profiles[i].id) && profiles[i].groupID != groupID {
+            profiles[i].groupID = groupID
+            changed = true
+        }
+        if changed { saveMetadata() }
+    }
+
     // MARK: CRUD
 
     @discardableResult
@@ -211,14 +312,15 @@ final class ProfileStore: ObservableObject {
                        app: String = CursorProfile.appCursor,
                        colorHex: String,
                        memoryMB: Int,
-                       defaultProjectPath: String?) -> CursorProfile? {
+                       defaultProjectPath: String?,
+                       groupID: String? = nil) -> CursorProfile? {
         let normalized = CursorProfile.normalizeApp(app)
         let base = ProfileNaming.sanitizeFolderName(displayName.replacingOccurrences(of: " ", with: "_"))
         guard !base.isEmpty else {
             lastError = "Profile name must contain at least one letter, number, hyphen or underscore."
             return nil
         }
-        let profile = CursorProfile(
+        var profile = CursorProfile(
             folderName: uniqueFolderName(base: base, app: normalized),
             displayName: displayName.trimmingCharacters(in: .whitespaces),
             app: normalized,
@@ -226,6 +328,7 @@ final class ProfileStore: ObservableObject {
             defaultMemoryMB: memoryMB,
             defaultProjectPath: defaultProjectPath
         )
+        profile.groupID = group(groupID)?.id
         let dir = directory(for: profile)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -264,7 +367,8 @@ final class ProfileStore: ObservableObject {
     /// First launch signs in with the other account. The card appears once
     /// the copy finishes; the source card shows progress meanwhile.
     func createOverflow(displayName: String, colorHex: String, memoryMB: Int,
-                        defaultProjectPath: String?, source: CursorProfile) {
+                        defaultProjectPath: String?, source: CursorProfile,
+                        groupID: String? = nil) {
         let app = source.normalizedApp
         let name = displayName.trimmingCharacters(in: .whitespaces)
         let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "_"))
@@ -272,7 +376,7 @@ final class ProfileStore: ObservableObject {
             lastError = "Profile name must contain at least one letter, number, hyphen or underscore."
             return
         }
-        let profile = CursorProfile(
+        var profile = CursorProfile(
             folderName: uniqueFolderName(base: base, app: app),
             displayName: name,
             app: app,
@@ -280,6 +384,9 @@ final class ProfileStore: ObservableObject {
             defaultMemoryMB: memoryMB,
             defaultProjectPath: defaultProjectPath
         )
+        // An overflow account sits in the same group as its source unless
+        // the user picked another.
+        profile.groupID = group(groupID ?? source.groupID)?.id
         startCarryOver(from: source, into: profile)
     }
 
@@ -289,7 +396,7 @@ final class ProfileStore: ObservableObject {
         let app = source.normalizedApp
         let name = CursorProfile.copyName(of: source)
         let base = ProfileNaming.sanitizeFolderName(name.replacingOccurrences(of: " ", with: "-"))
-        let profile = CursorProfile(
+        var profile = CursorProfile(
             folderName: uniqueFolderName(base: base, app: app),
             displayName: name,
             app: app,
@@ -297,6 +404,7 @@ final class ProfileStore: ObservableObject {
             defaultMemoryMB: source.defaultMemoryMB,
             defaultProjectPath: source.defaultProjectPath
         )
+        profile.groupID = source.groupID
         startCarryOver(from: source, into: profile)
     }
 

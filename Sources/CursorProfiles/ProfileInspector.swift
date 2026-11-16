@@ -156,6 +156,11 @@ struct ProfileInspector: View {
 
     private var profileSection: some View {
         section("Profile") {
+            keyValue("Group") {
+                GroupPicker(groupID: Binding(
+                    get: { profile.groupID },
+                    set: { store.setGroup($0, for: [profile.id]) }))
+            }
             keyValue("Data") {
                 Text(profile.isSystem ? "Default location" : (dataPath as NSString).abbreviatingWithTildeInPath)
                     .lineLimit(1)
@@ -231,10 +236,8 @@ struct ProfileInspector: View {
             .buttonStyle(PrismButtonStyle(kind: .secondary, height: 30))
             .disabled(store.brainBusy)
         } else {
-            SettingsLink {
-                Text("Open Settings")
-            }
-            .buttonStyle(PrismButtonStyle(kind: .secondary, height: 30))
+            Button("Open Settings") { PrismSettings.open(.secondBrain) }
+                .buttonStyle(PrismButtonStyle(kind: .secondary, height: 30))
         }
     }
 

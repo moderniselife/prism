@@ -110,6 +110,13 @@ final class PrismSelfUpdater: ObservableObject {
     @Published private(set) var available: Release?
     @Published private(set) var progress: String?
     @Published var lastError: String?
+    /// A release check is in flight.
+    @Published private(set) var checking = false
+    /// The newest version GitHub reported, and when Prism last asked.
+    @Published private(set) var latestVersion: String?
+    @Published private(set) var lastChecked: Date?
+    /// Why the last check failed (shown in Settings → About, not as a banner).
+    @Published private(set) var checkError: String?
 
     @AppStorage("checkForPrismUpdates") var autoCheck = true
     @AppStorage("skippedPrismVersion") private var skippedVersion = ""
@@ -159,6 +166,9 @@ final class PrismSelfUpdater: ObservableObject {
     // MARK: Releases
 
     func checkForRelease(force: Bool = false) async {
+        guard !checking else { return }
+        checking = true
+        defer { checking = false }
         lastCheck = Date()
         guard let url = URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest") else { return }
         var req = URLRequest(url: url, timeoutInterval: 15)
@@ -169,10 +179,13 @@ final class PrismSelfUpdater: ObservableObject {
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = j["tag_name"] as? String,
               let page = (j["html_url"] as? String).flatMap(URL.init(string:)) else {
-            if force { lastError = "Couldn't reach GitHub to check for updates." }
+            checkError = "Couldn't reach GitHub to check for updates."
             return
         }
+        checkError = nil
+        lastChecked = Date()
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        latestVersion = version
         let zip = (j["assets"] as? [[String: Any]] ?? [])
             .first { ($0["name"] as? String) == "Prism.app.zip" }
             .flatMap { ($0["browser_download_url"] as? String).flatMap(URL.init(string:)) }
@@ -180,7 +193,6 @@ final class PrismSelfUpdater: ObservableObject {
             available = Release(version: version, pageURL: page, zipURL: zip)
         } else {
             available = nil
-            if force { lastError = "Prism \(BuildInfo.version) is the latest version." }
         }
     }
 
