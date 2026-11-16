@@ -31,6 +31,9 @@ struct CursorProfilesApp: App {
                 .keyboardShortcut("k", modifiers: .command)
                 Button("New Profile") { PrismUI.newProfile() }
                     .keyboardShortcut("n", modifiers: .command)
+                Divider()
+                Button("Switch Endpoint Identity") { GatewayController.shared.cycleActive() }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
 
@@ -59,6 +62,32 @@ private enum MenuMetrics {
     static let itemInnerWidth: CGFloat = 284 // content minus item padding
     static let textColumnWidth: CGFloat = 176
     static let maxItems = 6
+}
+
+/// Work | Personal switch for the endpoint, shown while it's on.
+@MainActor
+private struct EndpointMenuRow: View {
+    @ObservedObject private var gateway = GatewayController.shared
+
+    var body: some View {
+        if gateway.config.enabled && gateway.config.identities.count > 1 {
+            VStack(spacing: 0) {
+                Divider().overlay(PrismTheme.Colors.border)
+                HStack(spacing: 8) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                    // No ScrollView: they collapse inside MenuBarExtra popovers.
+                    IdentityPicker(compact: true)
+                        .frame(width: MenuMetrics.contentWidth - 24, alignment: .leading)
+                        .clipped()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(width: MenuMetrics.width, alignment: .leading)
+            }
+        }
+    }
 }
 
 @MainActor
@@ -101,6 +130,7 @@ struct MenuBarDropdown: View {
             header
             UpdateBanner(compact: true)
                 .frame(width: MenuMetrics.width)
+            EndpointMenuRow()
             Divider().overlay(PrismTheme.Colors.border)
             searchBar
             Divider().overlay(PrismTheme.Colors.borderSubtle)
@@ -426,6 +456,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         QuickSwitchHotkey.register()
+        // Start the local endpoint if it's turned on.
+        _ = GatewayController.shared
         // Configure the main window for custom title bar
         DispatchQueue.main.async {
             for window in NSApp.windows where window.canBecomeMain {

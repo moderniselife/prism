@@ -421,6 +421,8 @@ struct HubSidebar: View {
 
             Spacer(minLength: 16)
 
+            EndpointCard()
+                .padding(.bottom, 8)
             brainCard
             footer
         }
