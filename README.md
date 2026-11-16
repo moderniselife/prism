@@ -52,26 +52,26 @@ Every profile uses the app's *own* isolation switch, so separation is enforced b
 | **Cursor** | its own `--user-data-dir` (+ `--max-memory`) | Main Cursor | `~/.cursor_profiles` | macOS, Windows, Linux, terminal |
 | **Claude Code** | its own `CLAUDE_CONFIG_DIR`, opened in a terminal | Main Claude Code (`~/.claude`) | `~/.claude_code_profiles` | macOS, Windows, Linux, terminal |
 | **Claude Desktop** | its own `--user-data-dir` | Main Claude Desktop | `~/.claude_desktop_profiles` | macOS, Windows, Linux, terminal |
-| **Grok Bot** | its own `SAND_USER_DATA_DIR` | Main Grok Bot | `~/.grokbot_profiles` | macOS, Linux, terminal |
+| **Grok Bot** | its own `SAND_USER_DATA_DIR` | Main Grok Bot | `~/.grokbot_profiles` | macOS, Windows, Linux, terminal |
 
 Each profile has its own sign-in, so you can run several accounts of the same app at once — Work and Personal, or a second account for when the first hits its usage limit.
 
 ## Features
 
 ### Profiles, properly isolated
-- **Profile grid** — colorful cards with per-profile accent color and initial, an app badge, disk size, and last-launched info; filter by app (Cursor / Code / Desktop / Grok)
-- **Your original installs are protected** — each app's existing data shows up as a pinned built-in card (**Main Cursor**, **Main Claude Code**, **Main Claude Desktop**, **Main Grok Bot**) with a `BUILT-IN` badge. It launches exactly like opening the app normally, can be cloned or copied into a new profile, and can never be deleted
+- **A quiet hub** — a sidebar with search and filters (All, Running, Custom, and one per app), a list grouped into **Running** and **Not running** with one action per row, and a detail panel for the selected profile (live memory, data folder, project, second brain, copy to a new account). Light and dark, one accent colour, on every platform
+- **Your original installs are protected** — each app's existing data shows up as a built-in profile (**Main Cursor**, **Main Claude Code**, **Main Claude Desktop**, **Main Grok Bot**) tagged **Default**. It launches exactly like opening the app normally, can be cloned or copied into a new profile, and can never be deleted
 - **Create / edit / duplicate / rename** with per-profile launch defaults (memory limit for Cursor, default project folder for Cursor and Claude Code)
 - Each profile has its own data folder: own login, settings, history. Folders you create by hand are picked up automatically
 
 ### Fresh or overflow accounts (every app)
-New profiles start as a **fresh account** (empty) or a copy of another same-app profile's config with none of its identity, so you sign in with your other account on first launch. For Cursor, Claude Code and Claude Desktop that copy is an **overflow account**: your working setup comes with you and you carry on where the first account left off. Pick it in the New Profile sheet, or right-click a card → **New Overflow Account from This**. What carries over:
+New profiles start as a **fresh account** (empty) or a copy of another same-app profile's config with none of its identity, so you sign in with your other account on first launch. For Cursor, Claude Code and Claude Desktop that copy is an **overflow account**: your working setup comes with you and you carry on where the first account left off. Pick it in the New Profile sheet, right-click a profile → **New Overflow Account from This**, or use **New overflow account from this** in the detail panel. What carries over:
 - **Cursor** — `settings.json`, keybindings, tasks and snippets (extensions are already shared). Not the login database or machine id
 - **Claude Code** — `settings.json`, `CLAUDE.md`, agents, commands, skills, output styles, hooks and plugins, plus user-level MCP servers and a few preferences from `.claude.json`. Not credentials, account ids or chat history
 - **Claude Desktop** — the MCP config and installed extensions with their settings. Not cookies or the login
-- **Grok Bot** — called **Copy settings**, not overflow, because it can't bring your agents: they live on your Grok Bot account, not on disk. It copies local settings, permission choices and tool approvals. To bring an agent across, open it in the source profile → **Create Template** → **Share a template link** → **Copy the share link**, then paste the link into a chat in the new profile (paste rather than click, so it opens in that profile). Right-click a Grok Bot card → **New Profile with These Settings**
+- **Grok Bot** — called **Copy settings**, not overflow, because it can't bring your agents: they live on your Grok Bot account, not on disk. It copies local settings, permission choices and tool approvals. To bring an agent across, open it in the source profile → **Create Template** → **Share a template link** → **Copy the share link**, then paste the link into a chat in the new profile (paste rather than click, so it opens in that profile). Right-click a Grok Bot profile → **New Profile with These Settings**
 
-Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available in the macOS, Linux and terminal apps; the Windows app doesn't have it yet.
+Copies use allowlists wherever an app mixes config and identity, so an unknown new token file never leaks into an overflow profile. **Duplicate** still makes a full clone (same login) for Cursor and Claude Code. Available on every platform.
 
 ### Second brain (Brainium)
 Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium](https://github.com/moderniselife/brainium)** into every profile — a git-backed **personal brain** that follows you (preferences, cross-project learnings, **agent cards** to recreate any agent on a new account) plus each repo's **project brain** — so a fresh or overflow account starts with everything the last one knew.
@@ -80,11 +80,11 @@ Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium]
 - **Claude Desktop** and **Cursor** — the Brainium MCP server (search, read, log, agent cards)
 - **Grok Bot** — its agents run in the cloud, so Prism copies an instructions snippet that points them at your personal brain's GitHub repo
 - **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
-- Set it up in **Settings → Second brain**: point at a Brainium checkout, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available in the macOS, Linux and terminal apps
+- Set it up in **Settings → Second brain**: click **Install** for Brainium (and Node.js if you need it) or **Use existing…**, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available on every platform
 
 ### Launching & switching
-- **One-click launch** — double-click a card, or open the options popover for per-launch overrides (memory, project folder, force a new window)
-- **Drag & drop** — drop any folder onto a card to open it with that profile
+- **One-click launch** — double-click a profile or use its row action, or open launch options for per-launch overrides (memory, project folder, force a new window)
+- **Drag & drop** — drop any folder onto a Cursor or Claude Code profile to open it there
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
 - **Restart & Update** — Cursor, Claude Desktop and Grok Bot only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
@@ -172,16 +172,18 @@ runtime needed anywhere. From source: `go run ./tui` (Go 1.23+).
 
 Launching a Cursor profile runs Cursor with `--user-data-dir <profile> --max-memory <limit>`, so isolation is enforced by Cursor itself rather than by anything Prism fakes. The built-in profile launches with no `--user-data-dir` at all — byte-for-byte identical to opening Cursor normally. Claude Code profiles set `CLAUDE_CONFIG_DIR` (the documented multi-account switch — separate login, settings, history per profile). Claude Desktop profiles launch with `--user-data-dir=<profile>` too, so each has its own login and several run side by side. On Windows this needs the standalone installer build of Claude Desktop (the Microsoft Store build drops launch flags) — Prism prompts you with the download link. Verified on Windows; macOS and Linux are untested.
 
-Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` — the app's own isolation switch, which moves both its Electron data and its agent data root (`~/.grokbot` → `<profile>/sand-data`) and gives each profile its own single-instance lock. Prism adds a matching `--user-data-dir=<profile>` only so it can recognise the profile in the process list (environment variables aren't visible there). The built-in profile launches with neither. Overflow carry-over copies the data root only, skipping identity and runtime files and stripping account-scoped keys from `settings.json`; Electron's userData is never copied because it holds the Keychain-encrypted tokens and machine id. The Mac app, Linux app and terminal client support Grok Bot; the Windows app doesn't yet.
+Grok Bot profiles launch with `SAND_USER_DATA_DIR=<profile>` — the app's own isolation switch, which moves both its Electron data and its agent data root (`~/.grokbot` → `<profile>/sand-data`) and gives each profile its own single-instance lock. Prism adds a matching `--user-data-dir=<profile>` only so it can recognise the profile in the process list (environment variables aren't visible there). The built-in profile launches with neither. Overflow carry-over copies the data root only, skipping identity and runtime files and stripping account-scoped keys from `settings.json`; Electron's userData is never copied because it holds the Keychain-encrypted tokens and machine id. Every Prism app supports Grok Bot.
 
 ## Layout
 
 ```
 Sources/CursorProfiles/
   CursorProfilesApp.swift   # App entry, hidden title bar, menu-bar extra, ⌥Space hotkey
-  ContentView.swift         # Main hub: title bar, filters, grid, live status bar
-  ProfileCard.swift         # Card UI, live memory bar, launch popover, drag & drop
-  ProfileEditorSheet.swift  # Create/edit sheet with live preview
+  ContentView.swift         # Main hub: sidebar, grouped list, banners
+  ProfileRow.swift          # List row, live status, launch options, drag & drop
+  ProfileInspector.swift    # Detail panel for the selected profile
+  HubComponents.swift       # App glyphs, shared profile actions and menus
+  ProfileEditorSheet.swift  # Create/edit sheet
   SpotlightCommandBar.swift # ⌥Space quick-switch palette
   SettingsView.swift        # App paths, defaults, storage
   ProfileStore.swift        # Metadata, CRUD, live RSS/CPU/window polling
@@ -194,7 +196,7 @@ Sources/CursorProfiles/
   ProfileStore+Brain.swift  # Second brain actions (wire, capture, summarizer)
   SecondBrainSettingsView.swift # Settings → Second brain tab
   TitleBarColorizer.swift   # Merges per-profile title bar colors into User/settings.json
-  PrismTheme.swift          # Adaptive light/dark design system
+  PrismTheme.swift          # Adaptive light/dark palette, one accent, button styles
   MeshBackgroundView.swift  # Ambient background
   Models.swift              # Profile model, palette, formatting helpers
 assets/
