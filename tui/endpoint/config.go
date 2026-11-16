@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -296,4 +297,33 @@ func Save(path string, c Config) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// ClaudeCodeEnv is the environment that sends a Claude Code profile through
+// the endpoint: "" = none (the profile's own sign-in), "*" = whichever
+// identity is active (main token), otherwise that identity's own token.
+func ClaudeCodeEnv(identityID string) [][2]string {
+	if identityID == "" {
+		return nil
+	}
+	cfg, err := Load(ConfigPath())
+	if err != nil {
+		return nil
+	}
+	token := cfg.Token
+	if identityID != "*" {
+		token = ""
+		for _, id := range cfg.Identities {
+			if id.ID == identityID {
+				token = id.Token
+			}
+		}
+	}
+	if token == "" {
+		return nil
+	}
+	return [][2]string{
+		{"ANTHROPIC_BASE_URL", "http://127.0.0.1:" + strconv.Itoa(cfg.Port)},
+		{"ANTHROPIC_AUTH_TOKEN", token},
+	}
 }
