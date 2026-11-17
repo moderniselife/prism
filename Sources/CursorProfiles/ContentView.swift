@@ -269,6 +269,7 @@ struct ContentView: View {
                 }
                 UpdateBanner()
                 PrismSelfBanner()
+                BrainiumUpdateBanner()
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)

@@ -22,7 +22,7 @@ struct BrainiumNotReady: View {
                     if let update = updateAction {
                         Button("Update Brainium", action: update)
                             .buttonStyle(PrismButtonStyle(kind: .primary, height: 26))
-                            .disabled(store.brainSetupStep != nil)
+                            .disabled(store.brainSetupStep != nil || BrainiumUpdater.shared.updating)
                     }
                     Button("Open Second brain") { PrismSettings.open(.secondBrain) }
                         .buttonStyle(PrismButtonStyle(kind: .secondary, height: 26))
@@ -52,7 +52,6 @@ struct BrainiumNotReady: View {
         guard store.brainium != nil, status != nil, status?.supportsTeams != true,
               let cli = BrainiumBridge.findCLI(custom: store.brainiumPath) else { return nil }
         let dir = BrainiumSetup.checkoutDir(forCLI: cli)
-        guard FileManager.default.fileExists(atPath: dir + "/.git") else { return nil }
         let store = self.store
         return { store.updateBrainium(at: dir) }
     }

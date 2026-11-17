@@ -134,6 +134,8 @@ struct MenuBarDropdown: View {
                 .frame(width: MenuMetrics.width)
             PrismSelfBanner(compact: true)
                 .frame(width: MenuMetrics.width)
+            BrainiumUpdateBanner(compact: true)
+                .frame(width: MenuMetrics.width)
             EndpointMenuRow()
             Divider().overlay(PrismTheme.Colors.border)
             searchBar

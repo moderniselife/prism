@@ -91,20 +91,7 @@ enum BrainiumSetup {
             if fm.fileExists(atPath: dir) { try fm.removeItem(atPath: dir) } // empty folder
             try run("/usr/bin/git", ["clone", "--depth", "1", repoURL, dir])
         } else {
-            let (file, response) = try await URLSession.shared.download(from: tarballURL)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                throw SetupError.failed("Couldn't download Brainium from GitHub.")
-            }
-            let staging = fm.temporaryDirectory.appendingPathComponent("brainium-\(UUID().uuidString)")
-            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
-            defer { try? fm.removeItem(at: staging) }
-            try run("/usr/bin/tar", ["-xzf", file.path, "-C", staging.path])
-            guard let extracted = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
-                    .first(where: { $0.hasDirectoryPath }) else {
-                throw SetupError.failed("The Brainium download was empty.")
-            }
-            if fm.fileExists(atPath: dir) { try fm.removeItem(atPath: dir) } // empty folder
-            try fm.moveItem(at: extracted, to: URL(fileURLWithPath: dir))
+            try await downloadBrainium(into: dir)
         }
 
         guard fm.fileExists(atPath: dir + "/bin/brainium.mjs") else {
@@ -113,13 +100,59 @@ enum BrainiumSetup {
         return "Installed Brainium at \(tilde(dir))."
     }
 
-    /// `git pull` for a git checkout; nil when it isn't one.
-    static func updateBrainium(at dir: String) throws -> String {
-        guard FileManager.default.fileExists(atPath: dir + "/.git"), hasGit else {
-            throw SetupError.failed("\(tilde(dir)) isn't a git checkout, so it can't be updated in place.")
+    /// Download main's tarball into `dir` (replacing what's there) and record
+    /// which commit it is, so update checks can tell when GitHub has moved on.
+    static func downloadBrainium(into dir: String) async throws {
+        let fm = FileManager.default
+        // Which commit we're about to download (best effort: the check falls back to versions).
+        var sha: String?
+        var request = URLRequest(url: BrainiumUpdateCheck.apiLatestCommit, timeoutInterval: 20)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           (response as? HTTPURLResponse)?.statusCode == 200,
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            sha = obj["sha"] as? String
         }
-        let out = try run("/usr/bin/git", ["-C", dir, "pull", "--ff-only"])
-        return out.contains("Already up to date") ? "Brainium is up to date." : "Updated Brainium."
+        let source = sha.map { URL(string: "https://codeload.github.com/moderniselife/brainium/tar.gz/\($0)")! } ?? tarballURL
+        let (file, response) = try await URLSession.shared.download(from: source)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw SetupError.failed("Couldn't download Brainium from GitHub.")
+        }
+        let staging = fm.temporaryDirectory.appendingPathComponent("brainium-\(UUID().uuidString)")
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: staging) }
+        try run("/usr/bin/tar", ["-xzf", file.path, "-C", staging.path])
+        guard let extracted = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
+                .first(where: { $0.hasDirectoryPath }),
+              fm.fileExists(atPath: extracted.path + "/bin/brainium.mjs") else {
+            throw SetupError.failed("The Brainium download was empty.")
+        }
+        if let sha {
+            let record = BrainiumUpdateCheck.InstallRecord(sha: sha, version: BrainiumUpdateCheck.version(at: extracted.path), installedAt: Date())
+            try? JSONEncoder().encode(record).write(to: extracted.appendingPathComponent(BrainiumUpdateCheck.installRecord))
+        }
+        // Swap: the old copy goes aside until the new one is in place.
+        let old = staging.appendingPathComponent("previous")
+        if fm.fileExists(atPath: dir) { try fm.moveItem(at: URL(fileURLWithPath: dir), to: old) }
+        do {
+            try fm.moveItem(at: extracted, to: URL(fileURLWithPath: dir))
+        } catch {
+            if fm.fileExists(atPath: old.path) { try? fm.moveItem(at: old, to: URL(fileURLWithPath: dir)) }
+            throw error
+        }
+    }
+
+    /// `git pull --ff-only` for a git checkout; a fresh download otherwise.
+    static func updateBrainium(at dir: String) async throws -> String {
+        if FileManager.default.fileExists(atPath: dir + "/.git") {
+            guard hasGit else {
+                throw SetupError.failed("Updating \(tilde(dir)) needs git (the Command Line Tools: xcode-select --install).")
+            }
+            let out = try run("/usr/bin/git", ["-C", dir, "pull", "--ff-only"], environment: ["GIT_TERMINAL_PROMPT": "0"])
+            return out.contains("Already up to date") ? "Brainium is up to date." : "Updated Brainium."
+        }
+        try await downloadBrainium(into: dir)
+        return "Updated Brainium."
     }
 
     // MARK: Node.js
@@ -170,10 +203,9 @@ extension ProfileStore {
         }
     }
 
+    /// Update Brainium and refresh connected profiles (see BrainiumUpdater).
     func updateBrainium(at dir: String) {
-        runSetup(.brainium, label: "Couldn't update Brainium") {
-            try BrainiumSetup.updateBrainium(at: dir)
-        }
+        Task { await BrainiumUpdater.shared.update(store: self) }
     }
 
     func installNode() {
