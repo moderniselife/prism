@@ -136,7 +136,7 @@ final class BrainiumUpdater: ObservableObject {
     @AppStorage("brainiumLastUpdateCheck") private var lastCheckStamp: Double = 0
 
     private var timer: Task<Void, Never>?
-    static let interval: TimeInterval = 6 * 3600
+    nonisolated static let interval: TimeInterval = 6 * 3600
 
     /// An update the hub should offer (not skipped, can be applied).
     var offer: BrainiumUpdateCheck.Result? {
