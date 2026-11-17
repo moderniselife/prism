@@ -235,9 +235,14 @@ extension ProfileStore {
     }
 
     /// Create a routine (off) from Brainium's template and open it to edit.
-    func newRoutine(name: String, brain: String, type: String) {
+    func newRoutine(name: String, brain: String, type: String, profile: CursorProfile? = nil) {
+        var args = ["routines", "new", name, "--brain", brain, "--type", type, "--json"]
+        if let profile {
+            // The default profile runs without CLAUDE_CONFIG_DIR, like opening Claude Code normally.
+            args += ["--profile", profile.isSystem ? "~/.claude" : directory(for: profile).path]
+        }
         brainTask("Couldn't create the routine", { bridge in
-            let out = try bridge.run(["routines", "new", name, "--brain", brain, "--type", type, "--json"])
+            let out = try bridge.run(args)
             struct Made: Decodable { var ref: String; var file: String }
             let made = try JSONDecoder().decode(Made.self, from: Data(out.utf8))
             return made.file
@@ -246,6 +251,18 @@ extension ProfileStore {
             self?.brainMessage = "Created \(name) (off). Edit it, then approve it here to turn it on."
             self?.refreshTeams()
         })
+    }
+
+    /// A routine's profile folder as the Prism profile it belongs to ("Mojo Layers"), else a short path.
+    func routineProfileLabel(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        let expanded = path.hasPrefix("~") ? home + path.dropFirst() : path
+        let normalized = URL(fileURLWithPath: expanded).standardizedFileURL.path
+        if normalized == home + "/.claude" {
+            return profiles.first(where: { $0.isSystem && $0.normalizedApp == CursorProfile.appClaudeCode })?.displayName ?? "default Claude Code"
+        }
+        if let p = profiles.first(where: { directory(for: $0).standardizedFileURL.path == normalized }) { return p.displayName }
+        return BrainiumSetup.tilde(normalized)
     }
 
     /// What runs routines: "os" (launchd), "prism" (while Prism is open) or "off".

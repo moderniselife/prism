@@ -524,7 +524,16 @@ struct RoutinesSettingsPane: View {
         Menu {
             ForEach(store.brainList.filter(\.exists)) { brain in
                 Menu(brain.name) {
-                    Button("Prompt (Claude Code or Codex)…") { ask(brain.name, "prompt") }
+                    let claudeProfiles = store.profiles.filter { $0.normalizedApp == CursorProfile.appClaudeCode }
+                    if claudeProfiles.isEmpty {
+                        Button("Prompt (Claude Code or Codex)…") { ask(brain.name, "prompt") }
+                    } else {
+                        Menu("Prompt in a Claude Code profile") {
+                            ForEach(claudeProfiles) { profile in
+                                Button(profile.displayName) { ask(brain.name, "prompt", profile: profile) }
+                            }
+                        }
+                    }
                     Button("Upkeep job…") { ask(brain.name, "upkeep") }
                     Button("Shell command…") { ask(brain.name, "shell") }
                 }
@@ -537,12 +546,12 @@ struct RoutinesSettingsPane: View {
         .fixedSize()
     }
 
-    private func ask(_ brain: String, _ type: String) {
+    private func ask(_ brain: String, _ type: String, profile: CursorProfile? = nil) {
         guard let name = GroupPrompt.ask(title: "New routine in \(brain)",
                                          info: "Prism creates it switched off and opens it so you can set the schedule and what it does.",
                                          placeholder: "e.g. Morning brief, Nightly sync"),
               !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        store.newRoutine(name: name, brain: brain, type: type)
+        store.newRoutine(name: name, brain: brain, type: type, profile: profile)
     }
 }
 
@@ -608,7 +617,7 @@ private struct RoutineRow: View {
 
     private var summary: String {
         var parts = [routine.brain, routine.agent ?? "shared", typeLabel, RoutineText.schedule(routine.schedule)]
-        if routine.type == "prompt", let profile = routine.profile { parts.append("in \((profile as NSString).lastPathComponent)") }
+        if routine.type == "prompt", let profile = routine.profile { parts.append("in \(store.routineProfileLabel(profile))") }
         return parts.joined(separator: " · ")
     }
 
@@ -639,17 +648,31 @@ private struct RoutineRow: View {
                 .font(.system(size: 11))
                 .foregroundStyle(PrismTheme.Colors.amber)
         } else {
-            HStack(spacing: 4) {
-                if let last = routine.lastStatus {
-                    Image(systemName: last == "ok" ? "checkmark.circle.fill" : last == "missed" ? "moon.zzz" : "xmark.circle.fill")
-                        .foregroundStyle(last == "ok" ? PrismTheme.Colors.emerald : last == "missed" ? PrismTheme.Colors.textTertiary : PrismTheme.Colors.red)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if let last = routine.lastStatus {
+                        Image(systemName: last == "ok" ? "checkmark.circle.fill" : last == "missed" ? "moon.zzz" : "xmark.circle.fill")
+                            .foregroundStyle(last == "ok" ? PrismTheme.Colors.emerald : last == "missed" ? PrismTheme.Colors.textTertiary : PrismTheme.Colors.red)
+                    }
+                    Text(RoutineText.status(routine))
+                        .foregroundStyle(PrismTheme.Colors.textSecondary)
                 }
-                Text(RoutineText.status(routine))
-                    .foregroundStyle(PrismTheme.Colors.textSecondary)
+                // Why it failed, without hunting for the log.
+                if ["failed", "timed out"].contains(routine.lastStatus ?? ""), let reason = failureLine {
+                    Text(reason)
+                        .foregroundStyle(PrismTheme.Colors.textTertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .font(.system(size: 11))
             .help(routine.lastOutput ?? "")
         }
+    }
+
+    /// The last non-empty line of a failed run's output.
+    private var failureLine: String? {
+        routine.lastOutput?.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last(where: { !$0.isEmpty })
     }
 
     /// Newest raw log for this routine on this Mac.
