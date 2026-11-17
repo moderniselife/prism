@@ -6,7 +6,8 @@ cd "$(dirname "$0")"
 
 APP_NAME="Prism"
 BUNDLE_ID="com.mojolayers.prism"
-VERSION="1.5.0"
+# The release workflow sets PRISM_VERSION from the tag; local builds use this.
+VERSION="${PRISM_VERSION:-1.5.0}"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 # Stamp which source this is, so Prism can tell builds apart.

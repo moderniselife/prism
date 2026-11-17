@@ -253,6 +253,13 @@ packaging/homebrew-cask/    # Prism.app cask template for the tap
 
 ## Releasing
 
+```bash
+git checkout main && git pull
+git tag v1.5.1 && git push origin v1.5.1
+```
+
+That's all: the tag sets the version everywhere (the Mac app, the Windows exe, Linux, the TUI and the packages), so there's nothing to bump by hand.
+
 Push a tag like `v1.2.3` and [`.github/workflows/release.yml`](.github/workflows/release.yml)
 builds and uploads everything to the GitHub release: the TUI binaries and
 checksums, the `prism-endpoint` helper, `Prism.app.zip`, `Prism.exe` and
