@@ -9,7 +9,7 @@ import SwiftUI
 // Second brain, "Check for Updates…" → About).
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, apps, groups, secondBrain, endpoint, about
+    case general, apps, groups, secondBrain, brains, routines, endpoint, about
 
     var id: String { rawValue }
 
@@ -19,6 +19,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .apps: return "Apps"
         case .groups: return "Groups"
         case .secondBrain: return "Second brain"
+        case .brains: return "Brains & agents"
+        case .routines: return "Routines"
         case .endpoint: return "Endpoint"
         case .about: return "About & updates"
         }
@@ -30,6 +32,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .apps: return "Where Prism finds each app"
         case .groups: return "Projects, clients or categories for your profiles"
         case .secondBrain: return "Memory that follows you across accounts"
+        case .brains: return "Shared and per-agent memory for each team"
+        case .routines: return "Prompts and jobs that run on a schedule"
         case .endpoint: return "One API for every account"
         case .about: return "Version, updates and source"
         }
@@ -41,6 +45,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .groups: return "folder"
         case .secondBrain: return "brain"
+        case .brains: return "square.stack.3d.up"
+        case .routines: return "clock.arrow.circlepath"
         case .endpoint: return "point.3.connected.trianglepath.dotted"
         case .about: return "info.circle"
         }
@@ -200,6 +206,8 @@ struct SettingsRoot: View {
         case .apps: AppsSettingsPane()
         case .groups: GroupsSettingsPane()
         case .secondBrain: SecondBrainSettingsView()
+        case .brains: BrainsSettingsPane()
+        case .routines: RoutinesSettingsPane()
         case .endpoint: EndpointSettingsView()
         case .about: AboutSettingsPane()
         }

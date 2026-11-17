@@ -87,15 +87,17 @@ enum HubGrouping: String, CaseIterable, Identifiable {
 @MainActor
 enum GroupPrompt {
     /// Ask for a group name. Returns nil when cancelled or left empty.
-    static func ask(title: String, initial: String = "", confirm: String = "Create") -> String? {
+    static func ask(title: String, initial: String = "", confirm: String = "Create",
+                    info: String = "A project, client or kind of work. A group can hold profiles from any app.",
+                    placeholder: String = "e.g. Acme, Side projects, Research") -> String? {
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = "A project, client or kind of work. A group can hold profiles from any app."
+        alert.informativeText = info
         alert.addButton(withTitle: confirm)
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.stringValue = initial
-        field.placeholderString = "e.g. Acme, Side projects, Research"
+        field.placeholderString = placeholder
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }

@@ -22,6 +22,22 @@ struct BrainiumBridge: Sendable {
         var capture: Bool?
         var pending: Int?
         var summarizer: Summarizer?
+        // Brainium 0.3+: team brains and routines.
+        var defaultBrain: String?
+        var brains: [String: String]?
+        var scheduler: Scheduler?
+
+        struct Scheduler: Decodable, Sendable {
+            var mode: String?
+            var platform: String?
+            var installed: Bool?
+            var loaded: Bool?
+        }
+
+        /// Brains, agents and routines need Brainium 0.3 or newer.
+        var supportsTeams: Bool {
+            BrainiumBridge.versionKey(version ?? "0").lexicographicallyPrecedes([0, 3]) == false
+        }
 
         struct Summarizer: Decodable, Sendable {
             var provider: String?
@@ -30,6 +46,70 @@ struct BrainiumBridge: Sendable {
             var apiKeyEnv: String?
             var hasKey: Bool?
         }
+    }
+
+    /// One brain from `brainium brains --json`.
+    struct BrainInfo: Decodable, Identifiable, Sendable, Equatable {
+        var name: String
+        var path: String
+        var exists: Bool
+        var isDefault: Bool
+        var isRepo: Bool?
+        var remote: String?
+        var agents: [AgentInfo]
+        var routines: Int
+
+        var id: String { name }
+
+        enum CodingKeys: String, CodingKey {
+            case name, path, exists, isDefault = "default", isRepo, remote, agents, routines
+        }
+    }
+
+    struct AgentInfo: Decodable, Identifiable, Sendable, Equatable {
+        var name: String
+        var slug: String
+        var tldr: String?
+        var card: String?
+        var folder: String?
+        var id: String { slug }
+    }
+
+    /// One routine from `brainium routines --json`.
+    struct RoutineInfo: Decodable, Identifiable, Sendable, Equatable {
+        var ref: String
+        var name: String
+        var brain: String
+        var file: String
+        var type: String
+        var schedule: String
+        var agent: String?
+        var app: String?
+        var profile: String?
+        var job: String?
+        var enabled: Bool
+        var needsApproval: Bool
+        var approved: Bool
+        var changedSinceApproval: Bool
+        var errors: [String]
+        var nextRun: String?
+        var lastRun: String?
+        var lastStatus: String?
+        var lastExit: Int?
+        var lastDurationMs: Double?
+        var lastLog: String?
+        var lastOutput: String?
+        var running: Running?
+
+        struct Running: Decodable, Sendable, Equatable {
+            var pid: Int?
+            var startedAt: String?
+        }
+
+        var id: String { ref }
+
+        /// Prompt and shell routines run only after approval on this Mac.
+        var blockedByApproval: Bool { needsApproval && !approved }
     }
 
     enum BridgeError: LocalizedError {
@@ -134,20 +214,30 @@ struct BrainiumBridge: Sendable {
         try JSONDecoder().decode(Status.self, from: Data(run(["status", "--json"]).utf8))
     }
 
+    func brains() throws -> [BrainInfo] {
+        try JSONDecoder().decode([BrainInfo].self, from: Data(run(["brains", "--json"]).utf8))
+    }
+
+    func routines() throws -> [RoutineInfo] {
+        try JSONDecoder().decode([RoutineInfo].self, from: Data(run(["routines", "--json"]).utf8))
+    }
+
     /// The CLI call that wires (or unwires) one profile, or nil when the app
     /// has nothing local to wire — Grok Bot agents run in the cloud and get
     /// an instructions snippet instead. Cursor's MCP config is global.
     static func wireArguments(app: String, profileDir: String, isSystem: Bool,
-                              capture: Bool, enable: Bool = true) -> [String]? {
+                              capture: Bool, enable: Bool = true, brain: String? = nil) -> [String]? {
         let verb = enable ? "wire" : "unwire"
+        // The profile's own brain (Brainium 0.3+): its MCP server and capture hook use it.
+        let brainArgs = enable && !(brain ?? "").isEmpty ? ["--brain", brain!] : []
         switch app {
         case "claude-code":
-            var args = [verb, "--app", "claude-code", "--profile", profileDir, "--json"]
+            var args = [verb, "--app", "claude-code", "--profile", profileDir, "--json"] + brainArgs
             if isSystem { args.append("--system") }
             if enable && capture { args.append("--capture") }
             return args
         case "claude-desktop":
-            return [verb, "--app", "claude-desktop", "--profile", profileDir, "--json"]
+            return [verb, "--app", "claude-desktop", "--profile", profileDir, "--json"] + brainArgs
         case "cursor":
             return [verb, "--app", "cursor", "--json"]
         default:
@@ -157,7 +247,7 @@ struct BrainiumBridge: Sendable {
 
     /// Wire or unwire every listed profile; Cursor's shared config once.
     /// Returns a one-line summary.
-    func wireAll(_ profiles: [(app: String, dir: String, isSystem: Bool)], enable: Bool) throws -> String {
+    func wireAll(_ profiles: [(app: String, dir: String, isSystem: Bool, brain: String?)], enable: Bool) throws -> String {
         let st = try status()
         if enable && st.personalExists != true {
             throw BridgeError.failed("Create your personal brain first.")
@@ -166,8 +256,9 @@ struct BrainiumBridge: Sendable {
         var cursorDone = false
         var problems: [String] = []
         for p in profiles {
+            let brain = st.supportsTeams ? p.brain : nil
             guard let args = Self.wireArguments(app: p.app, profileDir: p.dir, isSystem: p.isSystem,
-                                                capture: st.capture ?? false, enable: enable) else { continue }
+                                                capture: st.capture ?? false, enable: enable, brain: brain) else { continue }
             if p.app == "cursor" {
                 if cursorDone { done += 1; continue }
                 cursorDone = true

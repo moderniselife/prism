@@ -190,6 +190,13 @@ struct ProfileInspector: View {
     private var brainSection: some View {
         section("Second brain") {
             VStack(alignment: .leading, spacing: 12) {
+                if hasPersonalBrain && store.brainStatus?.supportsTeams == true {
+                    keyValue("Brain") {
+                        BrainMenu(selection: profile.brain, inheritedLabel: inheritedBrainLabel) { picked in
+                            store.setBrain(picked, for: profile)
+                        }
+                    }
+                }
                 Text(brainBlurb)
                     .font(.system(size: 12))
                     .foregroundStyle(PrismTheme.Colors.textSecondary)
@@ -208,6 +215,14 @@ struct ProfileInspector: View {
 
     private var hasPersonalBrain: Bool { store.brainStatus?.personalExists == true }
 
+    /// What "no choice" means for this profile: its group's brain, else the default.
+    private var inheritedBrainLabel: String {
+        if let group = store.group(profile.groupID), let brain = group.brain, !brain.isEmpty {
+            return "\(group.name)'s (\(brain))"
+        }
+        return "Default (\(store.brainList.first(where: \.isDefault)?.name ?? store.brainStatus?.defaultBrain ?? "personal"))"
+    }
+
     private var brainBlurb: String {
         if profile.normalizedApp == CursorProfile.appGrokBot {
             return "Grok agents run in the cloud. Paste the Brainium snippet into an agent's instructions to share memory with your other apps."
@@ -222,7 +237,7 @@ struct ProfileInspector: View {
     private var brainButton: some View {
         if profile.normalizedApp == CursorProfile.appGrokBot {
             Button {
-                store.copyGrokBrainSnippet()
+                store.copyGrokBrainSnippet(brain: store.effectiveBrain(for: profile))
             } label: {
                 Label("Copy snippet", systemImage: "doc.on.doc")
             }

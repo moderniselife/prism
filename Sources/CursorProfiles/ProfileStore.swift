@@ -53,6 +53,13 @@ final class ProfileStore: ObservableObject {
     /// Brainium or Node.js install/update in progress (Settings shows a spinner).
     @Published var brainSetupStep: BrainSetupStep?
     @Published var brainMessage: String?
+    /// Brainium 0.3+: brains (with their agents) and routines, for Settings.
+    @Published var brainList: [BrainiumBridge.BrainInfo] = []
+    @Published var routineList: [BrainiumBridge.RoutineInfo] = []
+    /// Routines run by Prism while it's open (Brainium's scheduler.mode
+    /// "prism"), mirrored here so the ticker needn't ask Brainium each minute.
+    @AppStorage("routinesRunByPrism") var routinesRunByPrism: Bool = false
+    var routineTickTask: Task<Void, Never>?
     @AppStorage("defaultMemoryMB") var defaultMemoryMB: Int = 16384
 
     let profilesDir: URL
@@ -89,6 +96,7 @@ final class ProfileStore: ObservableObject {
         self.grokProfilesDir = grokProfilesDir ?? home.appendingPathComponent(".grokbot_profiles")
         reload()
         startPolling()
+        startRoutineTicker()
     }
 
     func dirForApp(_ app: String) -> URL {
@@ -203,6 +211,9 @@ final class ProfileStore: ObservableObject {
         guard let data = try? Data(contentsOf: url) else { return [] }
         return (try? JSONDecoder().decode([CursorProfile].self, from: data)) ?? []
     }
+
+    /// For extensions (saveMetadata is private to this file).
+    func saveProfilesMetadata() { saveMetadata() }
 
     private func saveMetadata() {
         for app in CursorProfile.allApps {
