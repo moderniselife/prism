@@ -97,7 +97,7 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: ./build.sh
+      - run: PRISM_VERSION="${TAG#v}" ./build.sh
       - run: ditto -c -k --keepParent build/Prism.app Prism.app.zip
       - run: gh release upload "${{ env.TAG }}" Prism.app.zip --clobber
         env:
@@ -113,7 +113,8 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: Publish self-contained single-file exe
-        run: dotnet publish windows/CursorProfiles.csproj -c Release -r win-x64 --self-contained -o gui/win-x64 /p:PublishSingleFile=true
+        shell: bash
+        run: dotnet publish windows/CursorProfiles.csproj -c Release -r win-x64 --self-contained -o gui/win-x64 -p:PublishSingleFile=true "-p:Version=${TAG#v}"
       - run: gh release upload "${{ env.TAG }}" gui/win-x64/Prism.exe --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
