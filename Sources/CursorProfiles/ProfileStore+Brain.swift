@@ -241,8 +241,9 @@ extension ProfileStore {
             // The default profile runs without CLAUDE_CONFIG_DIR, like opening Claude Code normally.
             args += ["--profile", profile.isSystem ? "~/.claude" : directory(for: profile).path]
         }
+        let finalArgs = args
         brainTask("Couldn't create the routine", { bridge in
-            let out = try bridge.run(args)
+            let out = try bridge.run(finalArgs)
             struct Made: Decodable { var ref: String; var file: String }
             let made = try JSONDecoder().decode(Made.self, from: Data(out.utf8))
             return made.file
