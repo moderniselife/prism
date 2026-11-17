@@ -86,6 +86,8 @@ Accounts come and go; your agents' knowledge shouldn't. Prism wires **[Brainium]
 - **Grok Bot** — its agents run in the cloud, so Prism copies an instructions snippet that points them at your personal brain's GitHub repo
 - **Summarizing captures** — your own AI does it over MCP by default (no extra tokens), or pick **Anthropic**, **OpenAI**, **Bonsai**, any OpenAI-compatible API, or no AI at all
 - Set it up in **Settings → Second brain**: click **Install** for Brainium (and Node.js if you need it) or **Use existing…**, create the personal brain, then **Wire All Profiles** (or wire new profiles automatically). Terminal: `W`. Available on every platform
+- **Team brains and agents** (Brainium 0.3+, macOS app) — keep a brain per team, group, profile or project next to your personal brain. Each has `shared/` for what every agent knows and `agents/<name>/` for each agent's own notes and docs (folders you already made are picked up as they are). **Settings → Brains & agents** lists them, copies the lines each agent needs in its instructions, and sets which brain each **group** uses; a profile can pick its own in its detail panel. Wiring gives each profile its brain
+- **Routines** — prompts (run through Claude Code in the profile you pick, or Codex), upkeep jobs (sync the brain, file captured sessions, a weekly digest) and shell commands on a schedule. **Settings → Routines**: choose **Always** (a background launchd job, even with Prism closed), **While Prism is open** or **Off**; review and approve each prompt or shell routine before it runs on this Mac (an edited one needs approving again); run one now; see when it last ran and why it failed. Prompt routines need Claude Code's CLI (or Codex) installed
 
 ### One endpoint for every account
 Point any AI app at Prism and switch between **work and personal mid-chat** — same app, same conversation, different account paying for it.
@@ -112,7 +114,7 @@ Point any AI app at Prism and switch between **work and personal mid-chat** — 
 - **One-click launch** — double-click a profile or use its row action, or open launch options for per-launch overrides (memory, project folder, force a new window)
 - **Drag & drop** — drop any folder onto a Cursor or Claude Code profile to open it there
 - **Global Quick Switch** — press **⌥Space from any app** for the Spotlight-style palette; `⌘K` focuses search, `⌘N` creates a profile
-- **Settings** (`⌘,` or the gear in the sidebar) — General, Apps, Groups, Second brain, Endpoint and **About & updates**, which shows the version and build and checks GitHub for a new Prism (also **Prism → Check for Updates…**)
+- **Settings** (`⌘,` or the gear in the sidebar) — General, Apps, Groups, Second brain, Brains & agents, Routines, Endpoint and **About & updates**, which shows the version and build and checks GitHub for a new Prism (also **Prism → Check for Updates…**)
 - **Menu bar dropdown** — live per-profile stats, Focus/Start, **Stop All**, and one-click hub access without opening the main window
 - **Restart & Update** — Cursor, Claude Desktop and Grok Bot only install a downloaded update once *every* instance has quit, so open profiles block it. Prism spots the waiting update, and one click quits those profiles, lets the installer run, and reopens the same profiles afterwards
 - **Independent instances** — profiles start through Launch Services like a Dock launch, so they never depend on Prism: quitting one doesn't affect Prism, and quitting Prism doesn't affect them
@@ -229,6 +231,7 @@ Sources/CursorProfiles/
   BrainiumBridge.swift      # Second brain: find node + Brainium, run its CLI
   ProfileStore+Brain.swift  # Second brain actions (wire, capture, summarizer)
   SecondBrainSettingsView.swift # Settings → Second brain tab
+  BrainsSettings.swift      # Settings → Brains & agents and Routines; brain picker
   Gateway*.swift            # Endpoint: config, Keychain, HTTP server, routing, API translation
   GatewayController.swift   # Endpoint state for the UI (server, identities, request log)
   EndpointSettingsView.swift # Settings → Endpoint, identity/rule editors, sidebar card
