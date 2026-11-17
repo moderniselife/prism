@@ -40,6 +40,9 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     /// The group (project, client, category…) this profile is filed under;
     /// nil = ungrouped. See ProfileGroup.
     var groupID: String?
+    /// The Brainium brain this profile's agents use; nil = its group's
+    /// brain, else Brainium's default. See ProfileStore.effectiveBrain(for:).
+    var brain: String?
     var createdAt: Date
     var lastLaunchedAt: Date?
     var isPinned: Bool
@@ -53,7 +56,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
     enum CodingKeys: String, CodingKey {
         case folderName, displayName, app, colorHex, defaultMemoryMB,
              defaultProjectPath, createdAt, lastLaunchedAt, isPinned, isSystem,
-             endpointIdentity, groupID
+             endpointIdentity, groupID, brain
     }
 
     init(from decoder: Decoder) throws {
@@ -70,6 +73,7 @@ struct CursorProfile: Identifiable, Codable, Equatable, Hashable {
         isSystem = try c.decodeIfPresent(Bool.self, forKey: .isSystem) ?? false
         endpointIdentity = try c.decodeIfPresent(String.self, forKey: .endpointIdentity)
         groupID = try c.decodeIfPresent(String.self, forKey: .groupID)
+        brain = try c.decodeIfPresent(String.self, forKey: .brain)
     }
 
     init(folderName: String,
@@ -259,4 +263,7 @@ struct ProfileGroup: Codable, Identifiable, Equatable, Hashable {
     var id: String = UUID().uuidString
     var name: String
     var colorHex: String
+    /// The Brainium brain this group's profiles use unless a profile picks
+    /// its own; nil = Brainium's default brain.
+    var brain: String?
 }

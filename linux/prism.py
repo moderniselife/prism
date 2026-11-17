@@ -825,6 +825,8 @@ class Profile:
     endpointIdentity: str | None = None
     # The profile's group (projects/clients, made in the macOS app); kept as-is.
     groupID: str | None = None
+    # The Brainium brain it uses (None = its group's, else the default); kept as-is.
+    brain: str | None = None
 
     @property
     def initial(self) -> str:
@@ -846,6 +848,7 @@ class Profile:
             "isSystem": self.isSystem,
             **({"endpointIdentity": self.endpointIdentity} if self.endpointIdentity else {}),
             **({"groupID": self.groupID} if self.groupID else {}),
+            **({"brain": self.brain} if self.brain else {}),
         }
 
     @classmethod
@@ -863,6 +866,7 @@ class Profile:
             isSystem=data.get("isSystem", False),
             endpointIdentity=data.get("endpointIdentity"),
             groupID=data.get("groupID"),
+            brain=data.get("brain"),
         )
 
 

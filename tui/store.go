@@ -60,6 +60,9 @@ type Profile struct {
 	EndpointIdentity string `json:"-"`
 	// The profile's group (made in the macOS app; kept as-is here).
 	GroupID string `json:"-"`
+	// The Brainium brain this profile uses ("" = its group's, else the
+	// default); chosen in the macOS app, kept as-is here.
+	Brain string `json:"-"`
 }
 
 // NOTE: older .profiles.json files may carry an "emoji" key. It has no field
@@ -78,6 +81,7 @@ type profileJSON struct {
 	IsSystem           bool     `json:"isSystem"`
 	EndpointIdentity   string   `json:"endpointIdentity,omitempty"`
 	GroupID            string   `json:"groupID,omitempty"`
+	Brain              string   `json:"brain,omitempty"`
 }
 
 func appleToTime(sec float64) time.Time {
@@ -100,6 +104,7 @@ func (p Profile) toJSON() profileJSON {
 		IsSystem:           p.IsSystem,
 		EndpointIdentity:   p.EndpointIdentity,
 		GroupID:            p.GroupID,
+		Brain:              p.Brain,
 	}
 	if j.App == "" {
 		j.App = AppCursor
@@ -125,6 +130,7 @@ func profileFromJSON(j profileJSON) Profile {
 		IsSystem:           j.IsSystem,
 		EndpointIdentity:   j.EndpointIdentity,
 		GroupID:            j.GroupID,
+		Brain:              j.Brain,
 	}
 	// Absent or unknown: files predating multi-app support are Cursor.
 	p.App = normalizeApp(p.App)

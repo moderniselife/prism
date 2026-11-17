@@ -83,6 +83,10 @@ public class CursorProfile
     [JsonPropertyName("groupID")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? GroupID { get; set; }
+    /// <summary>The Brainium brain this profile uses (null = its group's, else the default); chosen in the macOS app, kept as-is.</summary>
+    [JsonPropertyName("brain")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Brain { get; set; }
 
     public CursorProfile Copy() => (CursorProfile)MemberwiseClone();
 
