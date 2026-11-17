@@ -282,7 +282,7 @@ struct BrainiumUpdateBanner: View {
     }
 
     private func text(_ r: BrainiumUpdateCheck.Result) -> String {
-        let versions = r.latestVersion != r.currentVersion
+        let versions = r.latestVersion != r.currentVersion && r.currentVersion != "?"
             ? "Brainium \(r.latestVersion) is available — you have \(r.currentVersion)"
             : "A Brainium update is available"
         guard let n = r.behind, n > 0 else { return versions + "." }
@@ -304,12 +304,14 @@ struct BrainiumVersionRow: View {
             }
             Text(status)
                 .foregroundStyle(statusColor)
-                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
             Spacer(minLength: 8)
             if let r = updater.result, r.available {
                 Button("What's new") { NSWorkspace.shared.open(r.compareURL) }
-                Button("Update to \(r.latestVersion)") { Task { await updater.update(store: store) } }
+                Button(r.currentVersion == r.latestVersion || r.currentVersion == "?" ? "Update" : "Update to \(r.latestVersion)") { Task { await updater.update(store: store) } }
                     .buttonStyle(.borderedProminent)
                     .disabled(updater.updating)
             } else {
@@ -324,10 +326,12 @@ struct BrainiumVersionRow: View {
         if updater.updating { return "Updating…" }
         if updater.checking { return "Checking for updates…" }
         if let r = updater.result {
-            if let blocked = r.blockedReason { return "\(r.currentVersion) — \(blocked)" }
+            if let blocked = r.blockedReason { return r.currentVersion == "?" ? blocked : "\(r.currentVersion) — \(blocked)" }
             if r.available {
                 let n = r.behind.map { " · \($0) change\($0 == 1 ? "" : "s")" } ?? ""
-                return "\(r.currentVersion) → \(r.latestVersion) available\(n)"
+                return r.currentVersion == "?" || r.currentVersion == r.latestVersion
+                    ? "Update available\(n)"
+                    : "\(r.currentVersion) → \(r.latestVersion)\(n)"
             }
             return "\(r.currentVersion) — up to date"
         }
