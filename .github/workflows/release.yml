@@ -9,7 +9,7 @@
 # sync workflow reads the latest release), so it needs nothing from here.
 #
 # Run it by hand (workflow_dispatch) with an existing tag to republish only
-# the packages for that release; the build jobs skip.
+# the packages (and the Linux tarball) for that release; the other build jobs skip.
 #
 # Winget stays gated on a WINGET_TOKEN secret (classic PAT, `public_repo`)
 # plus a fork of microsoft/winget-pkgs; its first version must be submitted
@@ -120,16 +120,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   linux-gui:
-    if: github.event_name == 'push'
+    # Also runs by hand (workflow_dispatch) so a release can get its tarball back.
     needs: [create-release]
+    if: ${{ !cancelled() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Stamp version
-        run: sed -i "s/^PRISM_VERSION = .*/PRISM_VERSION = \"${TAG#v}\"  # stamped by the release workflow/" linux/prism.py
+        # Block scalar: in a plain one-liner YAML reads " #…" as a comment.
+        run: |
+          sed -i "s/^PRISM_VERSION = .*/PRISM_VERSION = \"${TAG#v}\"  # stamped by the release workflow/" linux/prism.py
+          grep '^PRISM_VERSION' linux/prism.py
       - run: python3 -m py_compile linux/prism.py
       - run: tar -czf prism-linux.tar.gz linux/
       - run: gh release upload "${{ env.TAG }}" prism-linux.tar.gz --clobber
