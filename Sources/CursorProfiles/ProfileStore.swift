@@ -97,6 +97,7 @@ final class ProfileStore: ObservableObject {
         reload()
         startPolling()
         startRoutineTicker()
+        BrainiumUpdater.shared.start(store: self)
     }
 
     func dirForApp(_ app: String) -> URL {

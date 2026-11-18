@@ -40,7 +40,12 @@ struct SecondBrainSettingsView: View {
                              step: .brainium,
                              install: { store.installBrainium() },
                              useExisting: pickBrainium,
-                             update: brainiumUpdate)
+                             update: nil)
+                }
+                if cliPath != nil {
+                    LabeledContent("Version") {
+                        BrainiumVersionRow()
+                    }
                 }
                 LabeledContent("Node.js") {
                     setupRow(found: nodePath,
@@ -169,14 +174,6 @@ struct SecondBrainSettingsView: View {
 
     private var cliPath: String? { BrainiumBridge.findCLI(custom: store.brainiumPath) }
 
-    /// Update action for a git checkout of Brainium; nil otherwise.
-    private var brainiumUpdate: (() -> Void)? {
-        guard let cli = cliPath else { return nil }
-        let dir = BrainiumSetup.checkoutDir(forCLI: cli)
-        guard FileManager.default.fileExists(atPath: dir + "/.git") else { return nil }
-        let store = self.store
-        return { store.updateBrainium(at: dir) }
-    }
     private var nodePath: String? { BrainiumBridge.findNode(custom: store.brainiumNodePath) }
 
     private var setupHint: String {
