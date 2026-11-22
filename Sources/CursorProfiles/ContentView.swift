@@ -743,41 +743,80 @@ struct Triangle: Shape {
 
 /// Shown while Cursor / Claude Desktop / Grok Bot has an update staged that can't
 /// install because profiles are still open. One click quits them, lets the
-/// installer run, and reopens them.
+/// installer run, and reopens them. Each app has its own row and progress,
+/// and "Update all" does every waiting app at once.
 @MainActor
 struct UpdateBanner: View {
     @EnvironmentObject var store: ProfileStore
     var compact = false
 
+    private static let order = [CursorProfile.appCursor, CursorProfile.appClaudeDesktop, CursorProfile.appGrokBot]
+
     private var apps: [String] {
-        [CursorProfile.appCursor, CursorProfile.appClaudeDesktop, CursorProfile.appGrokBot]
-            .filter { store.pendingUpdates.contains($0) }
+        Self.order.filter { store.pendingUpdates.contains($0) || store.updateProgress[$0] != nil }
+    }
+
+    private var idleApps: [String] {
+        apps.filter { store.updateProgress[$0] == nil }
     }
 
     private func label(_ app: String) -> String {
         CursorProfile.label(for: app)
     }
 
+    private func name(_ app: String) -> String {
+        if let v = store.pendingVersions[app], !v.isEmpty { return "\(label(app)) \(v)" }
+        return label(app)
+    }
+
     private func runningCount(_ app: String) -> Int {
         store.profiles.filter { $0.normalizedApp == app && store.isRunning($0) }.count
     }
 
+    private func text(_ app: String) -> String {
+        let count = runningCount(app)
+        let known = !(store.pendingVersions[app] ?? "").isEmpty
+        let head = known ? "\(name(app)) is ready to install." : "A \(label(app)) update is ready."
+        if compact { return known ? "\(name(app)) is ready." : head }
+        return count > 0
+            ? "\(head) \(count) open profile\(count == 1 ? " is" : "s are") holding it."
+            : "\(head) Waiting for its windows to close."
+    }
+
+    private func list(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names.last!
+        }
+    }
+
     var body: some View {
-        if let progress = store.updateProgress {
-            HubBanner(icon: "arrow.triangle.2.circlepath", text: progress, compact: compact) {
-                ProgressView().controlSize(.small)
-            }
-        } else {
-            ForEach(apps, id: \.self) { app in
-                let count = runningCount(app)
+        if !apps.isEmpty { rows }
+    }
+
+    private var rows: some View {
+        VStack(spacing: compact ? 0 : 6) {
+            if idleApps.count > 1 {
                 HubBanner(icon: "arrow.up.circle",
-                          text: count > 0
-                            ? "A \(label(app)) update is ready. \(count) open profile\(count == 1 ? " is" : "s are") holding it."
-                            : "A \(label(app)) update is ready. Waiting for its windows to close.",
+                          text: "Updates are ready for \(list(idleApps.map(label))).",
                           compact: compact) {
-                    Button("Restart to update") { store.restartToUpdate(app) }
+                    Button("Update all") { store.restartAllToUpdate() }
                         .buttonStyle(PrismButtonStyle(kind: .tinted, height: compact ? 22 : 26))
-                        .help("Quit every \(label(app)) profile, install the update, then reopen them")
+                        .help("Quit the open profiles of each app, install every update, then reopen them")
+                }
+            }
+            ForEach(apps, id: \.self) { app in
+                if let progress = store.updateProgress[app] {
+                    HubBanner(icon: "arrow.triangle.2.circlepath", text: progress, compact: compact) {
+                        ProgressView().controlSize(.small)
+                    }
+                } else {
+                    HubBanner(icon: "arrow.up.circle", text: text(app), compact: compact) {
+                        Button(idleApps.count > 1 ? "Update" : "Restart to update") { store.restartToUpdate(app) }
+                            .buttonStyle(PrismButtonStyle(kind: .tinted, height: compact ? 22 : 26))
+                            .help("Quit every \(label(app)) profile, install the update, then reopen them")
+                    }
                 }
             }
         }

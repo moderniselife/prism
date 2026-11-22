@@ -122,7 +122,7 @@ enum CursorLauncher {
         }
     }
 
-    struct ProcessEntry {
+    struct ProcessEntry: Sendable {
         let pid: Int32
         let rssKB: Int64      // resident set size, kilobytes (live RAM)
         let cpuPercent: Double
@@ -207,9 +207,55 @@ enum CursorLauncher {
         return list.contains { $0.command.contains(needle) }
     }
 
+    /// Version of the update the app's Squirrel updater has downloaded, when
+    /// it's newer than the installed app. ShipIt records the download in
+    /// ~/Library/Caches/<bundleID>.ShipIt/ShipItState.plist and deletes the
+    /// bundle once it installs, so a leftover state file never counts.
+    /// Info.plist is read directly: Bundle caches it and would go stale
+    /// after the app updates in place.
+    static func stagedUpdateVersion(bundleID: String, appPath: String) -> String? {
+        let state = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Caches/\(bundleID).ShipIt/ShipItState.plist")
+        // Despite the name, Squirrel writes this file as JSON; accept a real
+        // plist too in case that ever changes.
+        guard let data = try? Data(contentsOf: state),
+              let object = (try? JSONSerialization.jsonObject(with: data))
+                ?? (try? PropertyListSerialization.propertyList(from: data, format: nil)),
+              let dict = object as? [String: Any],
+              let raw = dict["updateBundleURL"] as? String,
+              let url = URL(string: raw), url.isFileURL,
+              FileManager.default.fileExists(atPath: url.path),
+              let staged = bundleVersion(at: url.path) else { return nil }
+        guard let installed = bundleVersion(at: appPath) else { return staged }
+        return isNewer(staged, than: installed) ? staged : nil
+    }
+
+    static func bundleVersion(at appPath: String) -> String? {
+        let info = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Info.plist")
+        guard let dict = NSDictionary(contentsOf: info) else { return nil }
+        return (dict["CFBundleShortVersionString"] as? String) ?? (dict["CFBundleVersion"] as? String)
+    }
+
+    /// Numeric dotted-version compare ("3.31.15" > "3.30.14").
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
     /// Politely ask a running profile's processes to quit (SIGTERM).
     /// Skips sentinel PIDs — signaling -1 would hit the whole process group.
     static func quit(pids: [Int32]) {
         for pid in pids where pid > 0 { kill(pid, SIGTERM) }
     }
+}
+
+/// An app Prism watches for staged updates.
+struct UpdatableApp: Sendable {
+    let bundleID: String
+    let bundlePath: String
 }

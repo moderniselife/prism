@@ -28,8 +28,12 @@ final class ProfileStore: ObservableObject {
     /// Apps (CursorProfile.app* keys) whose updater has an update staged and
     /// is blocked until every instance quits.
     @Published var pendingUpdates: Set<String> = []
-    /// Human-readable progress while restartToUpdate runs; nil when idle.
-    @Published var updateProgress: String?
+    /// Version of each staged update, when the downloaded bundle says.
+    @Published var pendingVersions: [String: String] = [:]
+    /// Progress per app while restartToUpdate runs; absent when idle. Kept
+    /// per app so one update never hides or blocks the others.
+    @Published var updateProgress: [String: String] = [:]
+    private var updateTask: Task<Void, Never>?
 
     private let cpuMonitor = SystemCPUMonitor()
 
@@ -96,6 +100,8 @@ final class ProfileStore: ObservableObject {
         self.grokProfilesDir = grokProfilesDir ?? home.appendingPathComponent(".grokbot_profiles")
         reload()
         startPolling()
+        startUpdatePolling()
+        refreshPendingUpdates()
         startRoutineTicker()
         BrainiumUpdater.shared.start(store: self)
     }
@@ -665,32 +671,44 @@ final class ProfileStore: ObservableObject {
 
     // MARK: App updates
 
-    /// Bundle IDs of the apps whose updates we watch, keyed by app.
-    private var updatableBundleIDs: [String: String] {
-        var ids: [String: String] = [:]
-        if let exe = resolvedCursorPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
-            ids[CursorProfile.appCursor] = id
+    /// The apps whose updates we watch, keyed by app.
+    private var updatableApps: [String: UpdatableApp] {
+        var apps: [String: UpdatableApp] = [:]
+        let paths: [(String, String?)] = [
+            (CursorProfile.appCursor, resolvedCursorPath),
+            (CursorProfile.appClaudeDesktop, resolvedDesktopPath),
+            (CursorProfile.appGrokBot, resolvedGrokPath),
+        ]
+        for (app, exe) in paths {
+            guard let exe, let bundle = CursorLauncher.appBundle(forExecutable: exe),
+                  let id = CursorLauncher.bundleIdentifier(forExecutable: exe) else { continue }
+            apps[app] = UpdatableApp(bundleID: id, bundlePath: bundle.path)
         }
-        if let exe = resolvedDesktopPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
-            ids[CursorProfile.appClaudeDesktop] = id
+        return apps
+    }
+
+    /// Restart every app that has an update waiting, all at once.
+    func restartAllToUpdate() {
+        for app in [CursorProfile.appCursor, CursorProfile.appClaudeDesktop, CursorProfile.appGrokBot]
+        where pendingUpdates.contains(app) {
+            restartToUpdate(app)
         }
-        if let exe = resolvedGrokPath, let id = CursorLauncher.bundleIdentifier(forExecutable: exe) {
-            ids[CursorProfile.appGrokBot] = id
-        }
-        return ids
     }
 
     /// Squirrel.Mac (Cursor, Claude Desktop, Grok Bot) only installs once *every*
     /// instance of the app has quit, so a staged update sits forever while
     /// any profile is open. Quit them all, wait for the installer to swap
     /// the bundle, then bring back exactly the profiles that were running.
+    /// Each app runs on its own, so several can update at the same time.
     func restartToUpdate(_ app: String) {
-        guard updateProgress == nil, let bundleID = updatableBundleIDs[app] else { return }
+        guard updateProgress[app] == nil, let target = updatableApps[app] else { return }
         let targets = profiles.filter { $0.normalizedApp == app && isRunning($0) }
         let label = CursorProfile.label(for: app)
         let pids = targets.flatMap { runningPIDs[$0.folderName] ?? [] }.filter { $0 > 0 }
 
-        updateProgress = "Quitting \(targets.count) \(label) profile\(targets.count == 1 ? "" : "s")…"
+        updateProgress[app] = targets.isEmpty
+            ? "Installing \(label) update…"
+            : "Quitting \(targets.count) \(label) profile\(targets.count == 1 ? "" : "s")…"
         if app == CursorProfile.appClaudeDesktop {
             ClaudeLauncher.quit(pids: pids)
         } else {
@@ -704,32 +722,45 @@ final class ProfileStore: ObservableObject {
             }
             guard let self else { return }
             guard quit else {
-                self.updateProgress = nil
-                self.lastError = "Some \(label) windows didn't quit (unsaved changes?). Close them, then try Restart & Update again."
+                self.updateProgress[app] = nil
+                self.lastError = "Some \(label) windows didn't quit (unsaved changes?). Close them, then try Restart to update again."
                 self.refreshRunning()
                 return
             }
 
-            self.updateProgress = "Installing \(label) update…"
+            self.updateProgress[app] = "Installing \(label) update…"
             let installed = await Self.waitUntil(timeout: 180) {
-                !CursorLauncher.updatePending(bundleID: bundleID, in: CursorLauncher.processList())
+                Self.pendingUpdate(for: target, in: CursorLauncher.processList()) == nil
             }
             guard installed else {
-                self.updateProgress = nil
+                self.updateProgress[app] = nil
                 self.lastError = "\(label) is still waiting to update — another \(label) window outside Prism is probably open. Quit it and the update will install."
                 self.refreshRunning()
                 return
             }
 
-            self.updateProgress = "Reopening profiles…"
-            for profile in targets {
-                // Empty project path: the app restores its own windows.
-                self.launch(profile, projectPath: "")
+            if !targets.isEmpty {
+                self.updateProgress[app] = "Reopening \(label) profiles…"
+                for profile in targets {
+                    // Empty project path: the app restores its own windows.
+                    self.launch(profile, projectPath: "")
+                }
             }
             self.pendingUpdates.remove(app)
-            self.updateProgress = nil
+            self.pendingVersions[app] = nil
+            self.updateProgress[app] = nil
             self.refreshRunning()
         }
+    }
+
+    /// An update is waiting when the app's ShipIt installer is running, or
+    /// when the bundle its updater downloaded is newer than the installed
+    /// one (ShipIt isn't always running yet, and it's gone the moment the
+    /// app installs by itself). Returns the staged version ("" if unknown).
+    nonisolated static func pendingUpdate(for target: UpdatableApp, in processes: [CursorLauncher.ProcessEntry]) -> String? {
+        let staged = CursorLauncher.stagedUpdateVersion(bundleID: target.bundleID, appPath: target.bundlePath)
+        if let staged { return staged }
+        return CursorLauncher.updatePending(bundleID: target.bundleID, in: processes) ? "" : nil
     }
 
     /// Polls `condition` off the main actor once a second until it holds.
@@ -767,12 +798,54 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    /// Apps download and stage updates whether or not Prism is in front,
+    /// and Claude installs its own about ten minutes later — so this check
+    /// runs every minute regardless (one ps plus a couple of plist reads).
+    private func startUpdatePolling() {
+        updateTask?.cancel()
+        updateTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self else { return }
+                self.refreshPendingUpdates()
+            }
+        }
+    }
+
+    func refreshPendingUpdates() {
+        let apps = updatableApps
+        Task { [weak self] in
+            let found = await Task.detached(priority: .utility) {
+                Self.computePendingUpdates(apps: apps, processes: CursorLauncher.processList())
+            }.value
+            self?.applyPendingUpdates(found)
+        }
+    }
+
+    private nonisolated static func computePendingUpdates(apps: [String: UpdatableApp],
+                                                          processes: [CursorLauncher.ProcessEntry]) -> [String: String] {
+        var found: [String: String] = [:]
+        for (app, target) in apps {
+            if let version = pendingUpdate(for: target, in: processes) { found[app] = version }
+        }
+        return found
+    }
+
+    private func applyPendingUpdates(_ found: [String: String]) {
+        // An app mid-restart keeps its row until its own flow finishes.
+        let keep = Set(updateProgress.keys)
+        let pending = Set(found.keys).union(keep.intersection(pendingUpdates))
+        if pending != pendingUpdates { pendingUpdates = pending }
+        let versions = found.filter { !$0.value.isEmpty }
+        if versions != pendingVersions { pendingVersions = versions }
+    }
+
     private struct RunningSnapshot: Sendable {
         var pids: [String: [Int32]] = [:]
         var memory: [String: UInt64] = [:]
         var cpu: [String: Double] = [:]
         var windows: [String: Int] = [:]
-        var pendingUpdates: Set<String> = []
+        var pendingUpdates: [String: String] = [:]
     }
 
     func refreshRunning() {
@@ -780,10 +853,10 @@ final class ProfileStore: ObservableObject {
             (folderName: $0.folderName, dir: directory(for: $0),
              isSystem: $0.isSystem, app: $0.normalizedApp)
         }
-        let bundleIDs = updatableBundleIDs
+        let apps = updatableApps
         Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
-                Self.computeRunningSnapshot(items: items, bundleIDs: bundleIDs)
+                Self.computeRunningSnapshot(items: items, apps: apps)
             }.value
             self?.applyRunningSnapshot(snapshot)
         }
@@ -792,7 +865,7 @@ final class ProfileStore: ObservableObject {
     /// Pure computation: Sendable in, Sendable out, never touches the store.
     private static nonisolated func computeRunningSnapshot(
         items: [(folderName: String, dir: URL, isSystem: Bool, app: String)],
-        bundleIDs: [String: String]
+        apps: [String: UpdatableApp]
     ) -> RunningSnapshot {
         let processes = CursorLauncher.processList()
         let statsByPid = Dictionary(uniqueKeysWithValues: processes.map {
@@ -850,10 +923,7 @@ final class ProfileStore: ObservableObject {
             snapshot.cpu[item.folderName] = cpu
             allPIDs.append(contentsOf: matched.filter { $0 > 0 })
         }
-        for (app, bundleID) in bundleIDs
-        where CursorLauncher.updatePending(bundleID: bundleID, in: processes) {
-            snapshot.pendingUpdates.insert(app)
-        }
+        snapshot.pendingUpdates = computePendingUpdates(apps: apps, processes: processes)
         let winsByPid = SystemStats.windowCounts(for: allPIDs)
         for (name, pids) in snapshot.pids {
             snapshot.windows[name] = pids.reduce(0) { $0 + (winsByPid[$1] ?? 0) }
@@ -867,7 +937,7 @@ final class ProfileStore: ObservableObject {
         liveMemory = snapshot.memory
         liveCPU = snapshot.cpu
         windowCounts = snapshot.windows
-        pendingUpdates = snapshot.pendingUpdates
+        applyPendingUpdates(snapshot.pendingUpdates)
         // host_statistics is microseconds-cheap; sample on main to
         // respect @MainActor isolation.
         if let sysCPU = cpuMonitor.usage() { systemCPU = sysCPU }
