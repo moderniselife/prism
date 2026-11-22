@@ -777,6 +777,7 @@ struct UpdateBanner: View {
         let count = runningCount(app)
         let known = !(store.pendingVersions[app] ?? "").isEmpty
         let head = known ? "\(name(app)) is ready to install." : "A \(label(app)) update is ready."
+        if compact { return known ? "\(name(app)) is ready." : head }
         return count > 0
             ? "\(head) \(count) open profile\(count == 1 ? " is" : "s are") holding it."
             : "\(head) Waiting for its windows to close."
