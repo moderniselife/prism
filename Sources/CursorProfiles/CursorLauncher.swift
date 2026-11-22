@@ -216,8 +216,13 @@ enum CursorLauncher {
     static func stagedUpdateVersion(bundleID: String, appPath: String) -> String? {
         let state = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Caches/\(bundleID).ShipIt/ShipItState.plist")
-        guard let plist = NSDictionary(contentsOf: state),
-              let raw = plist["updateBundleURL"] as? String,
+        // Despite the name, Squirrel writes this file as JSON; accept a real
+        // plist too in case that ever changes.
+        guard let data = try? Data(contentsOf: state),
+              let object = (try? JSONSerialization.jsonObject(with: data))
+                ?? (try? PropertyListSerialization.propertyList(from: data, format: nil)),
+              let dict = object as? [String: Any],
+              let raw = dict["updateBundleURL"] as? String,
               let url = URL(string: raw), url.isFileURL,
               FileManager.default.fileExists(atPath: url.path),
               let staged = bundleVersion(at: url.path) else { return nil }
